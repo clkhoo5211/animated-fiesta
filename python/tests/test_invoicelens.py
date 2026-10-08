@@ -211,3 +211,12 @@ def test_cross_checks_and_unrelated_register():
     rc = il.reconcile([reg, inv])
     assert rc["registers"][0]["related"] is False and rc["extra"] == []
     assert rc["registers"][0]["rows"][0]["name"] == "WATSONS" and rc["registers"][0]["rows"][0]["status"] == "not_uploaded"
+
+
+def test_format_checks():
+    r = {"document_date": "23/9/2026", "handwritten_notes": [{"text": "2uc 6m) 2c 26/4/26 1:50pm"}], "tables": [],
+         "parties": [{"name": "FRIZZ", "tax_id": "TIN:C6850683100", "contact": "email: frizz@po.jarving.my"}, {"name": "OK", "tax_id": "TIN:C68506831100"}],
+         "fields": [{"label": "Ref 1", "value": "2uc 6m) 2c 26/4/26 1:50pm"}, {"label": "Customer Account", "value": "NO10"}]}
+    bad = {c["code"]: c for c in il.verify(r)["checks"] if not c["ok"]}
+    assert {"hwfield", "tin", "email", "o0", "notedate"} <= set(bad)
+    assert bad["email"]["k"] == "jaring.my" and bad["o0"]["s"] == "N010" and bad["tin"]["n"] == 10

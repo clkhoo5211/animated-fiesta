@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally, list in low_confidence_fields.\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -392,6 +392,40 @@ def cross_checks(r, add):
             y = next((a for a in sorted(an) if len(a) == len(x) and sum(p != q for p, q in zip(a, x)) == 1), None)
             if y:
                 add(False, "stampno", warn=True, v=x, a=y)
+    hw = [re.sub(r"\s+", " ", n).strip().lower() for n in _texts(r.get("handwritten_notes"))]
+    hw = [h for h in hw if len(h) >= 4]
+    for f in r.get("fields") or []:
+        v = re.sub(r"\s+", " ", str((f or {}).get("value") or "")).strip().lower()
+        if len(v) >= 4 and any(h == v or v in h or h in v for h in hw):
+            add(False, "hwfield", warn=True, l=f.get("label"), v=f.get("value"))
+    for p in r.get("parties") or []:
+        m = re.match(r"^(?:TIN:?)?C(\d+)$", re.sub(r"\s", "", str((p or {}).get("tax_id") or "")), re.I)
+        if m and len(m.group(1)) != 11:
+            add(False, "tin", warn=True, v=p.get("tax_id"), n=len(m.group(1)), who=p.get("name") or p.get("role"))
+    blob = json.dumps([r.get("parties"), r.get("fields")], ensure_ascii=False)
+    for em in sorted(set(re.findall(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", blob))):
+        d = re.sub(r"^(po|mail)\.", "", em.split("@")[1].lower())
+        near = None if d in KNOWN_DOMAINS else next((k for k in KNOWN_DOMAINS if _edit1(d, k)), None)
+        if near:
+            add(False, "email", warn=True, v=em, k=near)
+    for f in r.get("fields") or []:
+        v = str((f or {}).get("value") or "")
+        if re.search(r"(no|number|account|acc|code|kod|akaun|ref)\b", f.get("label") or "", re.I) and re.fullmatch(r"[A-Z0-9-]{3,}", v) \
+                and re.search(r"\d", v) and re.search(r"(?<=[A-Z0-9])O(?=\d)|(?<=\d)O", v):
+            add(False, "o0", warn=True, l=f.get("label"), v=v, s=re.sub(r"(?<=[A-Z0-9])O(?=\d)|(?<=\d)O", "0", v))
+
+
+KNOWN_DOMAINS = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "jaring.my", "streamyx.com", "tm.net.my", "yahoo.com.my", "gmail.com.my"]
+
+
+def _edit1(a, b):
+    """True when a and b differ by exactly one insert, delete or substitution."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    s, l = sorted((a, b), key=len)
+    return any(l[:i] + l[i + 1:] == s for i in range(len(l)))
 
 
 def _flatten(o, p="", out=None):
