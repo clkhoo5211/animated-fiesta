@@ -32,8 +32,8 @@ async function serve(ctx, { model } = {}) {
       const payload = out.error
         ? { error: { message: out.error } }
         : call.anthropic
-          ? { content: [{ type: "text", text: JSON.stringify(out.json) }] }
-          : { choices: [{ message: { content: JSON.stringify(out.json) } }] };
+          ? { content: [{ type: "text", text: JSON.stringify(out.json) }], ...(out.usage ? { usage: { input_tokens: out.usage[0], output_tokens: out.usage[1] } } : {}) }
+          : { choices: [{ message: { content: JSON.stringify(out.json) } }], ...(out.usage ? { usage: { prompt_tokens: out.usage[0], completion_tokens: out.usage[1] } } : {}) };
       return route.fulfill({ status: out.status || (out.error ? 500 : 200), contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(payload) }).catch(() => {});
     }
     return route.abort();
@@ -42,13 +42,14 @@ async function serve(ctx, { model } = {}) {
 }
 
 /** Preload settings/language into localStorage (only on first load, so reload tests keep state). */
-async function preset(page, { lang = "en", a = {}, b = null, enhance = false, tiles = false, timeout } = {}) {
+async function preset(page, { lang = "en", a = {}, b = null, enhance = false, tiles = false, timeout, extra = {} } = {}) {
   const settings = {
     a_prov: "custom", a_type: "openai", a_base: "https://relay.test/v1", a_model: "model-a", a_key: "test-key-a", a_json: true,
     b_prov: "custom", b_type: "openai", b_base: b ? "https://relay.test/v1" : "", b_model: b ? "model-b" : "", b_key: b ? "test-key-b" : "", b_json: true,
     proxy: "", remember_keys: true, enhance, tiles,
     ...Object.fromEntries(Object.entries(a).map(([k, v]) => ["a_" + k, v])),
     ...(b ? Object.fromEntries(Object.entries(b).map(([k, v]) => ["b_" + k, v])) : {}),
+    ...extra,
   };
   await page.addInitScript(([s, l, t]) => {
     try {

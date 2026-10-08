@@ -38,8 +38,8 @@ class FakeLLM:
         if "error" in out:
             return httpx.Response(500, json={"error": {"message": out["error"]}})
         if "anthropic" in call["url"]:
-            return httpx.Response(200, json={"content": [{"type": "text", "text": json.dumps(out)}]})
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}]})
+            return httpx.Response(200, json={"content": [{"type": "text", "text": json.dumps(out)}], "usage": {"input_tokens": 2000, "output_tokens": 500}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}], "usage": {"prompt_tokens": 10000, "completion_tokens": 1000}})
 
     @property
     def transport(self):
@@ -144,3 +144,17 @@ def test_model_error_and_no_key_local_parse(tmp_path):
     il.main([str(FIX / "data.csv"), "--a-key", "", "--b-key", "", "--out", str(tmp_path / "l")])
     seg = json.loads((tmp_path / "l" / "results.json").read_text())["documents"][0]["segments"][0]
     assert seg["final_result"]["model"] == "local" and seg["checks"]["model_a"]["passed"]
+
+
+def test_text_pdf_sent_as_text_and_usage_reported(tmp_path):
+    segs = il.ingest(FIX / "text-invoice.pdf")
+    assert segs[0].text_only and segs[0].b64 and "INV-TEXT-0002" in segs[0].text
+    assert not il.ingest(FIX / "text-invoice.pdf", pdf_text="image")[0].text_only
+    assert not il.ingest(FIX / "invoice.pdf")[0].text_only          # scanned PDF has no text layer
+    llm = FakeLLM(lambda c: invoice(document_number="INV-TEXT-0002"))
+    il.main([str(FIX / "text-invoice.pdf"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=llm.transport)
+    assert llm.calls[0]["images"] == 0 and "INV-TEXT-0002" in llm.calls[0]["doc"]
+    row = next(csv.DictReader(open(tmp_path / "summary.csv", encoding="utf-8-sig")))
+    assert (row["tokens_in"], row["tokens_out"]) == ("10000", "1000")
+    seg = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
+    assert seg["usage"]["model_a"] == {"in": 10000, "out": 1000} and "__usage" not in seg["final_result"]

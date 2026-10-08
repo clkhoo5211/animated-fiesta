@@ -57,5 +57,14 @@ for row in [("Design", "1", "1500.00"), ("Hosting", "12", "600.00")]:
         c[i].text = v
 doc.add_paragraph("Total: 2100.00"); doc.save(p("quote.docx"))
 open(p("register.csv"), "w").write("Delivery No,Name,Invoice Date,Invoice No.,CTN-1,Total\n1000000001,SHOP ALPHA,01/10/2026,INV-1001,1,1\n1000000002,SHOP BETA,01/10/2026,INV-1002,2,2\n1000000003,SHOP GAMMA,02/10/2026,INV-1003,3,3\n1000000004,SHOP DELTA,02/10/2026,INV-1004,4,4\nTotal,,,,10,10\n")
+import pymupdf
+d = pymupdf.open(); pg = d.new_page()
+y = 72
+for line in ["DEMO TRADING SDN BHD (000000-X)", "No. 1 Jalan Contoh, 50000 Kuala Lumpur", "TAX INVOICE   No: INV-TEXT-0002   Date: 03/10/2026",
+             "Bill to: SAMPLE STORE SDN BHD", "Item              Qty   Unit Price   Amount", "Widget A            6        20.86     125.16",
+             "Widget B           10         4.96      49.60", "Service             1        50.00      50.00", "Total Payable (RM)                       224.76",
+             "Payment terms: 14 days. Thank you for your business."]:
+    pg.insert_text((72, y), line, fontname="cour", fontsize=10); y += 18
+d.save(p("text-invoice.pdf"))
 open(p("note.txt"), "w").write("unsupported file\n")
 print("fixtures written to", D)

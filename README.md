@@ -39,7 +39,7 @@ python python/invoicelens.py invoices/ register.pdf \
   --a-base https://openrouter.ai/api/v1 --a-model google/gemini-2.5-flash --out out/
 ```
 
-Writes `results.json`, `summary.csv`, `tables.csv` and `reconcile.csv` to `--out`. Run `python python/invoicelens.py -h` for all options (`--tiles`, `--no-enhance`, `--concurrency`, `--b-type anthropic`, …). Tests: `pytest python/tests` (a test fails if the prompt drifts from `site/index.html`).
+Writes `results.json`, `summary.csv`, `tables.csv` and `reconcile.csv` to `--out`. Run `python python/invoicelens.py -h` for all options (`--tiles`, `--no-enhance`, `--pdf-image`, `--concurrency`, `--b-type anthropic`, …). Text-based PDF pages are sent as their text layer by default (exact digits, fewer tokens); `summary.csv` includes token usage. Tests: `pytest python/tests` (a test fails if the prompt drifts from `site/index.html`).
 
 ## Deployment
 
