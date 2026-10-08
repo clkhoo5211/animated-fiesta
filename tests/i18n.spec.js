@@ -34,5 +34,5 @@ test("English by default; no untranslated text in en / ms / zh; choice persists"
   await page.selectOption("#lang", "ms");
   await page.reload();
   await expect(page.locator("#lang")).toHaveValue("ms");
-  await expect(page.locator("#go")).toHaveText("Mula ekstrak");
+  await expect(page.locator("#go")).toHaveText("Mulakan pengekstrakan");
 });
