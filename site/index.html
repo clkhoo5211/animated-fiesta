@@ -82,6 +82,11 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .job.running{border-color:var(--ac);background:linear-gradient(90deg,var(--ac-soft),var(--panel) 60%);background-size:200% 100%;animation:sh 1.6s ease-in-out infinite}
 @keyframes sh{0%{background-position:100% 0}50%{background-position:0 0}100%{background-position:100% 0}}
 #saved{order:9;flex-basis:100%;font-weight:400;font-size:12px}.card h2{flex-wrap:wrap;row-gap:2px}
+dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}dialog>form{display:flex;flex-direction:column;min-height:0;max-height:100%}dialog .db{flex:1;min-height:0;max-height:none}
+@media (max-width:640px){.bar{gap:8px;padding:10px 12px}.logo{font-size:15px}#open-settings span{display:none}#open-settings{padding:8px 10px}#lang{max-width:120px;padding:7px 4px!important}
+  .pad{padding:12px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.big{grid-column:span 2}.tab{padding:10px 8px}.tools .btn{flex:1 1 auto;justify-content:center}
+  .editbar .btn{flex:1 1 auto;justify-content:center}.grid2{grid-template-columns:1fr}.job{grid-template-columns:40px 1fr;}.job .acts{grid-column:1/-1;justify-content:flex-end}
+  dialog{width:calc(100vw - 16px)}.kpi b{font-size:15px}.kpi.big b{font-size:20px}.dh,.df{padding:12px 14px}.db{padding:4px 14px 8px}}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
@@ -92,7 +97,7 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
   <span class="sub" id="status-pill"></span>
   <span class="sp"></span>
   <select id="lang" class="btn" aria-label="Language" style="padding:7px 8px"><option value="en">English</option><option value="zh">中文</option><option value="ms">Bahasa Melayu</option></select>
-  <button class="btn" id="open-settings">⚙︎ <span data-i18n="settings"></span></button>
+  <button class="btn" id="open-settings" data-i18n-title="settings">⚙︎ <span data-i18n="settings"></span></button>
 </div></header>
 
 <main>
@@ -859,6 +864,8 @@ function applyStatic(){document.documentElement.lang=LANG==="zh"?"zh-CN":LANG;
   document.querySelectorAll("[data-i18n-ph]").forEach(e=>e.placeholder=t(e.dataset.i18nPh));
   document.querySelectorAll("[data-i18n-title]").forEach(e=>e.title=t(e.dataset.i18nTitle));
   const md=document.querySelector('meta[name=description]');if(md)md.content=t("meta_desc");$("#lang").value=LANG}
+const LANG_LABELS={en:["English","EN"],zh:["中文","中文"],ms:["Bahasa Melayu","BM"]};function paintLangLabels(){const short=matchMedia("(max-width:640px)").matches;[...$("#lang").options].forEach(o=>o.textContent=LANG_LABELS[o.value][short?1:0])}
+matchMedia("(max-width:640px)").addEventListener("change",paintLangLabels);paintLangLabels();
 $("#lang").onchange=e=>{LANG=e.target.value;try{localStorage.setItem("invoicelens.lang",LANG)}catch{}applyStatic();refreshChips();drawQueue();showCurrent();paintSaved()};
 applyStatic();refreshChips();
 drawQueue();showCurrent();restore();
