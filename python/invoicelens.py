@@ -366,7 +366,32 @@ def verify(r) -> dict | None:
             tax = sum(num(x.get("value")) or 0 for x in tot if re.search(r"tax|gst|sst|vat|cukai|税", x.get("label") or "", re.I))
             disc = sum(num(x.get("value")) or 0 for x in tot if re.search(r"disc|diskaun|折", x.get("label") or "", re.I))
             add(abs(amts[0] + tax - disc - gt) < 0.011, "grand", lines=f"{amts[0]:.2f}", tax=tax, disc=disc, total=r.get("grand_total"))
-    return {"passed": all(c["ok"] for c in checks), "checks": checks}
+    cross_checks(r, add)
+    return {"passed": all(c["ok"] or c.get("warn") for c in checks), "checks": checks}
+
+
+def _texts(items):
+    return [x if isinstance(x, str) else (x or {}).get("text") or "" for x in items or []]
+
+
+def cross_checks(r, add):
+    """Advisory checks: handwritten/stamp dates earlier than the document date; stamp number one digit off an address number."""
+    doc = norm_date(r.get("document_date"))
+    if doc:
+        for n in _texts((r.get("handwritten_notes") or []) + (r.get("stamps_and_chops") or [])):
+            for m in re.findall(r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b", n):
+                d = norm_date(m)
+                if d and d < doc:
+                    add(False, "notedate", warn=True, v=m, doc=r.get("document_date"), note=n[:60])
+    addr = " ".join(f"{p.get('name') or ''} {p.get('address') or ''}" for p in r.get("parties") or [] if isinstance(p, dict))
+    an = set(re.findall(r"\d{3,6}", addr))
+    for st in _texts(r.get("stamps_and_chops")):
+        for x in set(re.findall(r"\b\d{3,6}\b", st)):
+            if x in an:
+                continue
+            y = next((a for a in sorted(an) if len(a) == len(x) and sum(p != q for p, q in zip(a, x)) == 1), None)
+            if y:
+                add(False, "stampno", warn=True, v=x, a=y)
 
 
 def _flatten(o, p="", out=None):
@@ -517,7 +542,8 @@ async def run_batch(paths, o: Options, transport=None, on_done=None):
 # ----------------------------------------------------------------- reconciliation & duplicates (same rules as the web app)
 INV_COL = re.compile(r"(invoice|inv|bill)\s*\.?\s*(no|number|num|#)|no\.?\s*(invois|inv)|发票号|发票编号|單號|单号", re.I)
 DATE_COL = re.compile(r"date|tarikh|日期", re.I)
-NAME_COL = re.compile(r"name|customer|ship.?to|nama|pelanggan|名称|客户", re.I)
+NAME_COL = re.compile(r"\bname\b|customer|nama|pelanggan|名称|客户", re.I)
+SHIP_COL = re.compile(r"ship.?to|deliver.?to", re.I)
 norm_no = lambda v: re.sub(r"[^A-Z0-9]", "", str(v if v is not None else "").upper())
 
 
@@ -549,6 +575,7 @@ def reconcile(results):
                     continue
                 f = lambda rx, extra=lambda c: True: next((i for i, c in enumerate(cols) if rx.search((c or {}).get("name") or "") and extra(c)), -1)
                 di, ni = f(DATE_COL), f(NAME_COL, lambda c: not INV_COL.search(c.get("name") or ""))
+                ni = ni if ni >= 0 else f(SHIP_COL)
                 ai = next((i for i, c in enumerate(cols) if (c or {}).get("role") == "amount"), -1)
                 for row in tb.get("rows") or []:
                     if isinstance(row, list) and ci < len(row) and norm_no(row[ci]):
@@ -583,7 +610,12 @@ def reconcile(results):
         row["amount_bad"] = bool(m and num(row["amount"]) is not None and num(m["total"]) is not None and abs(num(row["amount"]) - num(m["total"])) > 0.011)
         row["status"] = ("missing" if row["kind"] == "missing" else "possible_match" if row["kind"] == "near"
                          else "date_mismatch" if row["date_bad"] else "amount_mismatch" if row["amount_bad"] else "ok")
-    extra = [x for x in invoices if x["file"] not in used] if registers else []
+    for reg in registers:  # a register with no uploaded invoice of its own is informational, not a list of errors
+        reg["related"] = any(r["match"] for r in reg["rows"])
+        if not reg["related"]:
+            for r in reg["rows"]:
+                r["status"] = "not_uploaded"
+    extra = [x for x in invoices if x["file"] not in used] if any(g["related"] for g in registers) else []
     return {"registers": registers, "extra": extra, "duplicates": dups}
 
 
@@ -652,7 +684,7 @@ def main(argv=None, transport=None):
     rc = write_outputs(results, a.out)
     bad = [r for r in results if r.get("status") in ("bad", "err")]
     print(f"{len(results)} file(s) → {a.out}/ (results.json, summary.csv, tables.csv, reconcile.csv); "
-          f"{len(bad)} need review; {sum(r['status'] != 'ok' for reg in rc['registers'] for r in reg['rows'])} reconciliation issue(s)", file=sys.stderr)
+          f"{len(bad)} need review; {sum(r['status'] not in ('ok', 'not_uploaded') for reg in rc['registers'] for r in reg['rows'])} reconciliation issue(s)", file=sys.stderr)
     return 1 if bad else 0
 
 
