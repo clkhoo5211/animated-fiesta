@@ -18,7 +18,7 @@ jobs:
       - name: Publish site/
         env:
           HERENOW_API_KEY: ${{ secrets.HERENOW_API_KEY }}
-          HERENOW_SLUG: ${{ vars.HERENOW_SLUG }}
+          HERENOW_SLUG: ${{ vars.HERENOW_SLUG || 'lapis-bloom-hav8' }}
         run: |
           test -n "$HERENOW_API_KEY" || { echo "::error::Missing secret HERENOW_API_KEY"; exit 1; }
           args=(site --client github-actions --title "Unified Vision Pipeline")
