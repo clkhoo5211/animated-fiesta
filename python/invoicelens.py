@@ -243,6 +243,7 @@ RETRY_CODES = {429, 502, 503, 504}
 TEMP_MSG = re.compile(r"capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit", re.I)
 OUT_OF_TOKENS = "Model used all {n} output tokens (probably on thinking) and returned no answer - raise --max-tokens"
 RETRY_DELAYS = [5.0, 15.0, 30.0]
+RETRY_BUDGET = 300.0  # stop retrying once a call has taken 5 min in total
 
 
 class HTTPStatusError(RuntimeError):
@@ -253,11 +254,13 @@ class HTTPStatusError(RuntimeError):
 
 async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=None):
     """Call the model, retrying temporary errors (429/502/503/504) with backoff."""
+    t0 = time.monotonic()
     for i in range(len(RETRY_DELAYS) + 1):
         try:
             return await _call_model_once(client, c, text, images, max_tokens or c.max_tokens)
         except HTTPStatusError as e:
-            if not (e.status in RETRY_CODES or TEMP_MSG.search(str(e))) or i >= len(RETRY_DELAYS):
+            if not (e.status in RETRY_CODES or TEMP_MSG.search(str(e))) or i >= len(RETRY_DELAYS) \
+                    or time.monotonic() - t0 + RETRY_DELAYS[i] > RETRY_BUDGET:
                 raise
             print(f"  temporary error {e.status} from {c.model}, retrying ({i + 1}/{len(RETRY_DELAYS)})", file=sys.stderr)
             await asyncio.sleep(RETRY_DELAYS[i])
