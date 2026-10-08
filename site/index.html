@@ -659,12 +659,12 @@ const STATUS_K={rev:"ok",wait:"mut",run:"mut",ok:"ok",warn:"warn",bad:"bad",err:
 function addFiles(list){const fs=[...list].filter(f=>kindOf(f));
   const skipped=list.length-fs.length;fs.forEach(f=>JOBS.push({id:++seq,file:f,rot:0,status:"wait",result:null,error:null,thumb:null}));
   fs.forEach(f=>{if(kindOf(f)==="image"){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
-  if(skipped)toast(t("skipped_files",{n:skipped}));drawQueue()}
+  if(skipped)toast(t("skipped_files",{n:skipped}));drawQueue();saveNow()}
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
 function drawQueue(){scheduleSave();const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,tx]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
     const info=j.status==="run"?`<span><span class="stage">${esc(stageText(j))}</span> · <span data-el="${j.id}">${Math.round((Date.now()-(j.t0||Date.now()))/1000)}</span>s</span>`:r?[typeName(r.document_type),r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
-    return`<div class="job ${CUR===j?"sel":""} ${j.status==="run"?"running":""}" data-id="${j.id}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
+    return`<div class="job ${CUR===j?"sel":""} ${j.status==="run"?"running":""}" data-id="${j.id}" data-status="${j.status}" data-name="${esc(j.file.name)}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
       <div><div class="nm">${esc(j.file.name)}</div><div class="meta"><span class="badge ${k}">${tx}</span>${info}</div></div>
       <div class="acts">${(j.status==="wait"||j.status==="err")&&["image","heic","pdf","video"].includes(kindOf(j.file))?`<button data-act="rot" title="${t("rotate_title")}">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="${t("retry_title")}">${t("retry")}</button>`:""}${j.status!=="run"?`<button data-act="del" title="${t("remove")}">✕</button>`:`<button data-act="cancel" title="${t("cancel")}">${t("cancel")}</button>`}</div></div>`}).join("");
   const n=JOBS.length,done=JOBS.filter(j=>!["wait","run"].includes(j.status)).length;
@@ -834,7 +834,7 @@ function render(){const v=$("#view");if(!RESULT){return}
     ${EDIT?`<span class="sub">${t("edit_hint")}</span>`:""}</div>`:"";
   let h=segs+bar,body="";
   if(tab==="json")body=`<pre>${esc(JSON.stringify(RESULT,null,2))}</pre>`;
-  else if(tab==="checks")body=`<div class="list">${iss.map(([k,tt,d,x],i)=>`<div class="item"><span class="badge ${k}">${t("b_"+k)}</span><div style="flex:1"><b>${esc(tt)}</b><div class="sub">${esc(d)}</div>
+  else if(tab==="checks")body=`<div class="list">${iss.map(([k,tt,d,x],i)=>`<div class="item" data-k="${k}"><span class="badge ${k}">${t("b_"+k)}</span><div style="flex:1"><b>${esc(tt)}</b><div class="sub">${esc(d)}</div>
       ${x&&k==="warn"?`<div class="acts2">${x.a!==undefined?`<button class="btn sm" data-use="${i}" data-v="a">${t("use_a")}</button><button class="btn sm" data-use="${i}" data-v="b">${t("use_b")}</button>`:""}${!x.noValue&&getPath(r,x.field)!==undefined&&x.a===undefined?`<button class="btn sm" data-fix="${i}">${t("fix")}</button>`:""}<button class="btn sm" data-ok="${i}">${t("confirm_ok")}</button></div>`:""}</div></div>`).join("")}</div>`;
   else if(!r)body=`<div class="empty">${t("no_model_result")}${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||t("config_first"))}</div>`;
   else if(tab==="overview"){const verdictB=CUR?.reviewed?`<span class="badge ok">${t("v_rev")}</span>`:bad?`<span class="badge bad">${t("v_bad")}</span>`:warn?`<span class="badge warn">${t("v_warn")}</span>`:`<span class="badge ok">${t("v_ok")}</span>`;

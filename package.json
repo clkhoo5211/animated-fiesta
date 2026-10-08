@@ -1,0 +1,17 @@
+{
+  "name": "invoicelens",
+  "private": true,
+  "description": "In-browser document extraction (static site) + end-to-end tests",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "heic2any": "0.0.4",
+    "mammoth": "1.8.0",
+    "pdfjs-dist": "4.4.168",
+    "xlsx": "0.18.5",
+    "zxing-wasm": "1.2.11"
+  }
+}
