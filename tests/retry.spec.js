@@ -23,3 +23,19 @@ test("temporary 504/429 errors are retried, permanent errors are not", async ({ 
   expect(calls.length).toBe(4);
   await expect(page.locator("#view")).toContainText("bad key");
 });
+
+test("A and B on the same relay are called one after the other", async ({ page, context }) => {
+  let inFlight = 0, max = 0;
+  const calls = await serve(context, { model: async () => {
+    inFlight++; max = Math.max(max, inFlight);
+    await new Promise((r) => setTimeout(r, 300)); inFlight--;
+    return { json: invoice() };
+  } });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls.map((c) => c.model)).toEqual(["model-a", "model-b"]);
+  expect(max).toBe(1);
+});

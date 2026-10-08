@@ -655,7 +655,7 @@ const MODEL_TIMEOUT=window.__IL_TIMEOUT||180000;
 function callSignal(c){const t=typeof AbortSignal.timeout==="function"?AbortSignal.timeout(c.timeout||MODEL_TIMEOUT):null;
   if(!c.signal)return t;if(!t)return c.signal;return typeof AbortSignal.any==="function"?AbortSignal.any([c.signal,t]):c.signal}
 function abortMsg(e,c){if(c.signal?.aborted)return new Error(t("cancelled"));if(e?.name==="TimeoutError"||e?.name==="AbortError")return new Error(t("timeout",{s:Math.round((c.timeout||MODEL_TIMEOUT)/1000)}));return null}
-const TEMP_MSG=/capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit/i,RETRY_CODES=[429,502,503,504],RETRY_MS=window.__IL_RETRY_MS||[3000,8000];
+const TEMP_MSG=/capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit/i,RETRY_CODES=[429,502,503,504],RETRY_MS=window.__IL_RETRY_MS||[5000,15000,30000];
 const sleep=(ms,sig)=>new Promise((res,rej)=>{const h=setTimeout(res,ms);sig?.addEventListener("abort",()=>{clearTimeout(h);rej(sig.reason||new DOMException("aborted","AbortError"))},{once:true})});
 async function callModel(c,content,img,maxTok=c.maxTok||32000){
   for(let i=0;;i++){const signal=callSignal(c);
@@ -699,7 +699,12 @@ async function processSeg(seg,cfg,onStep){
     let body=rows.slice(1),total=null;if(body.length&&/total|jumlah|合计|总计/i.test(String(body.at(-1)[0])))total=body.pop();
     const ra={model:"local",document_type:"other",title:seg.source,tables:[{name:seg.source,columns:cols,rows:body,total_row:total}],fields:[],parties:[]};
     return {segment_identifier:seg.id,source_kind:"text",image_size:null,local_extraction:await local(seg),provider_responses:{model_a:ra,model_b:{status:"skipped"}},checks:{model_a:verify(ra),model_b:null},cross_verification:null}}
-  onStep("start");let [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local",r),r)),run(cfg.a).then(r=>(onStep("a",r),r)),run(cfg.b).then(r=>(onStep("b",r),r))]);
+  onStep("start");
+  // A and B on the same relay/endpoint: call B after A so the relay's concurrency limit doesn't reject B
+  const same=cfg.a.key&&cfg.b.key&&cfg.a.type===cfg.b.type&&(cfg.a.proxy||cfg.a.base)===(cfg.b.proxy||cfg.b.base);
+  const runA=()=>run(cfg.a).then(r=>(onStep("a",r),r)),runB=()=>run(cfg.b).then(r=>(onStep("b",r),r));
+  let [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local",r),r)),...(same?[runA().then(async a=>(seg._b=await runB(),a))]:[runA(),runB()])]);
+  if(same){rb=seg._b;delete seg._b}
   // the model says the page is turned: straighten it locally and read it once more (sideways tables shift columns and rows)
   const rd=[ra,rb].map(r=>parseInt(r?.rotation_degrees)).find(d=>[90,180,270].includes(d));
   if(rd&&seg.b64&&!seg.textOnly&&!seg.straightened&&cfg.straighten!==false){seg.b64=await rotateB64(seg.b64,rd);seg.straightened=rd;onStep("straighten",rd);

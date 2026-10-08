@@ -242,7 +242,7 @@ def _with_usage(r, i, o):
 RETRY_CODES = {429, 502, 503, 504}
 TEMP_MSG = re.compile(r"capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit", re.I)
 OUT_OF_TOKENS = "Model used all {n} output tokens (probably on thinking) and returned no answer - raise --max-tokens"
-RETRY_DELAYS = [3.0, 8.0]
+RETRY_DELAYS = [5.0, 15.0, 30.0]
 
 
 class HTTPStatusError(RuntimeError):
@@ -551,7 +551,12 @@ async def process_segment(client, seg: Segment, o: Options):
         ra, rb = _local_table_result(seg), {"status": "skipped"}
     else:
         run = lambda c: safe(call_model(client, c, text, imgs)) if c.enabled else asyncio.sleep(0, {"status": "skipped"})
-        ra, rb = await asyncio.gather(run(o.a), run(o.b))
+        same = o.a.enabled and o.b.enabled and o.a.type == o.b.type and clean_base(o.a.base) == clean_base(o.b.base)
+        if same:  # same relay: call B after A so its concurrency limit doesn't reject B
+            ra = await run(o.a)
+            rb = await run(o.b)
+        else:
+            ra, rb = await asyncio.gather(run(o.a), run(o.b))
         # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows)
         rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
         if rd and seg.b64 and not seg.text_only and not seg.straightened:
