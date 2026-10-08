@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -73,6 +73,7 @@ class Segment:
     truncated: bool = False
     raw_rows: list | None = None    # spreadsheet rows (for local parse without a model)
     text_only: bool = False         # PDF page sent as its text layer (image kept for local QR)
+    straightened: int = 0           # degrees the page was auto-rotated after the model reported it sideways
 
 
 def kind_of(path: Path) -> str | None:
@@ -239,6 +240,7 @@ def _with_usage(r, i, o):
 
 
 RETRY_CODES = {429, 502, 503, 504}
+TEMP_MSG = re.compile(r"capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit", re.I)
 OUT_OF_TOKENS = "Model used all {n} output tokens (probably on thinking) and returned no answer - raise --max-tokens"
 RETRY_DELAYS = [3.0, 8.0]
 
@@ -255,7 +257,7 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
         try:
             return await _call_model_once(client, c, text, images, max_tokens or c.max_tokens)
         except HTTPStatusError as e:
-            if e.status not in RETRY_CODES or i >= len(RETRY_DELAYS):
+            if not (e.status in RETRY_CODES or TEMP_MSG.search(str(e))) or i >= len(RETRY_DELAYS):
                 raise
             print(f"  temporary error {e.status} from {c.model}, retrying ({i + 1}/{len(RETRY_DELAYS)})", file=sys.stderr)
             await asyncio.sleep(RETRY_DELAYS[i])
@@ -354,6 +356,13 @@ def verify(r) -> dict | None:
                     add(False, "amount", ti=ti, tn=tn, row=ri, expr=f"{row[q]} × {row[pz]} = {a*b:.2f} ≠ {row[am]}")
             if not bad:
                 add(True, "qtyprice_all", ti=ti, tn=tn, n=len(rows))
+        if len(rows) >= 3:
+            last = rows[-1]
+            big = [ci for ci in numeric if ci < len(last) and (num(last[ci]) or 0) > 0
+                   and num(last[ci]) > sum(num(r[ci]) or 0 for r in rows[:-1] if ci < len(r))]
+            tr = t.get("total_row") if isinstance(t.get("total_row"), list) else []
+            if len(big) >= 2 and not any(num(tr[ci]) for ci in numeric if ci < len(tr)):
+                add(False, "lastrow", ti=ti, tn=tn, row=len(rows) - 1, cols=", ".join(cols[i].get("name") or "" for i in big))
         pc = num(t.get("printed_row_count"))
         if pc is not None:
             add(pc == len(rows), "rowcount", ti=ti, tn=tn, printed=t.get("printed_row_count"), n=len(rows))
@@ -371,6 +380,21 @@ def verify(r) -> dict | None:
     return {"passed": all(c["ok"] or c.get("warn") for c in checks), "checks": checks}
 
 
+def _int(v):
+    try:
+        return int(str(v).strip().split()[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def _days(a, b):
+    import datetime
+    try:
+        return (datetime.date.fromisoformat(b) - datetime.date.fromisoformat(a)).days
+    except ValueError:
+        return None
+
+
 def _texts(items):
     return [x if isinstance(x, str) else (x or {}).get("text") or "" for x in items or []]
 
@@ -382,7 +406,7 @@ def cross_checks(r, add):
         for n in _texts((r.get("handwritten_notes") or []) + (r.get("stamps_and_chops") or [])):
             for m in re.findall(r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b", n):
                 d = norm_date(m)
-                if d and d < doc:
+                if d and d < doc and _days(d, doc) is not None and _days(d, doc) <= 366:
                     add(False, "notedate", warn=True, v=m, doc=r.get("document_date"), note=n[:60])
     addr = " ".join(f"{p.get('name') or ''} {p.get('address') or ''}" for p in r.get("parties") or [] if isinstance(p, dict))
     an = set(re.findall(r"\d{3,6}", addr))
@@ -528,6 +552,18 @@ async def process_segment(client, seg: Segment, o: Options):
     else:
         run = lambda c: safe(call_model(client, c, text, imgs)) if c.enabled else asyncio.sleep(0, {"status": "skipped"})
         ra, rb = await asyncio.gather(run(o.a), run(o.b))
+        # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows)
+        rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
+        if rd and seg.b64 and not seg.text_only and not seg.straightened:
+            seg.b64, seg.straightened = jpeg_b64(b64_image(seg.b64).rotate(-rd, expand=True)), rd
+            first = {"model_a": ra.get("__usage") if isinstance(ra, dict) else None, "model_b": rb.get("__usage") if isinstance(rb, dict) else None}
+            res = await process_segment(client, seg, o)
+            for k, u in first.items():
+                if u:
+                    cur = res["usage"].get(k) or {"in": 0, "out": 0}
+                    res["usage"][k] = {"in": (cur.get("in") or 0) + (u.get("in") or 0), "out": (cur.get("out") or 0) + (u.get("out") or 0)}
+            res["straightened"] = rd
+            return res
     ra = ra if isinstance(ra, dict) else {"error": "invalid model output"}
     rb = rb if isinstance(rb, dict) else {"error": "invalid model output"}
     usage = {"model_a": ra.pop("__usage", None), "model_b": rb.pop("__usage", None)}

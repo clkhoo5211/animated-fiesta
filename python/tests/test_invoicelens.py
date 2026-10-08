@@ -228,3 +228,39 @@ def test_items_extracted_as_totals():
     assert bad and bad[0]["n"] == 4 and bad[0]["sum"] == 384.0
     ok = {"grand_total": "110", "tables": [], "totals": [{"label": "Subtotal", "value": "100"}, {"label": "SST", "value": "10"}, {"label": "Total", "value": "110"}]}
     assert not [c for c in il.verify(ok)["checks"] if c["code"] == "itemstot"]
+
+
+def test_straighten_lastrow_capacity_retry(monkeypatch):
+    # last row holding the totals line
+    reg = {"tables": [{"columns": [{"name": "Name"}, {"name": "CTN-1", "role": "number"}, {"name": "CTN-2", "role": "number"}, {"name": "Total", "role": "row_total"}],
+                       "rows": [["A", "1", "", "1"], ["B", "22", "6", "28"], ["C", "4", "1", "5"], ["T", "39", "17", "56"]], "total_row": [None, "0", "0", "0"]}]}
+    assert [c for c in il.verify(reg)["checks"] if c["code"] == "lastrow"]
+    # an old date in a signature is not a misread receiving date
+    r = {"document_date": "23/09/2026", "tables": [], "handwritten_notes": [{"text": "3.9.16"}]}
+    assert not [c for c in il.verify(r)["checks"] if c["code"] == "notedate"]
+    # relay capacity message is retried
+    monkeypatch.setattr(il, "RETRY_DELAYS", [0, 0])
+    n = []
+
+    def handler(req):
+        n.append(1)
+        if len(n) == 1:
+            return httpx.Response(500, json={"error": {"message": "Chat admission capacity is temporarily unavailable. Retry shortly."}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": true}'}}]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await il.call_model(client, il.ModelConfig(base="https://relay.test/v1", key="k", model="m"), "hi", None)
+    assert asyncio.run(run()) == {"ok": True} and len(n) == 2
+
+
+def test_auto_straighten(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(1)
+        doc = {"document_type": "invoice", "document_number": "INV-1", "rotation_degrees": "90" if len(seen) == 1 else "0", "tables": []}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    res = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
+    assert len(seen) == 2 and res["straightened"] == 90 and res["usage"]["model_a"] == {"in": 20, "out": 10}
