@@ -153,6 +153,7 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
       <div class="f" data-openai><label>Base URL</label><input name="a_base" list="presets" placeholder="https://api.openai.com/v1"></div>
       <div class="f"><label>API Key</label><div class="pw"><input name="a_key" type="password" autocomplete="off" placeholder="sk-..."><button type="button" class="eye" data-i18n="show"></button></div></div>
       <label class="chk" data-openai><input type="checkbox" name="a_json"> <span data-i18n="json_mode"></span></label>
+      <div class="f"><label data-i18n="max_tok"></label><input name="a_maxtok" inputmode="numeric" placeholder="32000"><p class="note" data-i18n="max_tok_hint"></p></div>
       <div class="f"><label data-i18n="price_label"></label><div class="row"><input name="a_price_in" inputmode="decimal" data-i18n-ph="price_in"><input name="a_price_out" inputmode="decimal" data-i18n-ph="price_out"></div></div>
       <div class="chk"><button type="button" class="btn sm test-btn" data-i18n="test_conn"></button><span class="test"></span></div>
     </fieldset>
@@ -167,6 +168,7 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
       <div class="f" data-openai><label>Base URL</label><input name="b_base" list="presets" data-i18n-ph="same_as_a"></div>
       <div class="f"><label data-i18n="key_b"></label><div class="pw"><input name="b_key" type="password" autocomplete="off"><button type="button" class="eye" data-i18n="show"></button></div></div>
       <label class="chk" data-openai><input type="checkbox" name="b_json"> <span data-i18n="json_mode_s"></span></label>
+      <div class="f"><label data-i18n="max_tok"></label><input name="b_maxtok" inputmode="numeric" placeholder="32000"><p class="note" data-i18n="max_tok_hint"></p></div>
       <div class="f"><label data-i18n="price_label"></label><div class="row"><input name="b_price_in" inputmode="decimal" data-i18n-ph="price_in"><input name="b_price_out" inputmode="decimal" data-i18n-ph="price_out"></div></div>
       <div class="chk"><button type="button" class="btn sm test-btn" data-i18n="test_conn"></button><span class="test"></span></div>
     </fieldset>
@@ -217,7 +219,7 @@ en:{
  need_key:"Enter a key first",testing:"Testing…",conn_ok:"✓ Connection OK",
  chip_local:"Local QR / barcode",chip_pdf:"PDF text layer",not_set:"not set",chip_cross:"Cross-check",chip_enh:"Small-text boost",chip_tiles:"Multi-scale",
  no_model_hint:"No model configured → click “Model settings” (top right)",
- retrying:"Temporary error {code} — retrying ({n}/{max})…",cancelled:"Cancelled",timeout:"Model did not reply within {s} s (timeout)",cant_connect:"Cannot connect to {b}{x}",via_proxy:" (via proxy)",maybe_cors:" (possibly CORS — set a proxy under Advanced)",
+ retrying:"Temporary error {code} — retrying ({n}/{max})…",max_tok:"Max output tokens",max_tok_hint:"Reasoning/thinking models spend tokens on thinking before answering — keep this high (e.g. 32000).",out_of_tokens:"Model used all {n} output tokens (probably on thinking) and returned no answer — raise “Max output tokens” in Model settings.",cancelled:"Cancelled",timeout:"Model did not reply within {s} s (timeout)",cant_connect:"Cannot connect to {b}{x}",via_proxy:" (via proxy)",maybe_cors:" (possibly CORS — set a proxy under Advanced)",
  col_n:"Column {n}",local_parse:"Local parse",
  st_rev:"Reviewed",st_wait:"Waiting",st_run:"Processing…",st_ok:"Passed",st_warn:"To confirm",st_bad:"Needs review",st_err:"Failed",
  skipped_files:"Skipped {n} unsupported file(s)",rotate_title:"Rotate before extraction",retry_title:"Re-extract",retry:"Retry",remove:"Remove",cancel:"Cancel",
@@ -287,7 +289,7 @@ zh:{
  need_key:"请先填 Key",testing:"测试中…",conn_ok:"✓ 连接正常",
  chip_local:"本地 QR / 条码",chip_pdf:"PDF 文本层",not_set:"未配置",chip_cross:"交叉核验",chip_enh:"小字增强",chip_tiles:"多尺度",
  no_model_hint:"尚未配置模型 → 点击右上角“模型设置”",
- retrying:"临时错误 {code}，重试中（{n}/{max}）…",cancelled:"已取消",timeout:"模型 {s} 秒未回复（超时）",cant_connect:"无法连接 {b}{x}",via_proxy:"（经代理）",maybe_cors:"（可能是 CORS，可在高级设置中填写代理）",
+ retrying:"临时错误 {code}，重试中（{n}/{max}）…",max_tok:"最大输出 tokens",max_tok_hint:"推理/思考型模型会先用 tokens 思考再作答，请设大一些（如 32000）。",out_of_tokens:"模型用完了全部 {n} 个输出 tokens（多半耗在思考上），没有给出答案——请在模型设置中调大「最大输出 tokens」。",cancelled:"已取消",timeout:"模型 {s} 秒未回复（超时）",cant_connect:"无法连接 {b}{x}",via_proxy:"（经代理）",maybe_cors:"（可能是 CORS，可在高级设置中填写代理）",
  col_n:"列{n}",local_parse:"本地解析",
  st_rev:"已复核",st_wait:"等待",st_run:"处理中…",st_ok:"通过",st_warn:"待确认",st_bad:"需复核",st_err:"失败",
  skipped_files:"已跳过 {n} 个不支持的文件",rotate_title:"识别前旋转",retry_title:"重新识别",retry:"重试",remove:"移除",cancel:"取消",
@@ -357,7 +359,7 @@ ms:{
  need_key:"Masukkan kunci dahulu",testing:"Menguji…",conn_ok:"✓ Sambungan OK",
  chip_local:"QR / kod bar tempatan",chip_pdf:"Lapisan teks PDF",not_set:"belum ditetapkan",chip_cross:"Semakan silang",chip_enh:"Peningkatan teks kecil",chip_tiles:"Pelbagai skala",
  no_model_hint:"Tiada model ditetapkan → klik “Tetapan model” (kanan atas)",
- retrying:"Ralat sementara {code} — mencuba semula ({n}/{max})…",cancelled:"Dibatalkan",timeout:"Model tidak membalas dalam {s} saat (tamat masa)",cant_connect:"Tidak dapat bersambung ke {b}{x}",via_proxy:" (melalui proksi)",maybe_cors:" (mungkin CORS — tetapkan proksi di bahagian Lanjutan)",
+ retrying:"Ralat sementara {code} — mencuba semula ({n}/{max})…",max_tok:"Token output maksimum",max_tok_hint:"Model penaakulan/berfikir menggunakan token untuk berfikir sebelum menjawab — tetapkan nilai tinggi (cth. 32000).",out_of_tokens:"Model menggunakan kesemua {n} token output (mungkin untuk berfikir) dan tidak memberi jawapan — naikkan “Token output maksimum” dalam Tetapan model.",cancelled:"Dibatalkan",timeout:"Model tidak membalas dalam {s} saat (tamat masa)",cant_connect:"Tidak dapat bersambung ke {b}{x}",via_proxy:" (melalui proksi)",maybe_cors:" (mungkin CORS — tetapkan proksi di bahagian Lanjutan)",
  col_n:"Lajur {n}",local_parse:"Bacaan tempatan",
  st_rev:"Disemak",st_wait:"Menunggu",st_run:"Sedang diproses…",st_ok:"Lulus",st_warn:"Perlu disahkan",st_bad:"Perlu semakan",st_err:"Gagal",
  skipped_files:"{n} fail tidak disokong dilangkau",rotate_title:"Putar sebelum pengekstrakan",retry_title:"Ekstrak semula",retry:"Cuba semula",remove:"Buang",cancel:"Batal",
@@ -555,17 +557,17 @@ async function local(seg){
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
 function withUsage(r,u){if(r&&typeof r==="object"&&u)Object.defineProperty(r,"__usage",{value:{in:u.prompt_tokens??u.input_tokens??0,out:u.completion_tokens??u.output_tokens??0},enumerable:false});return r}
-async function anthropic(key,model,content,maxTok=4000,signal){
+async function anthropic(key,model,content,maxTok,signal){
   const r=await fetch("https://api.anthropic.com/v1/messages",{signal,method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model,max_tokens:maxTok,messages:[{role:"user",content}]})});
-  const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);return withUsage(parseJSON(j.content.find(b=>b.type==="text").text),j.usage);
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);const txt=j.content?.find(b=>b.type==="text")?.text||"";if(!txt.trim()&&j.stop_reason==="max_tokens")throw new Error(t("out_of_tokens",{n:maxTok}));return withUsage(parseJSON(txt),j.usage);
 }
 const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 
 /* ---------- settings ---------- */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS="invoicelens.settings.v1";
-const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
+const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,a_maxtok:"32000",b_maxtok:"32000",b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
 const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
   set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
   clear(){try{localStorage.removeItem(LS)}catch{}}};
@@ -601,11 +603,11 @@ $$(".eye").forEach(b=>b.onclick=()=>{const i=b.previousElementSibling;i.type=i.t
 $("#open-settings").onclick=()=>{fillForm();$("#settings").showModal()};
 $("#save-settings").onclick=()=>{S=readForm();store.set(S);refreshChips();toast(S.remember_keys?t("saved_keys"):t("saved_nokeys"))};
 $("#clear-settings").onclick=()=>{store.clear();S={...DEF};fillForm();refreshChips();toast(t("cleared_settings"))};
-const slot=(s,o=S)=>({type:o[s+"_type"],model:o[s+"_model"],base:cleanBase(o[s+"_base"])||(o[s+"_type"]==="openai"?"https://api.openai.com/v1":""),key:o[s+"_key"],json:o[s+"_json"],proxy:o.proxy,name:`${o[s+"_model"]}`});
+const slot=(s,o=S)=>({type:o[s+"_type"],model:o[s+"_model"],base:cleanBase(o[s+"_base"])||(o[s+"_type"]==="openai"?"https://api.openai.com/v1":""),key:o[s+"_key"],json:o[s+"_json"],maxTok:Math.max(256,parseInt(o[s+"_maxtok"])||32000),proxy:o.proxy,name:`${o[s+"_model"]}`});
 $$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dataset.slot,c=slot(s,readForm()),out=b.nextElementSibling;
   if(!c.key){out.innerHTML=`<span class="badge warn">${t("need_key")}</span>`;return}
   out.innerHTML=`<span class="badge mut">${t("testing")}</span>`;
-  try{await callModel(c,[{type:"text",text:'Reply with JSON {"ok":true}'}],null,40);out.innerHTML=`<span class="badge ok">${t("conn_ok")}</span>`}
+  try{await callModel(c,[{type:"text",text:'Reply with JSON {"ok":true}'}],null);out.innerHTML=`<span class="badge ok">${t("conn_ok")}</span>`}
   catch(e){out.innerHTML=`<span class="badge bad">✗ ${esc(e.message).slice(0,140)}</span>`}});
 function refreshChips(){const a=slot("a"),b=slot("b");
   $("#engine-chips").innerHTML=`<span class="chip on">${t("chip_local")}</span><span class="chip on">${t("chip_pdf")}</span><span class="chip ${a.key?"on":"off"}">A · ${esc(a.model||t("not_set"))}</span><span class="chip ${b.key?"on":"off"}">B · ${esc(b.model||t("not_set"))}</span>${a.key&&b.key?`<span class="chip on">${t("chip_cross")}</span>`:""}${S.enhance?`<span class="chip on">${t("chip_enh")}</span>`:""}${S.tiles?`<span class="chip on">${t("chip_tiles")}</span>`:""}`;
@@ -618,7 +620,7 @@ function callSignal(c){const t=typeof AbortSignal.timeout==="function"?AbortSign
 function abortMsg(e,c){if(c.signal?.aborted)return new Error(t("cancelled"));if(e?.name==="TimeoutError"||e?.name==="AbortError")return new Error(t("timeout",{s:Math.round((c.timeout||MODEL_TIMEOUT)/1000)}));return null}
 const RETRY_CODES=[429,502,503,504],RETRY_MS=window.__IL_RETRY_MS||[3000,8000];
 const sleep=(ms,sig)=>new Promise((res,rej)=>{const h=setTimeout(res,ms);sig?.addEventListener("abort",()=>{clearTimeout(h);rej(sig.reason||new DOMException("aborted","AbortError"))},{once:true})});
-async function callModel(c,content,img,maxTok=4000){
+async function callModel(c,content,img,maxTok=c.maxTok||32000){
   for(let i=0;;i++){const signal=callSignal(c);
     try{return await callModelInner(c,content,img,maxTok,signal)}
     catch(e){const ab=abortMsg(e,c);if(ab)throw ab;
@@ -634,7 +636,8 @@ async function callModelInner(c,content,img,maxTok,signal){
     body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
     .catch(e=>{if(e?.name==="AbortError"||e?.name==="TimeoutError")throw e;throw new Error(t("cant_connect",{b:c.base,x:c.proxy?t("via_proxy"):t("maybe_cors")}))});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);
-  return withUsage(parseJSON(j.choices?.[0]?.message?.content||""),j.usage);
+  const ch=j.choices?.[0]||{},txt=ch.message?.content||"";if(!txt.trim()&&ch.finish_reason==="length")throw new Error(t("out_of_tokens",{n:maxTok}));
+  return withUsage(parseJSON(txt),j.usage);
 }
 
 /* ---------- local cross-verification ---------- */

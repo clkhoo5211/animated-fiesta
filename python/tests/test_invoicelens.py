@@ -179,3 +179,21 @@ def test_retries_temporary_errors(monkeypatch):
     with pytest.raises(il.HTTPStatusError):
         asyncio.run(run(lambda req: (calls.append(1), httpx.Response(401, json={}))[1]))
     assert len(calls) == 1  # non-temporary errors fail immediately
+
+
+def test_max_tokens_default_and_length_error():
+    seen = []
+
+    def handler(req):
+        seen.append(json.loads(req.content)["max_tokens"])
+        return httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]})
+
+    async def run(cfg):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await il.call_model(client, cfg, "hi", None)
+
+    with pytest.raises(RuntimeError, match="used all 32000"):
+        asyncio.run(run(il.ModelConfig(base="https://relay.test/v1", key="k", model="m")))
+    with pytest.raises(RuntimeError, match="used all 65536"):
+        asyncio.run(run(il.ModelConfig(base="https://relay.test/v1", key="k", model="m", max_tokens=65536)))
+    assert seen == [32000, 65536]

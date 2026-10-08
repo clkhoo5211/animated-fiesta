@@ -29,7 +29,7 @@ async function serve(ctx, { model } = {}) {
       const out = model ? await model(call) : { json: {} };
       if (out.delay) await new Promise((r) => setTimeout(r, out.delay));
       if (out.abort) return route.abort().catch(() => {});
-      const payload = out.error
+      const payload = out.raw ? out.raw : out.error
         ? { error: { message: out.error } }
         : call.anthropic
           ? { content: [{ type: "text", text: JSON.stringify(out.json) }], ...(out.usage ? { usage: { input_tokens: out.usage[0], output_tokens: out.usage[1] } } : {}) }
