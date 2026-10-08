@@ -89,6 +89,7 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
   dialog{width:calc(100vw - 16px)}.kpi b{font-size:15px}.kpi.big b{font-size:20px}.dh,.df{padding:12px 14px}.db{padding:4px 14px 8px}}
 [hidden]{display:none!important}
 .help{margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--ac-soft);font-size:13px;line-height:1.55}.help ol{margin:6px 0 0;padding-left:18px}.help a{color:var(--ac);font-weight:600}.help .warnline{color:var(--warn);margin-top:6px}
+#view a{color:var(--ac);text-decoration:none;font-weight:600}#view a:hover{text-decoration:underline}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
@@ -126,6 +127,7 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
 <section class="card" id="results">
   <div class="tabs" role="tablist">
     <button class="tab" data-tab="summary" id="tab-summary" hidden><span data-i18n="tab_summary"></span> <span id="sum-count"></span></button>
+    <button class="tab" data-tab="recon" id="tab-recon" hidden><span data-i18n="tab_recon"></span> <span id="recon-count"></span></button>
     <button class="tab on" data-tab="overview" data-i18n="tab_overview"></button>
     <button class="tab" data-tab="items" data-i18n="tab_items"></button>
     <button class="tab" data-tab="checks"><span data-i18n="tab_checks"></span> <span id="check-count"></span></button>
@@ -252,7 +254,7 @@ en:{
  f_name:"Name",f_reg:"Reg. no.",f_tax:"Tax ID",f_addr:"Address",f_contact:"Contact",
  fields_h:"Fields (as labelled)",totals_h:"Totals",stamps_h:"Stamps / chops",hand_h:"Handwriting",no_tables:"No tables found in the document",
  marked_rev:"Marked as reviewed",undone:"Undone",used_model:"Used model {k}'s value",fix_prompt:"Edit {f}",copied_cur:"Copied current file JSON",copied:"Copied",copy_fail:"Copy failed",
- del_row_log:"Deleted row {r}: {v}",add_row_log:"Added row {r}",lang:"Language",provider:"Provider",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (many models, one key)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Other / relay (OpenAI-compatible)",h_title:"Get your {p} API key",h_step1:"Open {link} and sign in (create an account if needed).",h_step2:"Create a new API key and copy it (it is usually shown only once).",h_step3:"Paste it into “API Key” below, then click “Test connection”. Base URL and model are filled in for you.",h_custom1:"Ask your relay/provider for its Base URL (usually ends with /v1) and an API key.",h_custom2:"Ask which model names support images (vision), e.g. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Fill in Base URL, API Key and model name, then click “Test connection”.",hn_openai:"Paid, pay-as-you-go. gpt-4o / gpt-4.1 read images well.",hn_anthropic:"Paid, pay-as-you-go. Claude models read images well; no Base URL needed.",hn_gemini:"Has a free tier with rate limits. gemini-2.5-flash is fast and reads images.",hn_openrouter:"One key for many vendors; check each model page for “image” input. Some free models are slow or rate-limited.",hn_qwen:"International console shown. Users in mainland China: use dashscope.aliyuncs.com instead of dashscope-intl.",hn_deepseek:"Cheap and strong on text.",hn_custom:"Many relays work directly from the browser; if you get a CORS error, set a CORS proxy under Advanced.",h_novision:"Its models are text-only: fine for Excel / CSV / Word, but images and PDFs will fail. Use a vision model for those.",h_cors:"May block calls from a web page (CORS). If “Test connection” fails with a connection error, set a CORS proxy under Advanced or use OpenRouter."
+ del_row_log:"Deleted row {r}: {v}",add_row_log:"Added row {r}",lang:"Language",tab_recon:"Reconcile",skipped_dup:"Skipped {n} identical file(s) already in the queue",dup_badge:"Duplicate",dup_title:"Same invoice number as: {f}",recon_empty:"No register / shipment list found yet. Upload a register (a table with an “Invoice No” column) together with its invoices to check them against each other.",recon_reg:"Register: {f} (No. {no})",recon_stat:"{ok} of {n} invoice numbers matched",rc_no:"Invoice No (register)",rc_date:"Date (register)",rc_name:"Name",rc_file:"Matched invoice",rc_ok:"Matched",rc_missing:"Missing — not uploaded",rc_near:"Possible match",rc_near_d:"Invoice shows {v} (1 character different — check for misreading)",rc_date_bad:"Date differs: {v}",rc_amt_bad:"Amount differs: {v}",rc_extra_h:"Invoices not on any register",rc_extra_d:"Invoice No {no} does not appear on any register",rc_dup_h:"Duplicate invoice numbers",rc_csv:"Export reconciliation CSV",provider:"Provider",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (many models, one key)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Other / relay (OpenAI-compatible)",h_title:"Get your {p} API key",h_step1:"Open {link} and sign in (create an account if needed).",h_step2:"Create a new API key and copy it (it is usually shown only once).",h_step3:"Paste it into “API Key” below, then click “Test connection”. Base URL and model are filled in for you.",h_custom1:"Ask your relay/provider for its Base URL (usually ends with /v1) and an API key.",h_custom2:"Ask which model names support images (vision), e.g. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Fill in Base URL, API Key and model name, then click “Test connection”.",hn_openai:"Paid, pay-as-you-go. gpt-4o / gpt-4.1 read images well.",hn_anthropic:"Paid, pay-as-you-go. Claude models read images well; no Base URL needed.",hn_gemini:"Has a free tier with rate limits. gemini-2.5-flash is fast and reads images.",hn_openrouter:"One key for many vendors; check each model page for “image” input. Some free models are slow or rate-limited.",hn_qwen:"International console shown. Users in mainland China: use dashscope.aliyuncs.com instead of dashscope-intl.",hn_deepseek:"Cheap and strong on text.",hn_custom:"Many relays work directly from the browser; if you get a CORS error, set a CORS proxy under Advanced.",h_novision:"Its models are text-only: fine for Excel / CSV / Word, but images and PDFs will fail. Use a vision model for those.",h_cors:"May block calls from a web page (CORS). If “Test connection” fails with a connection error, set a CORS proxy under Advanced or use OpenRouter."
 },
 zh:{
  meta_desc:"浏览器端文档识别：多模型抽取、算术校验、交叉核验",
@@ -322,7 +324,7 @@ zh:{
  f_name:"名称",f_reg:"注册号",f_tax:"税号",f_addr:"地址",f_contact:"联系",
  fields_h:"字段（按原文标签）",totals_h:"合计",stamps_h:"印章 / 盖章",hand_h:"手写内容",no_tables:"文档中没有识别到表格",
  marked_rev:"已标记为已复核",undone:"已撤销",used_model:"已采用模型 {k} 的值",fix_prompt:"修改 {f}",copied_cur:"已复制当前文件 JSON",copied:"已复制",copy_fail:"复制失败",
- del_row_log:"删除第 {r} 行：{v}",add_row_log:"新增第 {r} 行",lang:"语言",provider:"服务商",pv_openai:"OpenAI",pv_anthropic:"Anthropic（Claude）",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter（一个 Key 用多家模型）",pv_qwen:"阿里云通义千问（百炼）",pv_deepseek:"DeepSeek",pv_custom:"其他 / 中转站（OpenAI 兼容）",h_title:"如何获取 {p} 的 Key",h_step1:"打开 {link} 并登录（没有账号先注册）。",h_step2:"新建一个 API Key 并复制（通常只显示一次）。",h_step3:"粘贴到下方“API Key”，点“测试连接”。Base URL 和模型已自动填好。",h_custom1:"向你的中转站/服务商索取 Base URL（通常以 /v1 结尾）和 API Key。",h_custom2:"问清楚哪些模型支持图片（视觉），例如 gpt-4o、gemini-2.5-flash、qwen-vl-max。",h_custom3:"填入 Base URL、API Key 和模型名，点“测试连接”。",hn_openai:"付费、按量计费。gpt-4o / gpt-4.1 读图效果好。",hn_anthropic:"付费、按量计费。Claude 模型读图效果好，无需填写 Base URL。",hn_gemini:"有免费额度（有频率限制）。gemini-2.5-flash 速度快、能读图。",hn_openrouter:"一个 Key 可用多家模型；在模型页确认支持 “image” 输入。部分免费模型较慢或限流。",hn_qwen:"默认为国际站。中国大陆用户请把 dashscope-intl 改为 dashscope.aliyuncs.com。",hn_deepseek:"便宜，文字能力强。",hn_custom:"很多中转站可直接从浏览器调用；如出现 CORS 错误，在“高级”中填写 CORS 代理。",h_novision:"该服务商模型为纯文本：可处理 Excel / CSV / Word，但图片和 PDF 会失败，请改用支持视觉的模型。",h_cors:"可能不允许网页直接调用（CORS）。若“测试连接”报连接错误，请在“高级”中填写 CORS 代理，或改用 OpenRouter。"
+ del_row_log:"删除第 {r} 行：{v}",add_row_log:"新增第 {r} 行",lang:"语言",tab_recon:"核对",skipped_dup:"已跳过 {n} 个队列中已存在的相同文件",dup_badge:"重复",dup_title:"与以下文件发票号相同：{f}",recon_empty:"还没有识别到发票清单 / 出货清单。请把清单（含“Invoice No”列的表格）和对应发票一起上传，即可相互核对。",recon_reg:"清单：{f}（编号 {no}）",recon_stat:"{n} 个发票号中 {ok} 个已匹配",rc_no:"发票号（清单）",rc_date:"日期（清单）",rc_name:"名称",rc_file:"匹配的发票",rc_ok:"已匹配",rc_missing:"缺失——未上传",rc_near:"可能匹配",rc_near_d:"发票上为 {v}（相差 1 个字符，请检查是否误读）",rc_date_bad:"日期不一致：{v}",rc_amt_bad:"金额不一致：{v}",rc_extra_h:"不在任何清单上的发票",rc_extra_d:"发票号 {no} 不在任何清单上",rc_dup_h:"重复的发票号",rc_csv:"导出核对 CSV",provider:"服务商",pv_openai:"OpenAI",pv_anthropic:"Anthropic（Claude）",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter（一个 Key 用多家模型）",pv_qwen:"阿里云通义千问（百炼）",pv_deepseek:"DeepSeek",pv_custom:"其他 / 中转站（OpenAI 兼容）",h_title:"如何获取 {p} 的 Key",h_step1:"打开 {link} 并登录（没有账号先注册）。",h_step2:"新建一个 API Key 并复制（通常只显示一次）。",h_step3:"粘贴到下方“API Key”，点“测试连接”。Base URL 和模型已自动填好。",h_custom1:"向你的中转站/服务商索取 Base URL（通常以 /v1 结尾）和 API Key。",h_custom2:"问清楚哪些模型支持图片（视觉），例如 gpt-4o、gemini-2.5-flash、qwen-vl-max。",h_custom3:"填入 Base URL、API Key 和模型名，点“测试连接”。",hn_openai:"付费、按量计费。gpt-4o / gpt-4.1 读图效果好。",hn_anthropic:"付费、按量计费。Claude 模型读图效果好，无需填写 Base URL。",hn_gemini:"有免费额度（有频率限制）。gemini-2.5-flash 速度快、能读图。",hn_openrouter:"一个 Key 可用多家模型；在模型页确认支持 “image” 输入。部分免费模型较慢或限流。",hn_qwen:"默认为国际站。中国大陆用户请把 dashscope-intl 改为 dashscope.aliyuncs.com。",hn_deepseek:"便宜，文字能力强。",hn_custom:"很多中转站可直接从浏览器调用；如出现 CORS 错误，在“高级”中填写 CORS 代理。",h_novision:"该服务商模型为纯文本：可处理 Excel / CSV / Word，但图片和 PDF 会失败，请改用支持视觉的模型。",h_cors:"可能不允许网页直接调用（CORS）。若“测试连接”报连接错误，请在“高级”中填写 CORS 代理，或改用 OpenRouter。"
 },
 ms:{
  meta_desc:"Pengekstrakan dokumen dalam pelayar: pelbagai model, semakan aritmetik, semakan silang",
@@ -392,7 +394,7 @@ ms:{
  f_name:"Nama",f_reg:"No. daftar",f_tax:"No. cukai",f_addr:"Alamat",f_contact:"Hubungan",
  fields_h:"Medan (mengikut label asal)",totals_h:"Jumlah",stamps_h:"Cop / chop",hand_h:"Tulisan tangan",no_tables:"Tiada jadual ditemui dalam dokumen",
  marked_rev:"Ditandakan sebagai disemak",undone:"Dibuat asal",used_model:"Nilai model {k} digunakan",fix_prompt:"Edit {f}",copied_cur:"JSON fail semasa disalin",copied:"Disalin",copy_fail:"Gagal menyalin",
- del_row_log:"Baris {r} dipadam: {v}",add_row_log:"Baris {r} ditambah",lang:"Bahasa",provider:"Penyedia",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (banyak model, satu kunci)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Lain-lain / relay (serasi OpenAI)",h_title:"Cara mendapatkan kunci {p}",h_step1:"Buka {link} dan log masuk (daftar akaun jika perlu).",h_step2:"Cipta API key baharu dan salin (biasanya hanya dipaparkan sekali).",h_step3:"Tampal ke dalam “API Key” di bawah, kemudian klik “Uji sambungan”. Base URL dan model diisi secara automatik.",h_custom1:"Minta Base URL (biasanya berakhir dengan /v1) dan API key daripada relay/penyedia anda.",h_custom2:"Tanya nama model yang menyokong imej (vision), cth. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Isi Base URL, API Key dan nama model, kemudian klik “Uji sambungan”.",hn_openai:"Berbayar, ikut penggunaan. gpt-4o / gpt-4.1 membaca imej dengan baik.",hn_anthropic:"Berbayar, ikut penggunaan. Model Claude membaca imej dengan baik; Base URL tidak diperlukan.",hn_gemini:"Ada tahap percuma (dengan had kadar). gemini-2.5-flash pantas dan boleh membaca imej.",hn_openrouter:"Satu kunci untuk banyak vendor; semak halaman model untuk input “image”. Sesetengah model percuma perlahan atau terhad.",hn_qwen:"Konsol antarabangsa dipaparkan. Pengguna di China tanah besar: guna dashscope.aliyuncs.com, bukan dashscope-intl.",hn_deepseek:"Murah dan kuat untuk teks.",hn_custom:"Banyak relay boleh dipanggil terus dari pelayar; jika berlaku ralat CORS, tetapkan proksi CORS di bahagian Lanjutan.",h_novision:"Modelnya teks sahaja: sesuai untuk Excel / CSV / Word, tetapi imej dan PDF akan gagal. Guna model vision untuk itu.",h_cors:"Mungkin menyekat panggilan dari halaman web (CORS). Jika “Uji sambungan” gagal dengan ralat sambungan, tetapkan proksi CORS di Lanjutan atau guna OpenRouter."
+ del_row_log:"Baris {r} dipadam: {v}",add_row_log:"Baris {r} ditambah",lang:"Bahasa",tab_recon:"Padanan",skipped_dup:"{n} fail yang sama sudah ada dalam senarai dan dilangkau",dup_badge:"Pendua",dup_title:"No. invois sama dengan: {f}",recon_empty:"Tiada daftar / senarai penghantaran ditemui lagi. Muat naik daftar (jadual dengan lajur “Invoice No”) bersama invoisnya untuk disemak antara satu sama lain.",recon_reg:"Daftar: {f} (No. {no})",recon_stat:"{ok} daripada {n} nombor invois sepadan",rc_no:"No. invois (daftar)",rc_date:"Tarikh (daftar)",rc_name:"Nama",rc_file:"Invois sepadan",rc_ok:"Sepadan",rc_missing:"Tiada — belum dimuat naik",rc_near:"Mungkin sepadan",rc_near_d:"Invois menunjukkan {v} (beza 1 aksara — semak salah baca)",rc_date_bad:"Tarikh berbeza: {v}",rc_amt_bad:"Amaun berbeza: {v}",rc_extra_h:"Invois yang tiada dalam mana-mana daftar",rc_extra_d:"No. invois {no} tiada dalam mana-mana daftar",rc_dup_h:"Nombor invois berulang",rc_csv:"Eksport CSV padanan",provider:"Penyedia",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (banyak model, satu kunci)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Lain-lain / relay (serasi OpenAI)",h_title:"Cara mendapatkan kunci {p}",h_step1:"Buka {link} dan log masuk (daftar akaun jika perlu).",h_step2:"Cipta API key baharu dan salin (biasanya hanya dipaparkan sekali).",h_step3:"Tampal ke dalam “API Key” di bawah, kemudian klik “Uji sambungan”. Base URL dan model diisi secara automatik.",h_custom1:"Minta Base URL (biasanya berakhir dengan /v1) dan API key daripada relay/penyedia anda.",h_custom2:"Tanya nama model yang menyokong imej (vision), cth. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Isi Base URL, API Key dan nama model, kemudian klik “Uji sambungan”.",hn_openai:"Berbayar, ikut penggunaan. gpt-4o / gpt-4.1 membaca imej dengan baik.",hn_anthropic:"Berbayar, ikut penggunaan. Model Claude membaca imej dengan baik; Base URL tidak diperlukan.",hn_gemini:"Ada tahap percuma (dengan had kadar). gemini-2.5-flash pantas dan boleh membaca imej.",hn_openrouter:"Satu kunci untuk banyak vendor; semak halaman model untuk input “image”. Sesetengah model percuma perlahan atau terhad.",hn_qwen:"Konsol antarabangsa dipaparkan. Pengguna di China tanah besar: guna dashscope.aliyuncs.com, bukan dashscope-intl.",hn_deepseek:"Murah dan kuat untuk teks.",hn_custom:"Banyak relay boleh dipanggil terus dari pelayar; jika berlaku ralat CORS, tetapkan proksi CORS di bahagian Lanjutan.",h_novision:"Modelnya teks sahaja: sesuai untuk Excel / CSV / Word, tetapi imej dan PDF akan gagal. Guna model vision untuk itu.",h_cors:"Mungkin menyekat panggilan dari halaman web (CORS). Jika “Uji sambungan” gagal dengan ralat sambungan, tetapkan proksi CORS di Lanjutan atau guna OpenRouter."
 }};
 let LANG=(()=>{try{return localStorage.getItem("invoicelens.lang")||"en"}catch{return"en"}})();if(!I18N[LANG])LANG="en";
 const T=(k,v={})=>t(k,v);
@@ -656,21 +658,24 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2200)};
 let JOBS=[],CUR=null,RESULT=null,tab="overview",segIdx=0,running=false,seq=0;
 const STATUS_K={rev:"ok",wait:"mut",run:"mut",ok:"ok",warn:"warn",bad:"bad",err:"bad"};const STATUS=new Proxy({},{get:(_,k)=>[STATUS_K[k],t("st_"+k)]});
-function addFiles(list){const fs=[...list].filter(f=>kindOf(f));
-  const skipped=list.length-fs.length;fs.forEach(f=>JOBS.push({id:++seq,file:f,rot:0,status:"wait",result:null,error:null,thumb:null}));
-  fs.forEach(f=>{if(kindOf(f)==="image"){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
-  if(skipped)toast(t("skipped_files",{n:skipped}));drawQueue();saveNow()}
+async function fileHash(f){try{const buf=await f.arrayBuffer();
+  if(globalThis.crypto?.subtle){const d=await crypto.subtle.digest("SHA-256",buf);return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,"0")).join("")}
+  let h1=0x811c9dc5,h2=0x01000193;const u=new Uint8Array(buf);for(let i=0;i<u.length;i++){h1=Math.imul(h1^u[i],16777619);h2=Math.imul(h2+u[i],2246822519)}return `fnv-${u.length}-${(h1>>>0).toString(16)}-${(h2>>>0).toString(16)}`}catch{return null}}
+async function addFiles(list){list=[...list];const fs=list.filter(f=>kindOf(f));const skipped=list.length-fs.length;let dup=0;
+  for(const f of fs){const h=await fileHash(f);if(h&&JOBS.some(j=>j.hash===h)){dup++;continue}
+    const j={id:++seq,file:f,hash:h,rot:0,status:"wait",result:null,error:null,thumb:kindOf(f)==="image"?URL.createObjectURL(f):null};JOBS.push(j)}
+  if(skipped)toast(t("skipped_files",{n:skipped}));if(dup)toast(t("skipped_dup",{n:dup}));drawQueue();saveNow()}
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
 function drawQueue(){scheduleSave();const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,tx]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
-    const info=j.status==="run"?`<span><span class="stage">${esc(stageText(j))}</span> · <span data-el="${j.id}">${Math.round((Date.now()-(j.t0||Date.now()))/1000)}</span>s</span>`:r?[typeName(r.document_type),r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
+    const dupOf=DUPMAP.get(j.id);const info=(dupOf?`<span class="badge warn" title="${esc(t("dup_title",{f:dupOf}))}">${t("dup_badge")}</span> `:"")+(j.status==="run"?`<span><span class="stage">${esc(stageText(j))}</span> · <span data-el="${j.id}">${Math.round((Date.now()-(j.t0||Date.now()))/1000)}</span>s</span>`:r?[typeName(r.document_type),r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`);
     return`<div class="job ${CUR===j?"sel":""} ${j.status==="run"?"running":""}" data-id="${j.id}" data-status="${j.status}" data-name="${esc(j.file.name)}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
       <div><div class="nm">${esc(j.file.name)}</div><div class="meta"><span class="badge ${k}">${tx}</span>${info}</div></div>
       <div class="acts">${(j.status==="wait"||j.status==="err")&&["image","heic","pdf","video"].includes(kindOf(j.file))?`<button data-act="rot" title="${t("rotate_title")}">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="${t("retry_title")}">${t("retry")}</button>`:""}${j.status!=="run"?`<button data-act="del" title="${t("remove")}">✕</button>`:`<button data-act="cancel" title="${t("cancel")}">${t("cancel")}</button>`}</div></div>`}).join("");
   const n=JOBS.length,done=JOBS.filter(j=>!["wait","run"].includes(j.status)).length;
   $("#qsum").textContent=n?`${done}/${n}`:"";$("#clearq").hidden=!n||running;
   $("#go").disabled=running||!JOBS.some(j=>j.status==="wait");$("#go").textContent=running?t("running"):JOBS.filter(j=>j.status==="wait").length>1?t("start_n",{n:JOBS.filter(j=>j.status==="wait").length}):t("start");
-  const hasRes=JOBS.some(j=>j.result);$("#tab-summary").hidden=JOBS.filter(j=>j.result||j.error).length<2;
+  const hasRes=JOBS.some(j=>j.result);$("#tab-summary").hidden=JOBS.filter(j=>j.result||j.error).length<2;$("#tab-recon").hidden=JOBS.filter(j=>j.result).length<2;{const rc=reconcile();const n=rc.issues;$("#recon-count").innerHTML=rc.registers.length||rc.dups.length?(n?`<span class="badge warn">${n}</span>`:`<span class="badge ok">✓</span>`):""}
   ["copy","dl","csv","csvsum"].forEach(id=>$("#"+id).disabled=!hasRes);
   const bad=JOBS.filter(j=>["bad","err"].includes(j.status)).length;$("#sum-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:"";
   q.querySelectorAll(".job").forEach(el=>{const j=JOBS.find(x=>x.id==el.dataset.id);
@@ -681,7 +686,7 @@ function drawQueue(){scheduleSave();const q=$("#queue");
       if(a==="retry"){if(j.result&&j.result.segments.some(sg=>sg.manual_edits?.length)&&!confirm(t("confirm_retry")))return;j.status="wait";j.result=null;j.error=null;j.reviewed=false;drawQueue();if(!running)runQueue();return}
       select(j)}})}
 function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");drawQueue();showCurrent()}
-function showCurrent(){const j=CUR;if(tab==="summary")return renderSummary();
+function showCurrent(){const j=CUR;if(tab==="summary")return renderSummary();if(tab==="recon")return renderRecon();
   if(!j)return $("#view").innerHTML=emptyFor(tab);
   if(j.status==="run")return paintProgress(j);
   if(j.result)return render();
@@ -699,13 +704,13 @@ let saveTimer=null,restoring=false;
 // throttle (not debounce): continuous activity must not postpone saving indefinitely
 function scheduleSave(){if(!DB.ok||restoring||saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;saveNow()},400)}
 async function saveNow(){clearTimeout(saveTimer);saveTimer=null;if(!DB.ok)return;
-  const rows=JOBS.map(j=>({id:j.id,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,texts:j.texts||null,saved_at:Date.now()}));
+  const rows=JOBS.map(j=>({id:j.id,hash:j.hash||null,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,texts:j.texts||null,saved_at:Date.now()}));
   const ok=await DB.replaceAll(rows);SAVED={ok,at:new Date()};paintSaved()}
 let SAVED=null;function paintSaved(){const el=$("#saved");if(!el)return;if(!DB.ok){el.textContent=DB.db===null&&SAVED===false?t("no_autosave"):"";return}if(!SAVED){el.textContent="";return}el.textContent=SAVED.restored?t("restored_lbl"):SAVED.ok?t("autosaved",{t:SAVED.at.toLocaleTimeString(LANG==="zh"?"zh-CN":LANG==="ms"?"ms-MY":"en-GB",{hour:"2-digit",minute:"2-digit"})}):t("autosave_fail")}
 async function restore(){const ok=await DB.open();if(!ok){SAVED=false;$("#saved").textContent=t("no_autosave");return}
   const rows=await DB.all();if(!rows.length)return;restoring=true;
   rows.sort((a,b)=>a.id-b.id).forEach(r=>{const f=r.file instanceof Blob?(r.file instanceof File?r.file:new File([r.file],r.name,{type:r.type})):null;if(!f)return;
-    JOBS.push({id:r.id,file:f,rot:r.rot||0,status:r.status||"wait",error:r.error||null,reviewed:!!r.reviewed,result:r.result||null,previews:r.previews||null,texts:r.texts||null,
+    JOBS.push({id:r.id,hash:r.hash||null,file:f,rot:r.rot||0,status:r.status||"wait",error:r.error||null,reviewed:!!r.reviewed,result:r.result||null,previews:r.previews||null,texts:r.texts||null,
       thumb:kindOf(f)==="image"?URL.createObjectURL(f):(r.previews?.[0]?`data:image/jpeg;base64,${r.previews[0]}`:null)})});
   seq=Math.max(seq,...JOBS.map(j=>j.id));restoring=false;drawQueue();
   const first=JOBS.find(j=>j.result);if(first)select(first);if(JOBS.filter(j=>j.result||j.error).length>1)setTab("summary");
@@ -764,10 +769,64 @@ async function runQueue(){
   const CONC=2,workers=Array.from({length:CONC},async()=>{let j;while((j=JOBS.find(x=>x.status==="wait"))){await runJob(j,cfg)}});
   await Promise.all(workers);running=false;drawQueue();
   const n=JOBS.length;toast(t("done_n",{n,s:((performance.now()-t0)/1000).toFixed(1)}));
-  if(JOBS.filter(j=>j.result||j.error).length>1)setTab("summary");
+  if(JOBS.filter(j=>j.result||j.error).length>1)setTab(reconcile().registers.length?"recon":"summary");
 }
 $("#go").onclick=()=>{if(!running)runQueue()};
 
+/* ---------- cross-document reconciliation & duplicates ---------- */
+const normNo=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+const ocrCanon=k=>k.replace(/O|Q|D/g,"0").replace(/[IL|]/g,"1").replace(/S/g,"5").replace(/B/g,"8").replace(/Z/g,"2").replace(/G/g,"6");
+function lev1(a,b){if(a===b)return 0;if(Math.abs(a.length-b.length)>1)return 2;let i=0,j=0,d=0;while(i<a.length&&j<b.length){if(a[i]===b[j]){i++;j++;continue}if(++d>1)return 2;if(a.length>b.length)i++;else if(b.length>a.length)j++;else{i++;j++}}return d+(a.length-i)+(b.length-j)}
+function normDate(v){const m=String(v??"").match(/(\d{1,4})[\/.\-](\d{1,2})[\/.\-](\d{1,4})/);if(!m)return null;let [_,a,b,c]=m;let y,mo,d;
+  if(a.length===4){y=a;mo=b;d=c}else{d=a;mo=b;y=c.length===2?"20"+c:c}return `${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`}
+const INV_COL=/(invoice|inv|bill)\s*\.?\s*(no|number|num|#)|no\.?\s*(invois|inv)|发票号|发票编号|單號|单号/i,DATE_COL=/date|tarikh|日期/i,NAME_COL=/name|customer|ship.?to|nama|pelanggan|名称|客户/i;
+let DUPMAP=new Map();
+function jobDocs(j){return (j.result?.segments||[]).map(sg=>best(sg)[1]).filter(Boolean)}
+function reconcile(){
+  const done=JOBS.filter(j=>j.result);const registers=[],invoices=[];
+  for(const j of done){const docs=jobDocs(j);const regRows=[];
+    for(const r of docs)for(const tb of r.tables||[]){const cols=tb.columns||[];const ci=cols.findIndex(c=>INV_COL.test(c?.name||""));if(ci<0)continue;
+      const di=cols.findIndex(c=>DATE_COL.test(c?.name||"")),ni=cols.findIndex(c=>NAME_COL.test(c?.name||"")&&!INV_COL.test(c?.name||"")),ai=cols.findIndex(c=>c?.role==="amount");
+      for(const row of tb.rows||[]){if(!Array.isArray(row)||!normNo(row[ci]))continue;regRows.push({no:row[ci],key:normNo(row[ci]),date:di>=0?row[di]:null,name:ni>=0?row[ni]:null,amount:ai>=0?row[ai]:null})}}
+    const isReg=docs.some(r=>r.document_type==="invoice_register")||regRows.length>=2;
+    if(isReg&&regRows.length)registers.push({job:j,rows:regRows,no:docs[0]?.document_number});
+    else{const r=docs[0];if(r&&normNo(r.document_number))invoices.push({job:j,no:r.document_number,key:normNo(r.document_number),date:r.document_date,total:r.grand_total,party:(r.parties||[]).find(p=>["supplier","issuer"].includes(p.role))?.name||null})}}
+  // duplicates by invoice number
+  const dups=[];DUPMAP=new Map();const byKey={};invoices.forEach(x=>(byKey[x.key]=byKey[x.key]||[]).push(x));
+  for(const [k,list] of Object.entries(byKey))if(list.length>1){dups.push({no:list[0].no,files:list.map(x=>x.job)});list.forEach((x,i)=>DUPMAP.set(x.job.id,list.filter(y=>y!==x).map(y=>y.job.file.name).join(", ")))}
+  // match register rows
+  const used=new Set();let issues=dups.length;
+  const allRows=registers.flatMap(reg=>reg.rows);
+  // pass 1: exact matches; pass 2: OCR-confusable look-alikes (O/0, I/L/1, S/5, B/8, Z/2, G/6) among unused invoices only
+  for(const row of allRows){const m=invoices.find(x=>x.key===row.key);row.match=m||null;row.kind=m?"match":"missing";if(m)used.add(m.job.id)}
+  for(const row of allRows){if(row.match)continue;const c=ocrCanon(row.key);const m=invoices.find(x=>!used.has(x.job.id)&&x.key.length>=4&&ocrCanon(x.key)===c);if(m){row.match=m;row.kind="near";used.add(m.job.id)}}
+  for(const row of allRows){const m=row.match;
+    row.dateBad=!!(m&&row.date&&m.date&&normDate(row.date)&&normDate(m.date)&&normDate(row.date)!==normDate(m.date));
+    row.amountBad=!!(m&&row.amount!=null&&m.total!=null&&num(row.amount)!=null&&num(m.total)!=null&&Math.abs(num(row.amount)-num(m.total))>0.011);
+    if(row.kind!=="match"||row.dateBad||row.amountBad)issues++}
+  const extra=registers.length?invoices.filter(x=>!used.has(x.job.id)):[];issues+=extra.length;
+  return {registers,invoices,extra,dups,issues}}
+function renderRecon(){const v=$("#view"),rc=reconcile();
+  if(!rc.registers.length&&!rc.dups.length){v.innerHTML=`<div class="empty">${t("recon_empty")}</div>`;return}
+  const badge=(k,txt)=>`<span class="badge ${k}">${esc(txt)}</span>`;let h="";
+  for(const reg of rc.registers){const ok=reg.rows.filter(r=>r.kind==="match"&&!r.dateBad&&!r.amountBad).length;
+    h+=`<div class="sec"><h3>${esc(t("recon_reg",{f:reg.job.file.name,no:reg.no||"—"}))}</h3><p class="sub" style="margin:0 0 8px">${esc(t("recon_stat",{ok,n:reg.rows.length}))}</p>
+    <div class="tw"><table><thead><tr><th>#</th><th>${t("rc_no")}</th><th>${t("rc_date")}</th><th>${t("rc_name")}</th><th>${t("rc_file")}</th><th>${t("th_status")}</th></tr></thead><tbody>
+    ${reg.rows.map((r,i)=>`<tr class="${r.kind==="missing"?"flag":""}"><td>${i+1}</td><td>${esc(r.no)}</td><td>${esc(r.date??"—")}</td><td>${esc(r.name??"—")}</td>
+      <td>${r.match?`<a href="#" data-open="${r.match.job.id}">${esc(r.match.job.file.name)}</a>${r.kind==="near"?`<div class="sub">${esc(t("rc_near_d",{v:r.match.no}))}</div>`:""}`:"—"}</td>
+      <td>${r.kind==="missing"?badge("bad",t("rc_missing")):r.kind==="near"?badge("warn",t("rc_near")):r.dateBad?badge("warn",t("rc_date_bad",{v:r.match.date})):r.amountBad?badge("warn",t("rc_amt_bad",{v:r.match.total})):badge("ok",t("rc_ok"))}</td></tr>`).join("")}
+    </tbody></table></div></div>`}
+  if(rc.extra.length)h+=`<div class="sec"><h3>${t("rc_extra_h")}</h3><div class="list">${rc.extra.map(x=>`<div class="item" data-k="warn">${badge("warn",t("b_warn"))}<div><a href="#" data-open="${x.job.id}">${esc(x.job.file.name)}</a><div class="sub">${esc(t("rc_extra_d",{no:x.no}))}</div></div></div>`).join("")}</div></div>`;
+  if(rc.dups.length)h+=`<div class="sec"><h3>${t("rc_dup_h")}</h3><div class="list">${rc.dups.map(d=>`<div class="item" data-k="warn">${badge("warn",t("dup_badge"))}<div><b>${esc(d.no)}</b><div class="sub">${d.files.map(j=>`<a href="#" data-open="${j.id}">${esc(j.file.name)}</a>`).join(" · ")}</div></div></div>`).join("")}</div></div>`;
+  h+=`<div style="margin-top:14px"><button class="btn sm" id="csvrecon">${t("rc_csv")}</button></div>`;
+  v.innerHTML=h;
+  v.querySelectorAll("[data-open]").forEach(a=>a.onclick=e=>{e.preventDefault();const j=JOBS.find(x=>x.id==a.dataset.open);if(j){setTab("overview");select(j)}});
+  $("#csvrecon").onclick=()=>{const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;const L=[["register_file","invoice_no","register_date","name","matched_file","matched_invoice_no","invoice_date","invoice_total","status"].join(",")];
+    rc.registers.forEach(reg=>reg.rows.forEach(r=>L.push([reg.job.file.name,r.no,r.date,r.name,r.match?.job.file.name,r.match?.no,r.match?.date,r.match?.total,r.kind==="missing"?"missing":r.kind==="near"?"possible_match":r.dateBad?"date_mismatch":r.amountBad?"amount_mismatch":"ok"].map(q).join(","))));
+    rc.extra.forEach(x=>L.push(["",x.no,"","",x.job.file.name,x.no,x.date,x.total,"not_in_register"].map(q).join(",")));
+    rc.dups.forEach(d=>L.push(["",d.no,"","",d.files.map(j=>j.file.name).join(" | "),d.no,"","","duplicate"].map(q).join(",")));
+    dlBlob(`invoicelens_reconcile_${new Date().toISOString().slice(0,10)}.csv`,"﻿"+L.join("\n"),"text/csv")};
+}
 function renderSummary(){const v=$("#view");const done=JOBS.filter(j=>j.result||j.error);
   if(!done.length){v.innerHTML=`<div class="empty">${t("no_results")}</div>`;return}
   const c=s=>JOBS.filter(j=>j.status===s).length;
@@ -882,10 +941,10 @@ $("#csv").onclick=()=>{const lines=[];
     lines.push([res.source_document,s.segment_identifier,t.name||T("table_n",{n:ti+1})].map(q).join(","));lines.push(["","",...(t.columns||[]).map(c=>c.name)].map(q).join(","));
     (t.rows||[]).forEach(row=>lines.push([res.source_document,r.document_number,...row].map(q).join(",")));if(Array.isArray(t.total_row))lines.push(["TOTAL","",...t.total_row].map(q).join(","));lines.push("")})}));
   dlBlob(`invoicelens_tables_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
-$("#csvsum").onclick=()=>{const cols=["file","status","manual_edits","document_type","document_number","document_date","counterparty","currency","grand_total","table_rows","issues"];
+$("#csvsum").onclick=()=>{const cols=["file","status","duplicate_of","manual_edits","document_type","document_number","document_date","counterparty","currency","grand_total","table_rows","issues"];
   const lines=[cols.join(",")];JOBS.filter(j=>j.result||j.error).forEach(j=>{const sg=j.result?.segments[0],r=sg&&best(sg)[1];const party=r?.parties?.find(p=>p.role!=="issuer"&&p.role!=="supplier")||r?.parties?.[0];
     const iss=j.result?j.result.segments.flatMap(x=>issues(x).filter(i=>i[0]==="bad"||i[0]==="warn").map(i=>`${i[1]}: ${i[2]}`)).join(" | "):j.error;
-    lines.push([j.file.name,STATUS[j.status][1],j.result?j.result.segments.reduce((a,x)=>a+(x.manual_edits?.length||0),0):0,r?.document_type,r?.document_number,r?.document_date,party?.name,r?.currency,r?.grand_total,r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"",iss].map(q).join(","))});
+    lines.push([j.file.name,STATUS[j.status][1],DUPMAP.get(j.id)||"",j.result?j.result.segments.reduce((a,x)=>a+(x.manual_edits?.length||0),0):0,r?.document_type,r?.document_number,r?.document_date,party?.name,r?.currency,r?.grand_total,r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"",iss].map(q).join(","))});
   dlBlob(`invoicelens_summary_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
 function applyStatic(){document.documentElement.lang=LANG==="zh"?"zh-CN":LANG;
   document.querySelectorAll("[data-i18n]").forEach(e=>e.textContent=t(e.dataset.i18n));

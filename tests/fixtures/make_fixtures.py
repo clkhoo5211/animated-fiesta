@@ -56,5 +56,6 @@ for row in [("Design", "1", "1500.00"), ("Hosting", "12", "600.00")]:
     for i, v in enumerate(row):
         c[i].text = v
 doc.add_paragraph("Total: 2100.00"); doc.save(p("quote.docx"))
+open(p("register.csv"), "w").write("Delivery No,Name,Invoice Date,Invoice No.,CTN-1,Total\n1000000001,SHOP ALPHA,01/10/2026,INV-1001,1,1\n1000000002,SHOP BETA,01/10/2026,INV-1002,2,2\n1000000003,SHOP GAMMA,02/10/2026,INV-1003,3,3\n1000000004,SHOP DELTA,02/10/2026,INV-1004,4,4\nTotal,,,,10,10\n")
 open(p("note.txt"), "w").write("unsupported file\n")
 print("fixtures written to", D)

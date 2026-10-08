@@ -20,7 +20,7 @@ test("English by default; no untranslated text in en / ms / zh; choice persists"
   for (const lang of ["en", "ms", "zh"]) {
     await page.selectOption("#lang", lang);
     await page.locator('.job[data-name="invoice.jpg"]').click();
-    for (const tab of ["overview", "items", "checks", "summary"]) {
+    for (const tab of ["overview", "items", "checks", "summary", "recon"]) {
       await page.click(`.tab[data-tab=${tab}]`);
       expect(leaks(await visibleText(page), lang), `${lang}/${tab}`).toEqual([]);
     }
