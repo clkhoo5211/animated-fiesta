@@ -91,7 +91,7 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 <main>
 <section>
   <div class="card">
-    <h2>文件队列 <span class="sub" id="qsum"></span><span class="sp"></span><button class="btn sm" id="clearq" hidden>清空</button></h2>
+    <h2>文件队列 <span class="sub" id="qsum"></span><span class="sub" id="saved" title="结果与修正自动保存在本浏览器（IndexedDB）"></span><span class="sp"></span><button class="btn sm" id="clearq" hidden>清空</button></h2>
     <div class="pad">
       <div class="drop" id="drop" tabindex="0" role="button">
         <b>拖入、点击或粘贴文件（可多选）</b>
@@ -359,7 +359,7 @@ function addFiles(list){const fs=[...list].filter(f=>/^(image|video)\//.test(f.t
   fs.forEach(f=>{if(f.type.startsWith("image/")){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
   if(skipped)toast(`已跳过 ${skipped} 个不支持的文件`);drawQueue()}
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
-function drawQueue(){const q=$("#queue");
+function drawQueue(){scheduleSave();const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,t]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
     const info=r?[TYPES[r.document_type]||r.document_type,r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
     return`<div class="job ${CUR===j?"sel":""}" data-id="${j.id}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
@@ -374,19 +374,42 @@ function drawQueue(){const q=$("#queue");
   q.querySelectorAll(".job").forEach(el=>{const j=JOBS.find(x=>x.id==el.dataset.id);
     el.onclick=e=>{const a=e.target.closest("[data-act]")?.dataset.act;
       if(a==="rot"){j.rot=(j.rot+90)%360;drawQueue();return}
-      if(a==="del"){JOBS=JOBS.filter(x=>x!==j);if(CUR===j){CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">选择左侧文件查看结果</div>'}drawQueue();return}
+      if(a==="del"){if(j.result?.segments?.some(sg=>sg.manual_edits?.length)&&!confirm("这个文件有手动修正，删除后无法恢复。确定删除？"))return;JOBS=JOBS.filter(x=>x!==j);if(CUR===j){CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">选择左侧文件查看结果</div>'}drawQueue();return}
       if(a==="retry"){if(j.result&&j.result.segments.some(sg=>sg.manual_edits?.length)&&!confirm("重新识别会丢失这个文件的手动修正，继续？"))return;j.status="wait";j.result=null;j.error=null;j.reviewed=false;drawQueue();if(!running)runQueue();return}
       select(j)}})}
 function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");drawQueue();
   if(j.result)render();else $("#view").innerHTML=`<div class="empty">${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:j.status==="run"?"处理中…":"尚未识别"}</div>`}
 function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));if(t==="summary")renderSummary();else if(RESULT)render()}
+/* ---------- autosave (IndexedDB) ---------- */
+const DB={db:null,ok:false,
+  open(){return new Promise(res=>{try{const rq=indexedDB.open("invoicelens",1);rq.onupgradeneeded=()=>{rq.result.createObjectStore("jobs",{keyPath:"id"})};
+    rq.onsuccess=()=>{this.db=rq.result;this.ok=true;res(true)};rq.onerror=()=>res(false);rq.onblocked=()=>res(false)}catch{res(false)}})},
+  tx(mode){return this.db.transaction("jobs",mode).objectStore("jobs")},
+  all(){return new Promise(res=>{if(!this.ok)return res([]);try{const rq=this.tx("readonly").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>res([])}catch{res([])}})},
+  replaceAll(rows){return new Promise(res=>{if(!this.ok)return res(false);try{const t=this.db.transaction("jobs","readwrite"),st=t.objectStore("jobs");st.clear();rows.forEach(r=>st.put(r));t.oncomplete=()=>res(true);t.onerror=t.onabort=()=>res(false)}catch{res(false)}})}};
+let saveTimer=null,restoring=false;
+function scheduleSave(){if(!DB.ok||restoring)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,400)}
+async function saveNow(){clearTimeout(saveTimer);if(!DB.ok)return;
+  const rows=JOBS.map(j=>({id:j.id,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,saved_at:Date.now()}));
+  const ok=await DB.replaceAll(rows);const el=$("#saved");if(el)el.textContent=ok?` · 已自动保存 ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`:" · 自动保存失败（存储空间不足？）"}
+async function restore(){const ok=await DB.open();if(!ok){$("#saved").textContent=" · 本浏览器无法自动保存";return}
+  const rows=await DB.all();if(!rows.length)return;restoring=true;
+  rows.sort((a,b)=>a.id-b.id).forEach(r=>{const f=r.file instanceof Blob?(r.file instanceof File?r.file:new File([r.file],r.name,{type:r.type})):null;if(!f)return;
+    JOBS.push({id:r.id,file:f,rot:r.rot||0,status:r.status||"wait",error:r.error||null,reviewed:!!r.reviewed,result:r.result||null,previews:r.previews||null,
+      thumb:f.type.startsWith("image/")?URL.createObjectURL(f):(r.previews?.[0]?`data:image/jpeg;base64,${r.previews[0]}`:null)})});
+  seq=Math.max(seq,...JOBS.map(j=>j.id));restoring=false;drawQueue();
+  const first=JOBS.find(j=>j.result);if(first)select(first);if(JOBS.filter(j=>j.result||j.error).length>1)setTab("summary");
+  const ed=JOBS.reduce((a,j)=>a+(j.result?.segments||[]).reduce((b,sg)=>b+(sg.manual_edits?.length||0),0),0);
+  toast(`已恢复 ${JOBS.length} 个文件${ed?`（含 ${ed} 处手动修正）`:""}`);$("#saved").textContent=" · 已恢复";}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")saveNow()});
+window.addEventListener("pagehide",()=>saveNow());
 const drop=$("#drop"),fi=$("#f");
 drop.onclick=()=>fi.click();drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")fi.click()};fi.onchange=()=>{addFiles(fi.files);fi.value=""};
 ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("on")}));
 ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("on")}));
 drop.addEventListener("drop",e=>addFiles(e.dataTransfer.files));
 window.addEventListener("paste",e=>{const f=[...e.clipboardData.files];if(f.length){addFiles(f);toast(`已粘贴 ${f.length} 个文件`)}});
-$("#clearq").onclick=()=>{JOBS=[];CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">上传文件并点击“开始识别”，结果会显示在这里。</div>';drawQueue()};
+$("#clearq").onclick=()=>{const ed=JOBS.some(j=>j.result?.segments?.some(sg=>sg.manual_edits?.length));if(!confirm(ed?"清空队列会删除已保存的结果和手动修正（建议先导出）。确定清空？":"确定清空队列和已保存的结果？"))return;JOBS=[];CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">上传文件并点击“开始识别”，结果会显示在这里。</div>';drawQueue()};
 $$(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
 
 async function runJob(j,cfg){
@@ -530,7 +553,7 @@ $("#csvsum").onclick=()=>{const cols=["file","status","manual_edits","document_t
     const iss=j.result?j.result.segments.flatMap(x=>issues(x).filter(i=>i[0]==="bad"||i[0]==="warn").map(i=>`${i[1]}: ${i[2]}`)).join(" | "):j.error;
     lines.push([j.file.name,STATUS[j.status][1],j.result?j.result.segments.reduce((a,x)=>a+(x.manual_edits?.length||0),0):0,r?.document_type,r?.document_number,r?.document_date,party?.name,r?.currency,r?.grand_total,r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"",iss].map(q).join(","))});
   dlBlob(`invoicelens_summary_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
-drawQueue();
+drawQueue();restore();
 refreshChips();if(!S.a_key&&!S.b_key)setTimeout(()=>{fillForm();$("#settings").showModal()},300);
 </script>
 </body>
