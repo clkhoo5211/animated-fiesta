@@ -1,47 +1,157 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Vision Pipeline</title>
+<title>InvoiceLens</title>
+<meta name="description" content="浏览器端发票识别：多模型抽取、算术校验、交叉核验">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f5bd3'/%3E%3Cpath d='M9 8h11l4 4v12H9z' fill='white'/%3E%3Cpath d='M12 15h9M12 19h6' stroke='%232f5bd3' stroke-width='2'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#f7f7f5;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--bd:#e2e2dc;--ac:#2f5bd3}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecece8;--mut:#9a9a93;--card:#1e1e1c;--bd:#33332f;--ac:#7b9cff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
-main{max-width:900px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 20px}
-.c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
-label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}input[type=password],input[type=text]{width:100%;padding:8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
-button{background:var(--ac);color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:600;cursor:pointer;margin-top:12px}button:disabled{opacity:.5}
-pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--bg);padding:12px;border-radius:6px;max-height:600px;overflow:auto}
-.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumbs img{height:90px;border:1px solid var(--bd);border-radius:4px}
-#log{color:var(--mut);font-size:13px}
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#14161a;--mut:#667085;--line:#e4e7ec;--soft:#f2f4f7;--ac:#2f5bd3;--ac-soft:#eaf0ff;--ok:#12805c;--ok-soft:#e7f6ef;--warn:#b54708;--warn-soft:#fef3e6;--bad:#c4320a;--bad-soft:#fdecea;--r:12px;--sh:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1115;--panel:#171a21;--fg:#e8eaee;--mut:#98a2b3;--line:#2a2f3a;--soft:#1f232c;--ac:#7c9cff;--ac-soft:#1e2742;--ok:#4cc38a;--ok-soft:#16291f;--warn:#f5a524;--warn-soft:#2d2212;--bad:#ff7a59;--bad-soft:#2f1915;--sh:none}}
+*{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+button,input,select{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}.logo i{width:28px;height:28px;border-radius:8px;background:var(--ac);display:grid;place-items:center;color:#fff;font-style:normal;font-size:14px}
+.sub{color:var(--mut);font-size:13px}.sp{flex:1}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--soft)}.btn.pri{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}.btn.pri:hover{filter:brightness(1.07)}.btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:5px 10px;font-size:13px}
+main{max-width:1280px;margin:0 auto;padding:20px 16px 48px;display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
+main>*{min-width:0}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+@media (max-width:640px){.tabs{flex-wrap:wrap}.tools{margin-left:0;width:100%;overflow-x:auto}.bar .sub{display:none}.kpi.big b{font-size:19px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
+.card h2{font-size:14px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.pad{padding:16px}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:.15s;background:var(--soft)}
+.drop:hover,.drop.on{border-color:var(--ac);background:var(--ac-soft)}.drop b{display:block;margin-bottom:4px}.drop .sub{font-size:12px}
+.file{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;word-break:break-all}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font-size:12px;padding:3px 8px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--mut)}.chip.on{background:var(--ac-soft);color:var(--ac);border-color:transparent}.chip.off{text-decoration:line-through}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:14px}.thumbs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
+.steps{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:6px;font-size:13px}.steps li{display:flex;gap:8px;align-items:center;color:var(--mut)}
+.steps li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--line)}.steps li.run{color:var(--fg)}.steps li.run::before{background:var(--ac);animation:p 1s infinite}.steps li.done::before{background:var(--ok)}.steps li.err{color:var(--bad)}.steps li.err::before{background:var(--bad)}
+@keyframes p{50%{opacity:.3}}
+.tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--mut);border-bottom:2px solid transparent;white-space:nowrap}.tab.on{color:var(--fg);border-color:var(--ac);font-weight:600}
+.tools{margin-left:auto;display:flex;gap:6px;padding-bottom:6px}
+.empty{padding:64px 16px;text-align:center;color:var(--mut)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:12px}.kpi span{font-size:12px;color:var(--mut)}.kpi b{display:block;font-size:17px;margin-top:2px;word-break:break-word}
+.kpi.big b{font-size:22px;color:var(--ac)}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.warn{background:var(--warn-soft);color:var(--warn)}.badge.bad{background:var(--bad-soft);color:var(--bad)}.badge.mut{background:var(--soft);color:var(--mut)}
+.sec{margin-top:18px}.sec h3{font-size:13px;color:var(--mut);font-weight:600;margin:0 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.kv{display:grid;grid-template-columns:72px 1fr;gap:6px 12px;font-size:13px}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-word}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.box{border:1px solid var(--line);border-radius:10px;padding:12px}.box h4{margin:0 0 8px;font-size:13px}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:var(--soft);font-weight:600;color:var(--mut);font-size:12px;white-space:nowrap}tr:last-child td{border-bottom:0}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.flag td{background:var(--bad-soft)}
+.list{display:grid;gap:8px}.item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px}.item .badge{flex:none}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:14px;border-radius:10px;max-height:70vh;overflow:auto}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+/* settings */
+dialog{border:0;padding:0;border-radius:14px;width:min(640px,calc(100vw - 32px));background:var(--panel);color:var(--fg);box-shadow:0 20px 50px rgba(0,0,0,.25)}dialog::backdrop{background:rgba(15,17,21,.45)}
+.dh{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}.dh h2{margin:0;font-size:16px}
+.db{padding:4px 20px 8px;max-height:70vh;overflow:auto}.df{display:flex;gap:8px;align-items:center;padding:14px 20px;border-top:1px solid var(--line)}
+fieldset{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;margin:14px 0 0}legend{font-weight:600;font-size:13px;padding:0 6px}
+.f{display:grid;gap:4px;margin-top:10px}.f label{font-size:12px;color:var(--mut)}
+.f input,.f select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}.f input:focus,.f select:focus{outline:2px solid var(--ac-soft);border-color:var(--ac)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media (max-width:560px){.row{grid-template-columns:1fr}}
+.pw{position:relative}.pw input{padding-right:56px}.pw button{position:absolute;right:4px;top:4px;bottom:4px;border:0;background:var(--soft);border-radius:6px;padding:0 8px;cursor:pointer;font-size:12px}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:10px}.chk input{width:auto}
+.note{font-size:12px;color:var(--mut);margin-top:8px}.note.warn{color:var(--warn)}
+.test{font-size:12px;margin-left:8px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
+#zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
 </head>
-<body><main>
-<h1>Unified Vision Pipeline</h1>
-<p class="s">图片 / PDF / 视频 → 本地 QR·条码 + PDF 文本层 → OpenAI & Anthropic 视觉抽取 → 交叉核验。全部在浏览器运行，密钥只存在本页内存。</p>
-<div class="c">
-<label>OpenAI 兼容 Base URL（OpenAI / DeepSeek / 通义 / OpenRouter / 中转站…）</label><input id="ob" type="text" value="https://api.openai.com/v1" list="presets">
-<datalist id="presets"><option value="https://api.openai.com/v1"><option value="https://openrouter.ai/api/v1"><option value="https://dashscope.aliyuncs.com/compatible-mode/v1"><option value="https://generativelanguage.googleapis.com/v1beta/openai"><option value="https://api.deepseek.com/v1"></datalist>
-<label>CORS 代理 URL（可选，遇到 CORS 报错时填，如 https://vision-cors-proxy.xxx.workers.dev）</label><input id="px" type="text" placeholder="留空 = 浏览器直连">
-<label>API Key（可选）</label><input id="ok" type="password" autocomplete="off">
-<label>模型（需支持图片输入）</label><input id="om" type="text" value="gpt-4o">
-<label><input id="jm" type="checkbox" checked style="width:auto"> 使用 JSON 模式（服务商报错时取消勾选）</label>
-<label>Anthropic API Key（可选）</label><input id="ak" type="password" autocomplete="off">
-<label>Anthropic 模型</label><input id="am" type="text" value="claude-sonnet-5-5">
-<label>文件</label><input id="f" type="file" accept="image/*,.pdf,video/*">
-<button id="go">运行</button> <span id="log"></span>
-</div>
-<div class="c"><div class="thumbs" id="th"></div></div>
-<div class="c"><pre id="out">结果将显示在这里</pre></div>
+<body>
+<header><div class="bar">
+  <div class="logo"><i>IL</i>InvoiceLens</div>
+  <span class="sub" id="status-pill"></span>
+  <span class="sp"></span>
+  <button class="btn" id="open-settings">⚙︎ 模型设置</button>
+</div></header>
+
+<main>
+<section>
+  <div class="card">
+    <h2>上传文件</h2>
+    <div class="pad">
+      <div class="drop" id="drop" tabindex="0" role="button">
+        <b>拖入、点击或粘贴文件</b>
+        <span class="sub">支持图片 · PDF（逐页渲染）· 视频（取 3 帧）</span>
+        <input type="file" id="f" accept="image/*,.pdf,video/*" hidden>
+      </div>
+      <div class="file" id="file-info" hidden></div>
+      <div class="chips" id="engine-chips"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn pri" id="go" style="flex:1;justify-content:center" disabled>开始识别</button>
+      </div>
+      <ul class="steps" id="steps" hidden></ul>
+      <div class="thumbs" id="th"></div>
+    </div>
+  </div>
+  <p class="note" style="padding:0 4px">所有处理在你的浏览器内完成；文件只会发送给你在“模型设置”中配置的服务商。</p>
+</section>
+
+<section class="card" id="results">
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-tab="overview">概览</button>
+    <button class="tab" data-tab="items">明细</button>
+    <button class="tab" data-tab="checks">校验 <span id="check-count"></span></button>
+    <button class="tab" data-tab="json">原始 JSON</button>
+    <div class="tools"><button class="btn sm" id="copy" disabled>复制 JSON</button><button class="btn sm" id="dl" disabled>下载 JSON</button><button class="btn sm" id="csv" disabled>导出明细 CSV</button></div>
+  </div>
+  <div class="pad" id="view"><div class="empty">上传发票并点击“开始识别”，结果会显示在这里。</div></div>
+</section>
 </main>
+
+<dialog id="settings">
+  <form method="dialog">
+  <div class="dh"><h2>模型设置</h2><span class="sp"></span><button class="btn sm" value="cancel">关闭</button></div>
+  <div class="db">
+    <fieldset data-slot="a">
+      <legend>模型 A（主）</legend>
+      <div class="row">
+        <div class="f"><label>类型</label><select name="a_type"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></div>
+        <div class="f"><label>模型名（需支持图片）</label><input name="a_model" placeholder="gpt-4o"></div>
+      </div>
+      <div class="f" data-openai><label>Base URL</label><input name="a_base" list="presets" placeholder="https://api.openai.com/v1"></div>
+      <div class="f"><label>API Key</label><div class="pw"><input name="a_key" type="password" autocomplete="off" placeholder="sk-..."><button type="button" class="eye">显示</button></div></div>
+      <label class="chk" data-openai><input type="checkbox" name="a_json"> 使用 JSON 模式（服务商报错时关闭）</label>
+      <div class="chk"><button type="button" class="btn sm test-btn">测试连接</button><span class="test"></span></div>
+    </fieldset>
+    <fieldset data-slot="b">
+      <legend>模型 B（可选，用于交叉核验）</legend>
+      <div class="row">
+        <div class="f"><label>类型</label><select name="b_type"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></div>
+        <div class="f"><label>模型名</label><input name="b_model" placeholder="claude-sonnet-5-5 / gemini-2.5-flash"></div>
+      </div>
+      <div class="f" data-openai><label>Base URL</label><input name="b_base" list="presets" placeholder="同模型 A 可填相同地址"></div>
+      <div class="f"><label>API Key（留空则不启用）</label><div class="pw"><input name="b_key" type="password" autocomplete="off"><button type="button" class="eye">显示</button></div></div>
+      <label class="chk" data-openai><input type="checkbox" name="b_json"> 使用 JSON 模式</label>
+      <div class="chk"><button type="button" class="btn sm test-btn">测试连接</button><span class="test"></span></div>
+    </fieldset>
+    <fieldset>
+      <legend>高级</legend>
+      <div class="f"><label>CORS 代理 URL（仅在出现 CORS 错误时填写）</label><input name="proxy" placeholder="https://vision-cors-proxy.xxx.workers.dev"></div>
+      <label class="chk"><input type="checkbox" name="remember_keys"> 在此浏览器记住 API Key</label>
+      <p class="note warn">Key 会以明文保存在本浏览器的 localStorage，仅限个人设备使用；公用电脑请勿勾选。Base URL / 模型等其他设置始终会保存。</p>
+    </fieldset>
+    <datalist id="presets"><option value="https://api.openai.com/v1"><option value="https://openrouter.ai/api/v1"><option value="https://dashscope.aliyuncs.com/compatible-mode/v1"><option value="https://generativelanguage.googleapis.com/v1beta/openai"><option value="https://api.deepseek.com/v1"></datalist>
+  </div>
+  <div class="df"><button class="btn sm" type="button" id="clear-settings">清除已保存设置</button><span class="sp"></span><button class="btn pri" value="save" id="save-settings">保存</button></div>
+  </form>
+</dialog>
+<dialog id="zoom"><form method="dialog"><img alt=""><div class="df"><span class="sp"></span><button class="btn sm">关闭</button></div></form></dialog>
+<div class="toast" id="toast"></div>
+
 <script type="module">
 const PDFJS="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/";
 const ZXING="https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index.js";
 let _pdf,_zx;
 const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pdf.GlobalWorkerOptions.workerSrc=PDFJS+"pdf.worker.min.mjs";}catch(e){throw new Error("PDF 库加载失败（网络/CDN）："+e.message)}}return _pdf};
 const loadZx=async()=>_zx||(_zx=await import(ZXING));
-window.addEventListener("error",e=>{const l=document.getElementById("log");if(l)l.textContent="脚本错误："+e.message});
-const $=id=>document.getElementById(id), log=t=>$("log").textContent=t;
 const PROMPT=`You are an invoice data extractor. Read the image carefully and return ONE JSON object with exactly this shape (use null when absent, keep numbers as strings exactly as printed, never guess digits):
 {"supplier":{"name","registration_no","tin","address","phone"},
  "invoice":{"invoice_no","date","customer_account","sales_executive","page","payment_terms","reference"},
@@ -105,42 +215,159 @@ async function local(seg){
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
-async function openai(key,model,content,base,json,proxy){
-  const h={"Content-Type":"application/json",Authorization:`Bearer ${key}`};if(proxy)h["X-Target-Base"]=base;
-  const r=await fetch((proxy||base).replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,
-    body:JSON.stringify({model,...(json?{response_format:{type:"json_object"}}:{}),max_tokens:2000,messages:[{role:"user",content}]})}).catch(e=>{throw new Error(`无法连接 ${base}${proxy?"（经代理）":"（可能是 CORS：请填写代理 URL）"}`)});
-  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);return parseJSON(j.choices[0].message.content);
-}
 async function anthropic(key,model,content){
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model,max_tokens:2000,messages:[{role:"user",content}]})});
   const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.content.find(b=>b.type==="text").text);
 }
 const safe=p=>p.catch(e=>({error:String(e.message||e)}));
-async function processSeg(seg,cfg){
-  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
-  const [loc,oa,an]=await Promise.all([local(seg),
-    cfg.ok?safe(openai(cfg.ok,cfg.om,[{type:"text",text:PROMPT+hint},{type:"image_url",image_url:{url:`data:image/jpeg;base64,${seg.b64}`}}],cfg.ob,cfg.jm,cfg.px)):{status:"skipped"},
-    cfg.ak?safe(anthropic(cfg.ak,cfg.am,[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:seg.b64}},{type:"text",text:PROMPT+hint}])):{status:"skipped"}]);
-  let audit={};
-  if(cfg.ok&&cfg.ak){
-    if(oa.error||an.error)audit={status:"Verification Bypassed",reason:"A provider failed."};
-    else{const q=`You are a strict data auditor. Compare two extractions of the same document.\nA (OpenAI): ${JSON.stringify(oa)}\nB (Anthropic): ${JSON.stringify(an)}\nReturn JSON with 'consensus_data' (fields both agree on) and 'discrepancy_flags' (each with field, value_a, value_b). Raw JSON only.`;
-      audit=await safe(anthropic(cfg.ak,cfg.am,[{type:"text",text:q}]));}
-  }
-  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai_compatible:oa,anthropic:an},arithmetic_check:{openai_compatible:arithmetic(oa),anthropic:arithmetic(an)},cross_verification_audit:audit};
+
+/* ---------- settings ---------- */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const LS="invoicelens.settings.v1";
+const DEF={a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false};
+const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
+  set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
+  clear(){try{localStorage.removeItem(LS)}catch{}}};
+let S=store.get();
+const form=$("#settings form");
+const cleanBase=u=>(u||"").trim().replace(/\/+$/,"").replace(/\/(models|chat\/completions)$/,"");
+function fillForm(){for(const [k,v] of Object.entries(S)){const el=form.elements[k];if(!el)continue;el.type==="checkbox"?el.checked=!!v:el.value=v}syncTypes()}
+function readForm(){const o={};for(const k of Object.keys(DEF)){const el=form.elements[k];o[k]=el.type==="checkbox"?el.checked:el.value.trim()}o.a_base=cleanBase(o.a_base);o.b_base=cleanBase(o.b_base);return o}
+function syncTypes(){for(const s of ["a","b"]){const fs=$(`fieldset[data-slot=${s}]`),isO=form.elements[s+"_type"].value==="openai";fs.querySelectorAll("[data-openai]").forEach(e=>e.hidden=!isO)}}
+form.elements.a_type.onchange=form.elements.b_type.onchange=syncTypes;
+$$(".eye").forEach(b=>b.onclick=()=>{const i=b.previousElementSibling;i.type=i.type==="password"?"text":"password";b.textContent=i.type==="password"?"显示":"隐藏"});
+$("#open-settings").onclick=()=>{fillForm();$("#settings").showModal()};
+$("#save-settings").onclick=()=>{S=readForm();store.set(S);refreshChips();toast(S.remember_keys?"设置已保存（含 Key）":"设置已保存（Key 仅本次会话有效）")};
+$("#clear-settings").onclick=()=>{store.clear();S={...DEF};fillForm();refreshChips();toast("已清除保存的设置")};
+const slot=(s,o=S)=>({type:o[s+"_type"],model:o[s+"_model"],base:cleanBase(o[s+"_base"])||(o[s+"_type"]==="openai"?"https://api.openai.com/v1":""),key:o[s+"_key"],json:o[s+"_json"],proxy:o.proxy,name:`${o[s+"_model"]}`});
+$$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dataset.slot,c=slot(s,readForm()),out=b.nextElementSibling;
+  if(!c.key){out.innerHTML='<span class="badge warn">请先填 Key</span>';return}
+  out.innerHTML='<span class="badge mut">测试中…</span>';
+  try{await callModel(c,[{type:"text",text:'Reply with JSON {"ok":true}'}],null,40);out.innerHTML='<span class="badge ok">✓ 连接正常</span>'}
+  catch(e){out.innerHTML=`<span class="badge bad">✗ ${esc(e.message).slice(0,140)}</span>`}});
+function refreshChips(){const a=slot("a"),b=slot("b");
+  $("#engine-chips").innerHTML=`<span class="chip on">本地 QR / 条码</span><span class="chip on">PDF 文本层</span><span class="chip ${a.key?"on":"off"}">A · ${esc(a.model||"未配置")}</span><span class="chip ${b.key?"on":"off"}">B · ${esc(b.model||"未配置")}</span>${a.key&&b.key?'<span class="chip on">交叉核验</span>':""}`;
+  $("#status-pill").textContent=a.key||b.key?"":"尚未配置模型 → 点击右上角“模型设置”"}
+
+/* ---------- model calls ---------- */
+async function callModel(c,content,img,maxTok=2500){
+  if(c.type==="anthropic"){const parts=img?[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:img}},...content]:content;return anthropic(c.key,c.model,parts)}
+  const parts=img?[...content,{type:"image_url",image_url:{url:`data:image/jpeg;base64,${img}`}}]:content;
+  const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
+  const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,
+    body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
+    .catch(()=>{throw new Error(`无法连接 ${c.base}${c.proxy?"（经代理）":"（可能是 CORS，可在高级设置中填写代理）"}`)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
+  return parseJSON(j.choices?.[0]?.message?.content||"");
 }
-$("go").onclick=async()=>{
-  if(!$("ok").value.trim()&&!$("ak").value.trim())log("提示：未填任何 API Key，只做本地条码/文本识别");
-  const file=$("f").files[0];if(!file)return log("请先选择文件");
-  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),ob:($("ob").value.trim()||"https://api.openai.com/v1").replace(/\/+$/,"").replace(/\/(models|chat\/completions)$/,""),jm:$("jm").checked,px:$("px").value.trim(),am:$("am").value.trim()};
-  $("go").disabled=true;$("th").innerHTML="";
-  try{log("解析文件…");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");
-    segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;$("th").append(i)});
-    log(`并发处理 ${segs.length} 个片段…`);
-    const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg))));
-    $("out").textContent=JSON.stringify({source_document:file.name,total_extracted_segments:out.length,segments:out},null,2);log("完成");
-  }catch(e){log("错误："+e.message)}finally{$("go").disabled=false}
+
+/* ---------- local cross-verification ---------- */
+const norm=v=>String(v??"").toLowerCase().replace(/[\s,.:;()\-_/"']/g,"");
+function flatten(o,p="",out={}){if(o&&typeof o==="object"){for(const [k,v] of Object.entries(o)){if(k==="low_confidence_fields")continue;flatten(v,p?`${p}.${k}`:k,out)}}else if(o!=null&&o!=="")out[p]=o;return out}
+function compare(a,b){if(!a||!b||a.error||b.error||a.status||b.status)return null;
+  const A=flatten(a),B=flatten(b),keys=[...new Set([...Object.keys(A),...Object.keys(B)])].filter(k=>!/^(stamps_and_chops|handwritten_notes)/.test(k));
+  const agree=[],diff=[];for(const k of keys){if(!(k in A)||!(k in B)){diff.push({field:k,a:A[k]??null,b:B[k]??null,kind:"missing"});continue}
+    const x=norm(A[k]),y=norm(B[k]);const nx=num(A[k]),ny=num(B[k]);
+    if(x===y||(nx!=null&&ny!=null&&/^[\d.,\s-]+$/.test(String(A[k]))&&Math.abs(nx-ny)<0.005))agree.push(k);else diff.push({field:k,a:A[k],b:B[k],kind:"mismatch"})}
+  return {agreement_rate:keys.length?+(agree.length/keys.length).toFixed(3):null,agreed_fields:agree.length,discrepancies:diff}}
+
+/* ---------- pipeline ---------- */
+async function processSeg(seg,cfg,onStep){
+  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";const msg=[{type:"text",text:PROMPT+hint}];
+  const run=c=>c.key?safe(callModel(c,msg,seg.b64)):Promise.resolve({status:"skipped"});
+  const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
+  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
+    arithmetic_check:{model_a:arithmetic(ra),model_b:arithmetic(rb)},cross_verification:compare(ra,rb)};
+}
+
+/* ---------- UI ---------- */
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2200)};
+let file=null,RESULT=null,tab="overview",segIdx=0;
+function setFile(f){if(!f)return;file=f;$("#file-info").hidden=false;$("#file-info").innerHTML=`📄 <b>${esc(f.name)}</b><span class="sub">${(f.size/1024).toFixed(0)} KB</span>`;$("#go").disabled=false;$("#th").innerHTML=""}
+const drop=$("#drop"),fi=$("#f");
+drop.onclick=()=>fi.click();drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")fi.click()};fi.onchange=()=>setFile(fi.files[0]);
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("on")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("on")}));
+drop.addEventListener("drop",e=>setFile(e.dataTransfer.files[0]));
+window.addEventListener("paste",e=>{const f=[...e.clipboardData.files][0];if(f){setFile(f);toast("已粘贴文件")}});
+$$(".tab").forEach(t=>t.onclick=()=>{tab=t.dataset.tab;$$(".tab").forEach(x=>x.classList.toggle("on",x===t));render()});
+
+function steps(list){const ul=$("#steps");ul.hidden=false;ul.innerHTML=list.map(([id,t])=>`<li id="st-${id}">${t}</li>`).join("")}
+const st=(id,c,t)=>{const e=$("#st-"+id);if(!e)return;e.className=c;if(t)e.textContent=t};
+
+$("#go").onclick=async()=>{
+  const cfg={a:slot("a"),b:slot("b")};
+  if(!cfg.a.key&&!cfg.b.key)toast("未配置模型，仅做本地识别");
+  $("#go").disabled=true;$("#th").innerHTML="";RESULT=null;
+  steps([["ingest","解析文件"],["local","本地 QR / 条码"],["a",`模型 A · ${cfg.a.key?cfg.a.model:"未启用"}`],["b",`模型 B · ${cfg.b.key?cfg.b.model:"未启用"}`],["verify","算术校验与交叉核验"]]);
+  if(!cfg.a.key)st("a","","模型 A · 未启用");if(!cfg.b.key)st("b","","模型 B · 未启用");
+  const t0=performance.now();
+  try{st("ingest","run");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");st("ingest","done",`解析文件 · ${segs.length} 个片段`);
+    segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;i.onclick=()=>{$("#zoom img").src=i.src;$("#zoom").showModal()};$("#th").append(i)});
+    st("local","run");if(cfg.a.key)st("a","run");if(cfg.b.key)st("b","run");
+    const left={local:segs.length,a:segs.length,b:segs.length},onStep=k=>{if(--left[k]===0&&(k==="local"||cfg[k]?.key))st(k,"done")};
+    const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg,onStep))));
+    out.forEach(s=>["a","b"].forEach(k=>{const r=s.provider_responses["model_"+k];if(r.error)st(k,"err",`模型 ${k.toUpperCase()} · ${r.error.slice(0,80)}`)}));
+    st("verify","done");
+    RESULT={source_document:file.name,processed_at:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-t0),total_extracted_segments:out.length,segments:out};
+    segIdx=0;["copy","dl","csv"].forEach(id=>$("#"+id).disabled=false);render();toast(`完成 · ${(RESULT.elapsed_ms/1000).toFixed(1)} 秒`);
+  }catch(e){$$("#steps li.run").forEach(l=>{l.className="err"});toast("错误："+e.message);$("#view").innerHTML=`<div class="empty" style="color:var(--bad)">${esc(e.message)}</div>`}
+  finally{$("#go").disabled=false}
 };
+
+function best(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
+  const ca=seg.arithmetic_check.model_a,cb=seg.arithmetic_check.model_b;
+  if(ok(a)&&ok(b)&&cb?.passed&&!ca?.passed)return ["B",b];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
+function issues(seg){const L=[];const cv=seg.cross_verification;
+  for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.arithmetic_check["model_"+k],K=k.toUpperCase();
+    if(r.error)L.push(["bad",`模型 ${K} 调用失败`,r.error]);
+    if(c)c.passed?L.push(["ok",`模型 ${K} 算术校验通过`,`明细合计 ${c.lines_sum} = 应付 ${c.total_payable}`]):c.issues.forEach(i=>L.push(["bad",`模型 ${K} 算术不一致`,i]));
+    (r.low_confidence_fields||[]).forEach(f=>L.push(["warn",`模型 ${K} 自报低置信`,f]))}
+  if(cv){cv.discrepancies.forEach(d=>L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`]));if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
+  else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果"]);
+  const q=seg.local_extraction.qr_and_barcodes;L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
+  return L}
+function kv(o,labels){if(!o)return'<p class="sub">—</p>';return`<dl class="kv">${Object.entries(labels).map(([k,l])=>`<dt>${l}</dt><dd>${esc(o[k]??"—")}</dd>`).join("")}</dl>`}
+function render(){const v=$("#view");if(!RESULT){return}
+  const seg=RESULT.segments[segIdx],[who,r]=best(seg),iss=issues(seg),bad=iss.filter(i=>i[0]==="bad").length,warn=iss.filter(i=>i[0]==="warn").length;
+  $("#check-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:warn?`<span class="badge warn">${warn}</span>`:'<span class="badge ok">✓</span>';
+  const segs=RESULT.segments.length>1?`<div class="seg">${RESULT.segments.map((s,i)=>`<button class="btn sm ${i===segIdx?"pri":""}" data-seg="${i}">${esc(s.segment_identifier)}</button>`).join("")}</div>`:"";
+  let h=segs;
+  if(tab==="json")h+=`<pre>${esc(JSON.stringify(RESULT,null,2))}</pre>`;
+  else if(!r&&tab!=="checks")h+=`<div class="empty">没有可用的模型结果。${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||"请先在“模型设置”中配置模型。")}</div>`;
+  else if(tab==="overview"){const inv=r.invoice||{},t=r.totals||{},verdict=bad?'<span class="badge bad">需复核</span>':warn?'<span class="badge warn">有待确认项</span>':'<span class="badge ok">校验通过</span>';
+    h+=`<div class="kpis">
+      <div class="kpi big"><span>应付总额 ${esc(t.currency||"")}</span><b>${esc(t.total_payable??"—")}</b></div>
+      <div class="kpi"><span>发票号</span><b>${esc(inv.invoice_no??"—")}</b></div>
+      <div class="kpi"><span>日期</span><b>${esc(inv.date??"—")}</b></div>
+      <div class="kpi"><span>状态</span><b>${verdict}</b></div></div>
+    <p class="sub" style="margin:10px 0 0">显示来源：模型 ${who}${seg.cross_verification?` · A/B 一致率 ${Math.round(seg.cross_verification.agreement_rate*100)}%`:""}</p>
+    <div class="sec grid2">
+      <div class="box"><h4>供应商</h4>${kv(r.supplier,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",phone:"电话"})}</div>
+      <div class="box"><h4>买方（Bill to）</h4>${kv(r.bill_to,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",attn:"联系人",tel:"电话"})}</div>
+      <div class="box"><h4>发票信息</h4>${kv(inv,{customer_account:"客户账号",sales_executive:"销售",payment_terms:"付款条件",reference:"参考号",page:"页码"})}</div>
+      <div class="box"><h4>送货地址</h4>${kv(r.deliver_to,{name:"名称",address:"地址"})}${t.amount_in_words?`<p class="sub" style="margin:10px 0 0">${esc(t.amount_in_words)}</p>`:""}</div></div>
+    <div class="sec grid2">
+      <div class="box"><h4>印章 / 盖章</h4>${(r.stamps_and_chops||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
+      <div class="box"><h4>手写内容</h4>${(Array.isArray(r.handwritten_notes)?r.handwritten_notes:[r.handwritten_notes].filter(Boolean)).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
+  else if(tab==="items"){const rows=r.line_items||[];const c=seg.arithmetic_check["model_"+who.toLowerCase()];
+    h+=`<div class="tw"><table><thead><tr><th>#</th><th>编码</th><th>描述</th><th class="n">数量</th><th>单位</th><th class="n">单价</th><th class="n">折扣</th><th class="n">金额</th><th class="n">核算</th></tr></thead><tbody>
+    ${rows.map((x,i)=>{const q=num(x.qty),p=num(x.unit_price),t=num(x.line_total),d=num(x.discount)||0,okc=q==null||p==null||t==null?null:Math.abs(q*p-d-t)<=0.011;
+      return`<tr class="${okc===false?"flag":""}"><td>${esc(x.no??i+1)}</td><td>${esc(x.item_code)}</td><td>${esc(x.description)}</td><td class="n">${esc(x.qty)}</td><td>${esc(x.uom)}</td><td class="n">${esc(x.unit_price)}</td><td class="n">${esc(x.discount)}</td><td class="n"><b>${esc(x.line_total)}</b></td><td class="n">${okc==null?"—":okc?'<span class="badge ok">✓</span>':`<span class="badge bad">${(q*p-d).toFixed(2)}</span>`}</td></tr>`}).join("")}
+    </tbody><tfoot><tr><th colspan="7" style="text-align:right">明细合计 / 应付总额</th><th class="n">${c?.lines_sum??"—"}</th><th class="n">${esc(r.totals?.total_payable??"—")}</th></tr></tfoot></table></div>`}
+  else if(tab==="checks"){h+=`<div class="list">${iss.map(([k,t,d])=>`<div class="item"><span class="badge ${k}">${{ok:"通过",bad:"错误",warn:"注意",mut:"信息"}[k]}</span><div><b>${esc(t)}</b><div class="sub">${esc(d)}</div></div></div>`).join("")}</div>`}
+  v.innerHTML=h;v.querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{segIdx=+b.dataset.seg;render()});
+}
+const dlBlob=(name,text,type)=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+const base=()=>RESULT.source_document.replace(/\.[^.]+$/,"");
+$("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(RESULT,null,2));toast("已复制")}catch{toast("复制失败")}};
+$("#dl").onclick=()=>dlBlob(base()+".json",JSON.stringify(RESULT,null,2),"application/json");
+$("#csv").onclick=()=>{const cols=["segment","no","item_code","description","qty","uom","unit_price","discount","line_total"],q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const lines=[cols.join(",")];RESULT.segments.forEach(s=>{const [,r]=best(s);(r?.line_items||[]).forEach(x=>lines.push([s.segment_identifier,...cols.slice(1).map(c=>x[c])].map(q).join(",")))});
+  dlBlob(base()+"_items.csv","﻿"+lines.join("\n"),"text/csv")};
+refreshChips();if(!S.a_key&&!S.b_key)setTimeout(()=>{fillForm();$("#settings").showModal()},300);
 </script>
-</body></html>
+</body>
+</html>
