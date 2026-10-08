@@ -95,8 +95,8 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
     <div class="pad">
       <div class="drop" id="drop" tabindex="0" role="button">
         <b>拖入、点击或粘贴文件（可多选）</b>
-        <span class="sub">可一次选择多个文件 · 发票、收据、送货单、出货清单等 · 图片 / PDF / 视频</span>
-        <input type="file" id="f" accept="image/*,.pdf,video/*" multiple hidden>
+        <span class="sub">可多选 · 图片（含 iPhone HEIC）/ PDF / Excel / CSV / Word / 视频</span>
+        <input type="file" id="f" accept="image/*,.heic,.heif,.pdf,video/*,.xlsx,.xlsm,.xls,.ods,.csv,.docx" multiple hidden>
       </div>
       
       <div class="chips" id="engine-chips"></div>
@@ -170,6 +170,17 @@ const ZXING="https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index
 let _pdf,_zx;
 const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pdf.GlobalWorkerOptions.workerSrc=PDFJS+"pdf.worker.min.mjs";}catch(e){throw new Error("PDF 库加载失败（网络/CDN）："+e.message)}}return _pdf};
 const loadZx=async()=>_zx||(_zx=await import(ZXING));
+const LIBS={xlsx:["https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","XLSX"],mammoth:["https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js","mammoth"],heic:["https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js","heic2any"]};
+const _libs={};
+function loadLib(k){const [url,glob]=LIBS[k];return _libs[k]||(_libs[k]=new Promise((res,rej)=>{if(window[glob])return res(window[glob]);const sc=document.createElement("script");sc.src=url;sc.onload=()=>window[glob]?res(window[glob]):rej(new Error(k+" 库加载失败"));sc.onerror=()=>{_libs[k]=null;rej(new Error(`${k} 库加载失败（网络/CDN）`))};document.head.append(sc)}))}
+const kindOf=f=>{const n=f.name.toLowerCase();
+  if(/\.(heic|heif)$/.test(n)||/image\/hei[cf]/.test(f.type))return"heic";
+  if(f.type==="application/pdf"||n.endsWith(".pdf"))return"pdf";
+  if(/\.(xlsx|xlsm|xls|ods)$/.test(n)||/spreadsheet|ms-excel/.test(f.type))return"sheet";
+  if(/\.csv$/.test(n)||f.type==="text/csv")return"csv";
+  if(/\.docx$/.test(n)||/wordprocessingml/.test(f.type))return"docx";
+  if(f.type.startsWith("video/"))return"video";if(f.type.startsWith("image/"))return"image";return null};
+const MAX_TEXT=60000;
 const PROMPT=`You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.
 Return ONE JSON object with this shape (null when absent; all values as strings exactly as printed):
 {"document_type":"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other",
@@ -196,8 +207,25 @@ const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{typ
 const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{return JSON.parse(t)}catch{const m=t.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{raw:t}}};
 
 async function ingest(file){
-  const n=file.name.toLowerCase(), segs=[];
-  if(file.type==="application/pdf"||n.endsWith(".pdf")){
+  const n=file.name.toLowerCase(), segs=[], kind=kindOf(file);
+  if(kind==="heic"){let blob=null;
+    try{const bmp=await createImageBitmap(file);const c=document.createElement("canvas");c.width=bmp.width;c.height=bmp.height;c.getContext("2d").drawImage(bmp,0,0);segs.push({id:"Image_1",b64:canvasToJpeg(c),text:""});return segs}catch{}
+    const h2a=await loadLib("heic");try{blob=await h2a({blob:file,toType:"image/jpeg",quality:0.95})}catch(e){throw new Error("HEIC 转换失败："+(e.message||e))}
+    if(Array.isArray(blob))blob=blob[0];const bmp=await createImageBitmap(blob);const c=document.createElement("canvas");c.width=bmp.width;c.height=bmp.height;c.getContext("2d").drawImage(bmp,0,0);
+    segs.push({id:"Image_1",b64:canvasToJpeg(c),text:""});return segs}
+  if(kind==="sheet"||kind==="csv"){const X=await loadLib("xlsx");
+    const wb=kind==="csv"?X.read(await file.text(),{type:"string",raw:true}):X.read(await file.arrayBuffer(),{type:"array"});
+    for(const name of wb.SheetNames){const rows=X.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:false,defval:""}).filter(r=>r.some(c=>String(c).trim()!==""));
+      if(!rows.length)continue;const csv=rows.map(r=>r.map(c=>String(c).replace(/\s+/g," ").trim()).join(" | ")).join("\n");
+      segs.push({id:kind==="csv"?"CSV":`Sheet_${name}`,b64:null,kind:"text",source:kind==="csv"?"CSV":`Excel 工作表「${name}」`,text:csv.slice(0,MAX_TEXT),truncated:csv.length>MAX_TEXT,rawRows:rows})}
+    return segs}
+  if(kind==="docx"){const M=await loadLib("mammoth");const buf=await file.arrayBuffer();
+    const {value:html}=await M.convertToHtml({arrayBuffer:buf});const doc=new DOMParser().parseFromString(html,"text/html");
+    doc.querySelectorAll("table").forEach(t=>{const txt=[...t.rows].map(r=>[...r.cells].map(c=>c.textContent.replace(/\s+/g," ").trim()).join(" | ")).join("\n");const pre=doc.createElement("pre");pre.textContent="\n[TABLE]\n"+txt+"\n[/TABLE]\n";t.replaceWith(pre)});
+    doc.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li").forEach(e=>e.append("\n"));
+    const text=doc.body.textContent.replace(/\n{3,}/g,"\n\n").trim();if(!text)throw new Error("Word 文档没有可读取的文字（可能只有图片）");
+    segs.push({id:"Document",b64:null,kind:"text",source:"Word 文档",text:text.slice(0,MAX_TEXT),truncated:text.length>MAX_TEXT});return segs}
+  if(kind==="pdf"){
     const pdfjs=await loadPdf();const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
     for(let i=1;i<=pdf.numPages;i++){
       const p=await pdf.getPage(i), vp=p.getViewport({scale:2}), c=document.createElement("canvas");
@@ -272,6 +300,7 @@ async function decodeScaled(seg,scale){
   return await new Promise(r=>c.toBlob(r,"image/png"));
 }
 async function local(seg){
+  if(!seg.b64)return {qr_and_barcodes:[],native_extracted_text:seg.kind==="text"?`(${seg.source}，共 ${seg.text.length} 字符${seg.truncated?"，已截断":""})`:seg.text,not_applicable:true};
   try{const {readBarcodesFromImageFile}=await loadZx();const opt={tryHarder:true,maxNumberOfSymbols:20};
     let r=(await readBarcodesFromImageFile(b64ToBlob(seg.b64),opt)).filter(x=>x.isValid);
     for(const sc of [2,3]){if(r.length)break;r=(await readBarcodesFromImageFile(await decodeScaled(seg,sc),opt)).filter(x=>x.isValid);}
@@ -338,14 +367,19 @@ function compare(a,b){if(!a||!b||a.error||b.error||a.status||b.status)return nul
 
 /* ---------- pipeline ---------- */
 async function processSeg(seg,cfg,onStep){
-  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
-  const imgs=await prepImages(seg.b64,cfg);seg.sent=imgs;
-  const multi=imgs.length>1?"\n\nYou receive "+imgs.length+" images of the SAME page: image 1 is the full page, the others are enlarged overlapping sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; output each field and table row only ONCE.":"";
+  const hint=seg.kind==="text"?`\n\nThere is NO image. The document content below was extracted from a ${seg.source} (cells separated by " | ", one row per line${seg.truncated?"; content truncated":""}). Apply the same rules to this text; rotation_degrees = "0".\n<<<DOCUMENT\n${seg.text}\nDOCUMENT>>>`:seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
+  const imgs=seg.b64?await prepImages(seg.b64,cfg):null;seg.sent=imgs;
+  const multi=imgs&&imgs.length>1?"\n\nYou receive "+imgs.length+" images of the SAME page: image 1 is the full page, the others are enlarged overlapping sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; output each field and table row only ONCE.":"";
   const msg=[{type:"text",text:PROMPT+hint+multi}];
   const run=c=>c.key?safe(callModel(c,msg,imgs)):Promise.resolve({status:"skipped"});
+  if(!cfg.a.key&&!cfg.b.key&&seg.rawRows){const rows=seg.rawRows,head=rows[0].map(String);const isNum=v=>v!==""&&!isNaN(parseFloat(String(v).replace(/[,\s]/g,"")));
+    const cols=head.map((h,i)=>({name:h||`列${i+1}`,role:rows.slice(1).every(r=>r[i]===""||isNum(r[i]))&&rows.slice(1).some(r=>isNum(r[i]))?"number":"text"}));
+    let body=rows.slice(1),total=null;if(body.length&&/total|合计|总计/i.test(String(body.at(-1)[0])))total=body.pop();
+    const ra={model:"本地解析",document_type:"other",title:seg.source,tables:[{name:seg.source,columns:cols,rows:body,total_row:total}],fields:[],parties:[]};
+    return {segment_identifier:seg.id,source_kind:"text",image_size:null,local_extraction:await local(seg),provider_responses:{model_a:ra,model_b:{status:"skipped"}},checks:{model_a:verify(ra),model_b:null},cross_verification:null}}
   const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
-  const im=await createImageBitmap(b64ToBlob(seg.b64));
-  return {segment_identifier:seg.id,image_size:[im.width,im.height],local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
+  const im=seg.b64?await createImageBitmap(b64ToBlob(seg.b64)):null;
+  return {segment_identifier:seg.id,source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
     checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
 }
 
@@ -354,9 +388,9 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2200)};
 let JOBS=[],CUR=null,RESULT=null,tab="overview",segIdx=0,running=false,seq=0;
 const STATUS={rev:["ok","已复核"],wait:["mut","等待"],run:["mut","处理中…"],ok:["ok","通过"],warn:["warn","待确认"],bad:["bad","需复核"],err:["bad","失败"]};
-function addFiles(list){const fs=[...list].filter(f=>/^(image|video)\//.test(f.type)||/\.pdf$/i.test(f.name)||f.type==="application/pdf");
+function addFiles(list){const fs=[...list].filter(f=>kindOf(f));
   const skipped=list.length-fs.length;fs.forEach(f=>JOBS.push({id:++seq,file:f,rot:0,status:"wait",result:null,error:null,thumb:null}));
-  fs.forEach(f=>{if(f.type.startsWith("image/")){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
+  fs.forEach(f=>{if(kindOf(f)==="image"){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
   if(skipped)toast(`已跳过 ${skipped} 个不支持的文件`);drawQueue()}
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
 function drawQueue(){scheduleSave();const q=$("#queue");
@@ -364,7 +398,7 @@ function drawQueue(){scheduleSave();const q=$("#queue");
     const info=r?[TYPES[r.document_type]||r.document_type,r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
     return`<div class="job ${CUR===j?"sel":""}" data-id="${j.id}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
       <div><div class="nm">${esc(j.file.name)}</div><div class="meta"><span class="badge ${k}">${t}</span>${info}</div></div>
-      <div class="acts">${j.status==="wait"||j.status==="err"?`<button data-act="rot" title="识别前旋转">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="重新识别">重试</button>`:""}${j.status!=="run"?`<button data-act="del" title="移除">✕</button>`:""}</div></div>`}).join("");
+      <div class="acts">${(j.status==="wait"||j.status==="err")&&["image","heic","pdf","video"].includes(kindOf(j.file))?`<button data-act="rot" title="识别前旋转">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="重新识别">重试</button>`:""}${j.status!=="run"?`<button data-act="del" title="移除">✕</button>`:""}</div></div>`}).join("");
   const n=JOBS.length,done=JOBS.filter(j=>!["wait","run"].includes(j.status)).length;
   $("#qsum").textContent=n?`${done}/${n}`:"";$("#clearq").hidden=!n||running;
   $("#go").disabled=running||!JOBS.some(j=>j.status==="wait");$("#go").textContent=running?"识别中…":JOBS.filter(j=>j.status==="wait").length>1?`开始识别（${JOBS.filter(j=>j.status==="wait").length} 个文件）`:"开始识别";
@@ -390,13 +424,13 @@ const DB={db:null,ok:false,
 let saveTimer=null,restoring=false;
 function scheduleSave(){if(!DB.ok||restoring)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,400)}
 async function saveNow(){clearTimeout(saveTimer);if(!DB.ok)return;
-  const rows=JOBS.map(j=>({id:j.id,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,saved_at:Date.now()}));
+  const rows=JOBS.map(j=>({id:j.id,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,texts:j.texts||null,saved_at:Date.now()}));
   const ok=await DB.replaceAll(rows);const el=$("#saved");if(el)el.textContent=ok?` · 已自动保存 ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`:" · 自动保存失败（存储空间不足？）"}
 async function restore(){const ok=await DB.open();if(!ok){$("#saved").textContent=" · 本浏览器无法自动保存";return}
   const rows=await DB.all();if(!rows.length)return;restoring=true;
   rows.sort((a,b)=>a.id-b.id).forEach(r=>{const f=r.file instanceof Blob?(r.file instanceof File?r.file:new File([r.file],r.name,{type:r.type})):null;if(!f)return;
-    JOBS.push({id:r.id,file:f,rot:r.rot||0,status:r.status||"wait",error:r.error||null,reviewed:!!r.reviewed,result:r.result||null,previews:r.previews||null,
-      thumb:f.type.startsWith("image/")?URL.createObjectURL(f):(r.previews?.[0]?`data:image/jpeg;base64,${r.previews[0]}`:null)})});
+    JOBS.push({id:r.id,file:f,rot:r.rot||0,status:r.status||"wait",error:r.error||null,reviewed:!!r.reviewed,result:r.result||null,previews:r.previews||null,texts:r.texts||null,
+      thumb:kindOf(f)==="image"?URL.createObjectURL(f):(r.previews?.[0]?`data:image/jpeg;base64,${r.previews[0]}`:null)})});
   seq=Math.max(seq,...JOBS.map(j=>j.id));restoring=false;drawQueue();
   const first=JOBS.find(j=>j.result);if(first)select(first);if(JOBS.filter(j=>j.result||j.error).length>1)setTab("summary");
   const ed=JOBS.reduce((a,j)=>a+(j.result?.segments||[]).reduce((b,sg)=>b+(sg.manual_edits?.length||0),0),0);
@@ -414,8 +448,8 @@ $$(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
 
 async function runJob(j,cfg){
   j.status="run";drawQueue();const t0=performance.now();
-  try{const segs=await ingest(j.file);if(!segs.length)throw new Error("不支持或无法解析的文件");if(j.rot)for(const sg of segs)sg.b64=await rotateB64(sg.b64,j.rot);
-    if(!j.thumb){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}j.previews=segs.map(sg=>sg.b64);
+  try{const segs=await ingest(j.file);if(!segs.length)throw new Error("不支持或无法解析的文件");if(j.rot)for(const sg of segs)if(sg.b64)sg.b64=await rotateB64(sg.b64,j.rot);
+    if(!j.thumb&&segs[0].b64){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}j.previews=segs.map(sg=>sg.b64);j.texts=segs.map(sg=>sg.b64?null:sg.text);
     const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg,()=>{}))));
     j.result={source_document:j.file.name,processed_at:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-t0),total_extracted_segments:out.length,segments:out};
     const allFail=out.every(sg=>["a","b"].every(k=>{const r=sg.provider_responses["model_"+k];return r.error||r.status}))&&(cfg.a.key||cfg.b.key);
@@ -461,14 +495,14 @@ window.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&ED
 function issues(seg){const L=[];const cv=seg.cross_verification;best(seg);
   const nEd=seg.manual_edits.length;
   if(nEd){const c=verify(seg.final_result);(c?.checks||[]).forEach(x=>L.push([x.ok?"ok":"bad",`最终结果 · ${x.label}`,x.detail]));L.unshift(["ok",`已手动修正 ${nEd} 处`,seg.manual_edits.slice(-3).map(e=>`${e.path}: ${e.from??"—"} → ${e.to??"—"}`).join(" | ")])}
-  for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.checks["model_"+k],K=k.toUpperCase();
+  for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.checks["model_"+k],K=r.model==="本地解析"?"":k.toUpperCase();
     if(r.error)L.push(["bad",`模型 ${K} 调用失败`,r.error]);
-    if(c&&!nEd){c.checks.forEach(x=>L.push([x.ok?"ok":"bad",`模型 ${K} · ${x.label}`,x.detail]));if(!c.checks.length)L.push(["mut",`模型 ${K} · 无可自动核算的数字`,"文档没有合计行 / 数量×单价结构"])}
+    if(c&&!nEd){c.checks.forEach(x=>L.push([x.ok?"ok":"bad",`${K?`模型 ${K}`:"本地解析"} · ${x.label}`,x.detail]));if(!c.checks.length)L.push(["mut",`模型 ${K} · 无可自动核算的数字`,"文档没有合计行 / 数量×单价结构"])}
     (r.low_confidence_fields||[]).forEach(f=>{if(!touched(seg,f))L.push(["warn",`模型 ${K} 自报低置信`,f,{field:f}])})}
   if(cv){cv.discrepancies.forEach(d=>{if(!touched(seg,d.field))L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`,{field:d.field,a:d.a,b:d.b}])});if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
-  else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果（推荐：数字、编号类字段只有交叉核验能发现错误）"]);
+  else if(seg.provider_responses.model_a.model!=="本地解析")L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果（推荐：数字、编号类字段只有交叉核验能发现错误）"]);
   if(seg.image_size&&Math.min(...seg.image_size)<1000&&!seg.accepted.includes("_lowres"))L.unshift(["warn",`图片分辨率偏低（${seg.image_size.join("×")}）`,"小字（税号、电话、标签）易误读：建议开启「多尺度识别」或配置模型 B 交叉核验；有原图时优先用原图",{field:"_lowres",noValue:true}]);
-  const q=seg.local_extraction.qr_and_barcodes;L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
+  const q=seg.local_extraction.qr_and_barcodes;if(!seg.local_extraction.not_applicable)L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
   return L}
 const TYPES={invoice:"发票",receipt:"收据",delivery_order:"送货单",invoice_register:"发票登记 / 出货清单",purchase_order:"采购单",statement:"对账单",quotation:"报价单",other:"其他"};
 const ROLES={supplier:"供应商",customer:"客户",bill_to:"买方",ship_to:"收货方",transporter:"承运方",issuer:"开具方",other:"其他方"};
@@ -490,7 +524,7 @@ function refreshBadges(seg){const iss=issues(seg),bad=iss.filter(i=>i[0]==="bad"
   // reflect row-level flags in tables
   if(tab==="items"){const r=seg.final_result,chk=verify(r)?.checks||[];document.querySelectorAll("#view tbody tr").forEach(tr=>tr.classList.remove("flag"));
     chk.forEach(c=>{const m=c.label.match(/^(.*) · 第 (\d+) 行/);if(!c.ok&&m){const ti=(r.tables||[]).findIndex((t,i)=>(t.name||`表 ${i+1}`)===m[1]);const tb=document.querySelectorAll("#view tbody")[ti];tb?.children[+m[2]-1]?.classList.add("flag")}})}}
-function preview(){const src=CUR?.previews?.[segIdx];return src?`<div class="pv"><img src="data:image/jpeg;base64,${src}" alt="原图" title="点击放大"></div>`:""}
+function preview(){const tx=CUR?.texts?.[segIdx];if(tx)return`<div class="pv"><pre style="max-height:none;border-radius:0">${esc(tx)}</pre></div>`;const src=CUR?.previews?.[segIdx];return src?`<div class="pv"><img src="data:image/jpeg;base64,${src}" alt="原图" title="点击放大"></div>`:""}
 function render(){const v=$("#view");if(!RESULT){return}
   const seg=RESULT.segments[segIdx],[who,r]=best(seg),iss=issues(seg),bad=iss.filter(i=>i[0]==="bad").length,warn=iss.filter(i=>i[0]==="warn").length;
   $("#check-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:warn?`<span class="badge warn">${warn}</span>`:'<span class="badge ok">✓</span>';
