@@ -87,6 +87,8 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
   .pad{padding:12px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.big{grid-column:span 2}.tab{padding:10px 8px}.tools .btn{flex:1 1 auto;justify-content:center}
   .editbar .btn{flex:1 1 auto;justify-content:center}.grid2{grid-template-columns:1fr}.job{grid-template-columns:40px 1fr;}.job .acts{grid-column:1/-1;justify-content:flex-end}
   dialog{width:calc(100vw - 16px)}.kpi b{font-size:15px}.kpi.big b{font-size:20px}.dh,.df{padding:12px 14px}.db{padding:4px 14px 8px}}
+[hidden]{display:none!important}
+.help{margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--ac-soft);font-size:13px;line-height:1.55}.help ol{margin:6px 0 0;padding-left:18px}.help a{color:var(--ac);font-weight:600}.help .warnline{color:var(--warn);margin-top:6px}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
@@ -140,6 +142,8 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
   <div class="db">
     <fieldset data-slot="a">
       <legend data-i18n="model_a"></legend>
+      <div class="f"><label data-i18n="provider"></label><select name="a_prov" class="prov"></select></div>
+      <div class="help" data-help="a"></div>
       <div class="row">
         <div class="f"><label data-i18n="type"></label><select name="a_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
         <div class="f"><label data-i18n="model_name_img"></label><input name="a_model" placeholder="gpt-4o"></div>
@@ -151,6 +155,8 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
     </fieldset>
     <fieldset data-slot="b">
       <legend data-i18n="model_b"></legend>
+      <div class="f"><label data-i18n="provider"></label><select name="b_prov" class="prov"></select></div>
+      <div class="help" data-help="b"></div>
       <div class="row">
         <div class="f"><label data-i18n="type"></label><select name="b_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
         <div class="f"><label data-i18n="model_name"></label><input name="b_model" placeholder="claude-sonnet-5-5 / gemini-2.5-flash"></div>
@@ -246,7 +252,7 @@ en:{
  f_name:"Name",f_reg:"Reg. no.",f_tax:"Tax ID",f_addr:"Address",f_contact:"Contact",
  fields_h:"Fields (as labelled)",totals_h:"Totals",stamps_h:"Stamps / chops",hand_h:"Handwriting",no_tables:"No tables found in the document",
  marked_rev:"Marked as reviewed",undone:"Undone",used_model:"Used model {k}'s value",fix_prompt:"Edit {f}",copied_cur:"Copied current file JSON",copied:"Copied",copy_fail:"Copy failed",
- del_row_log:"Deleted row {r}: {v}",add_row_log:"Added row {r}",lang:"Language"
+ del_row_log:"Deleted row {r}: {v}",add_row_log:"Added row {r}",lang:"Language",provider:"Provider",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (many models, one key)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Other / relay (OpenAI-compatible)",h_title:"Get your {p} API key",h_step1:"Open {link} and sign in (create an account if needed).",h_step2:"Create a new API key and copy it (it is usually shown only once).",h_step3:"Paste it into “API Key” below, then click “Test connection”. Base URL and model are filled in for you.",h_custom1:"Ask your relay/provider for its Base URL (usually ends with /v1) and an API key.",h_custom2:"Ask which model names support images (vision), e.g. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Fill in Base URL, API Key and model name, then click “Test connection”.",hn_openai:"Paid, pay-as-you-go. gpt-4o / gpt-4.1 read images well.",hn_anthropic:"Paid, pay-as-you-go. Claude models read images well; no Base URL needed.",hn_gemini:"Has a free tier with rate limits. gemini-2.5-flash is fast and reads images.",hn_openrouter:"One key for many vendors; check each model page for “image” input. Some free models are slow or rate-limited.",hn_qwen:"International console shown. Users in mainland China: use dashscope.aliyuncs.com instead of dashscope-intl.",hn_deepseek:"Cheap and strong on text.",hn_custom:"Many relays work directly from the browser; if you get a CORS error, set a CORS proxy under Advanced.",h_novision:"Its models are text-only: fine for Excel / CSV / Word, but images and PDFs will fail. Use a vision model for those.",h_cors:"May block calls from a web page (CORS). If “Test connection” fails with a connection error, set a CORS proxy under Advanced or use OpenRouter."
 },
 zh:{
  meta_desc:"浏览器端文档识别：多模型抽取、算术校验、交叉核验",
@@ -316,7 +322,7 @@ zh:{
  f_name:"名称",f_reg:"注册号",f_tax:"税号",f_addr:"地址",f_contact:"联系",
  fields_h:"字段（按原文标签）",totals_h:"合计",stamps_h:"印章 / 盖章",hand_h:"手写内容",no_tables:"文档中没有识别到表格",
  marked_rev:"已标记为已复核",undone:"已撤销",used_model:"已采用模型 {k} 的值",fix_prompt:"修改 {f}",copied_cur:"已复制当前文件 JSON",copied:"已复制",copy_fail:"复制失败",
- del_row_log:"删除第 {r} 行：{v}",add_row_log:"新增第 {r} 行",lang:"语言"
+ del_row_log:"删除第 {r} 行：{v}",add_row_log:"新增第 {r} 行",lang:"语言",provider:"服务商",pv_openai:"OpenAI",pv_anthropic:"Anthropic（Claude）",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter（一个 Key 用多家模型）",pv_qwen:"阿里云通义千问（百炼）",pv_deepseek:"DeepSeek",pv_custom:"其他 / 中转站（OpenAI 兼容）",h_title:"如何获取 {p} 的 Key",h_step1:"打开 {link} 并登录（没有账号先注册）。",h_step2:"新建一个 API Key 并复制（通常只显示一次）。",h_step3:"粘贴到下方“API Key”，点“测试连接”。Base URL 和模型已自动填好。",h_custom1:"向你的中转站/服务商索取 Base URL（通常以 /v1 结尾）和 API Key。",h_custom2:"问清楚哪些模型支持图片（视觉），例如 gpt-4o、gemini-2.5-flash、qwen-vl-max。",h_custom3:"填入 Base URL、API Key 和模型名，点“测试连接”。",hn_openai:"付费、按量计费。gpt-4o / gpt-4.1 读图效果好。",hn_anthropic:"付费、按量计费。Claude 模型读图效果好，无需填写 Base URL。",hn_gemini:"有免费额度（有频率限制）。gemini-2.5-flash 速度快、能读图。",hn_openrouter:"一个 Key 可用多家模型；在模型页确认支持 “image” 输入。部分免费模型较慢或限流。",hn_qwen:"默认为国际站。中国大陆用户请把 dashscope-intl 改为 dashscope.aliyuncs.com。",hn_deepseek:"便宜，文字能力强。",hn_custom:"很多中转站可直接从浏览器调用；如出现 CORS 错误，在“高级”中填写 CORS 代理。",h_novision:"该服务商模型为纯文本：可处理 Excel / CSV / Word，但图片和 PDF 会失败，请改用支持视觉的模型。",h_cors:"可能不允许网页直接调用（CORS）。若“测试连接”报连接错误，请在“高级”中填写 CORS 代理，或改用 OpenRouter。"
 },
 ms:{
  meta_desc:"Pengekstrakan dokumen dalam pelayar: pelbagai model, semakan aritmetik, semakan silang",
@@ -386,7 +392,7 @@ ms:{
  f_name:"Nama",f_reg:"No. daftar",f_tax:"No. cukai",f_addr:"Alamat",f_contact:"Hubungan",
  fields_h:"Medan (mengikut label asal)",totals_h:"Jumlah",stamps_h:"Cop / chop",hand_h:"Tulisan tangan",no_tables:"Tiada jadual ditemui dalam dokumen",
  marked_rev:"Ditandakan sebagai disemak",undone:"Dibuat asal",used_model:"Nilai model {k} digunakan",fix_prompt:"Edit {f}",copied_cur:"JSON fail semasa disalin",copied:"Disalin",copy_fail:"Gagal menyalin",
- del_row_log:"Baris {r} dipadam: {v}",add_row_log:"Baris {r} ditambah",lang:"Bahasa"
+ del_row_log:"Baris {r} dipadam: {v}",add_row_log:"Baris {r} ditambah",lang:"Bahasa",provider:"Penyedia",pv_openai:"OpenAI",pv_anthropic:"Anthropic (Claude)",pv_gemini:"Google Gemini",pv_openrouter:"OpenRouter (banyak model, satu kunci)",pv_qwen:"Alibaba Qwen (Model Studio)",pv_deepseek:"DeepSeek",pv_custom:"Lain-lain / relay (serasi OpenAI)",h_title:"Cara mendapatkan kunci {p}",h_step1:"Buka {link} dan log masuk (daftar akaun jika perlu).",h_step2:"Cipta API key baharu dan salin (biasanya hanya dipaparkan sekali).",h_step3:"Tampal ke dalam “API Key” di bawah, kemudian klik “Uji sambungan”. Base URL dan model diisi secara automatik.",h_custom1:"Minta Base URL (biasanya berakhir dengan /v1) dan API key daripada relay/penyedia anda.",h_custom2:"Tanya nama model yang menyokong imej (vision), cth. gpt-4o, gemini-2.5-flash, qwen-vl-max.",h_custom3:"Isi Base URL, API Key dan nama model, kemudian klik “Uji sambungan”.",hn_openai:"Berbayar, ikut penggunaan. gpt-4o / gpt-4.1 membaca imej dengan baik.",hn_anthropic:"Berbayar, ikut penggunaan. Model Claude membaca imej dengan baik; Base URL tidak diperlukan.",hn_gemini:"Ada tahap percuma (dengan had kadar). gemini-2.5-flash pantas dan boleh membaca imej.",hn_openrouter:"Satu kunci untuk banyak vendor; semak halaman model untuk input “image”. Sesetengah model percuma perlahan atau terhad.",hn_qwen:"Konsol antarabangsa dipaparkan. Pengguna di China tanah besar: guna dashscope.aliyuncs.com, bukan dashscope-intl.",hn_deepseek:"Murah dan kuat untuk teks.",hn_custom:"Banyak relay boleh dipanggil terus dari pelayar; jika berlaku ralat CORS, tetapkan proksi CORS di bahagian Lanjutan.",h_novision:"Modelnya teks sahaja: sesuai untuk Excel / CSV / Word, tetapi imej dan PDF akan gagal. Guna model vision untuk itu.",h_cors:"Mungkin menyekat panggilan dari halaman web (CORS). Jika “Uji sambungan” gagal dengan ralat sambungan, tetapkan proksi CORS di Lanjutan atau guna OpenRouter."
 }};
 let LANG=(()=>{try{return localStorage.getItem("invoicelens.lang")||"en"}catch{return"en"}})();if(!I18N[LANG])LANG="en";
 const T=(k,v={})=>t(k,v);
@@ -551,15 +557,36 @@ const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 /* ---------- settings ---------- */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS="invoicelens.settings.v1";
-const DEF={a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false};
+const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false};
 const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
   set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
   clear(){try{localStorage.removeItem(LS)}catch{}}};
 let S=store.get();
 const form=$("#settings form");
 const cleanBase=u=>(u||"").trim().replace(/\/+$/,"").replace(/\/(models|chat\/completions)$/,"");
-function fillForm(){for(const [k,v] of Object.entries(S)){const el=form.elements[k];if(!el)continue;el.type==="checkbox"?el.checked=!!v:el.value=v}syncTypes()}
+function fillForm(){for(const sl of ["a","b"])if(!S[sl+"_prov"]||!PROVIDERS[S[sl+"_prov"]])S[sl+"_prov"]=guessProv(S,sl);paintProv();for(const [k,v] of Object.entries(S)){const el=form.elements[k];if(!el)continue;el.type==="checkbox"?el.checked=!!v:el.value=v}syncTypes();paintHelp("a");paintHelp("b")}
 function readForm(){const o={};for(const k of Object.keys(DEF)){const el=form.elements[k];o[k]=el.type==="checkbox"?el.checked:el.value.trim()}o.a_base=cleanBase(o.a_base);o.b_base=cleanBase(o.b_base);return o}
+const PROVIDERS={
+  openai:{type:"openai",base:"https://api.openai.com/v1",model:"gpt-4o",url:"https://platform.openai.com/api-keys",vision:1,cors:1},
+  anthropic:{type:"anthropic",base:"",model:"claude-sonnet-5-5",url:"https://console.anthropic.com/settings/keys",vision:1,cors:1},
+  gemini:{type:"openai",base:"https://generativelanguage.googleapis.com/v1beta/openai",model:"gemini-2.5-flash",url:"https://aistudio.google.com/apikey",vision:1,cors:0},
+  openrouter:{type:"openai",base:"https://openrouter.ai/api/v1",model:"google/gemini-2.5-flash",url:"https://openrouter.ai/keys",vision:1,cors:1},
+  qwen:{type:"openai",base:"https://dashscope-intl.aliyuncs.com/compatible-mode/v1",model:"qwen-vl-max",url:"https://modelstudio.console.alibabacloud.com/",vision:1,cors:0},
+  deepseek:{type:"openai",base:"https://api.deepseek.com/v1",model:"deepseek-chat",url:"https://platform.deepseek.com/api_keys",vision:0,cors:0},
+  custom:{type:"openai",base:"",model:"",url:"",vision:null,cors:null}};
+function guessProv(o,sl){if(o[sl+"_type"]==="anthropic")return"anthropic";const b=o[sl+"_base"]||"";for(const [k,v] of Object.entries(PROVIDERS))if(v.base&&b.startsWith(v.base.replace(/\/v1.*$/,"")))return k;if(/dashscope/.test(b))return"qwen";return b?"custom":"openai"}
+function paintProv(){for(const sl of ["a","b"]){const sel=form.elements[sl+"_prov"],cur=sel.value;sel.innerHTML=Object.keys(PROVIDERS).map(k=>`<option value="${k}">${t("pv_"+k)}</option>`).join("");sel.value=cur||S[sl+"_prov"]||"openai";paintHelp(sl)}}
+function paintHelp(sl){const k=form.elements[sl+"_prov"].value,p=PROVIDERS[k],box=$(`[data-help="${sl}"]`);if(!box)return;
+  const steps=k==="custom"?`<ol><li>${t("h_custom1")}</li><li>${t("h_custom2")}</li><li>${t("h_custom3")}</li></ol>`
+   :`<ol><li>${t("h_step1",{link:`<a href="${p.url}" target="_blank" rel="noopener">${new URL(p.url).host}</a>`})}</li><li>${t("h_step2")}</li><li>${t("h_step3")}</li></ol>`;
+  const notes=[t("hn_"+k)];if(p.vision===0)notes.push(`<div class="warnline">⚠ ${t("h_novision")}</div>`);if(p.cors===0)notes.push(`<div class="warnline">⚠ ${t("h_cors")}</div>`);
+  box.innerHTML=`<b>${t("h_title",{p:t("pv_"+k)})}</b>${steps}<div style="margin-top:6px">${notes[0]}</div>${notes.slice(1).join("")}`}
+function applyProv(sl){const k=form.elements[sl+"_prov"].value,p=PROVIDERS[k];
+  if(k!=="custom"){form.elements[sl+"_type"].value=p.type;form.elements[sl+"_base"].value=p.base;
+    const m=form.elements[sl+"_model"];if(!m.value||Object.values(PROVIDERS).some(x=>x.model===m.value))m.value=p.model}
+  else{form.elements[sl+"_type"].value="openai";if(Object.values(PROVIDERS).some(x=>x.base&&x.base===form.elements[sl+"_base"].value))form.elements[sl+"_base"].value=""}
+  syncTypes();paintHelp(sl)}
+form.elements.a_prov.onchange=()=>applyProv("a");form.elements.b_prov.onchange=()=>applyProv("b");
 function syncTypes(){for(const s of ["a","b"]){const fs=$(`fieldset[data-slot=${s}]`),isO=form.elements[s+"_type"].value==="openai";fs.querySelectorAll("[data-openai]").forEach(e=>e.hidden=!isO)}}
 form.elements.a_type.onchange=form.elements.b_type.onchange=syncTypes;
 $$(".eye").forEach(b=>b.onclick=()=>{const i=b.previousElementSibling;i.type=i.type==="password"?"text":"password";b.textContent=i.type==="password"?t("show"):t("hide")});
@@ -866,7 +893,7 @@ function applyStatic(){document.documentElement.lang=LANG==="zh"?"zh-CN":LANG;
   const md=document.querySelector('meta[name=description]');if(md)md.content=t("meta_desc");$("#lang").value=LANG}
 const LANG_LABELS={en:["English","EN"],zh:["中文","中文"],ms:["Bahasa Melayu","BM"]};function paintLangLabels(){const short=matchMedia("(max-width:640px)").matches;[...$("#lang").options].forEach(o=>o.textContent=LANG_LABELS[o.value][short?1:0])}
 matchMedia("(max-width:640px)").addEventListener("change",paintLangLabels);paintLangLabels();
-$("#lang").onchange=e=>{LANG=e.target.value;try{localStorage.setItem("invoicelens.lang",LANG)}catch{}applyStatic();refreshChips();drawQueue();showCurrent();paintSaved()};
+$("#lang").onchange=e=>{LANG=e.target.value;try{localStorage.setItem("invoicelens.lang",LANG)}catch{}applyStatic();refreshChips();drawQueue();showCurrent();paintSaved();paintProv()};
 applyStatic();refreshChips();
 drawQueue();showCurrent();restore();
 refreshChips();if(!S.a_key&&!S.b_key)setTimeout(()=>{fillForm();$("#settings").showModal()},300);
