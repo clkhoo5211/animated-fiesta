@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -367,6 +367,7 @@ def verify(r) -> dict | None:
             disc = sum(num(x.get("value")) or 0 for x in tot if re.search(r"disc|diskaun|折", x.get("label") or "", re.I))
             add(abs(amts[0] + tax - disc - gt) < 0.011, "grand", lines=f"{amts[0]:.2f}", tax=tax, disc=disc, total=r.get("grand_total"))
     cross_checks(r, add)
+    items_as_totals(r, add)
     return {"passed": all(c["ok"] or c.get("warn") for c in checks), "checks": checks}
 
 
@@ -413,6 +414,27 @@ def cross_checks(r, add):
         if re.search(r"(no|number|account|acc|code|kod|akaun|ref)\b", f.get("label") or "", re.I) and re.fullmatch(r"[A-Z0-9-]{3,}", v) \
                 and re.search(r"\d", v) and re.search(r"(?<=[A-Z0-9])O(?=\d)|(?<=\d)O", v):
             add(False, "o0", warn=True, l=f.get("label"), v=v, s=re.sub(r"(?<=[A-Z0-9])O(?=\d)|(?<=\d)O", "0", v))
+
+
+def items_as_totals(r, add):
+    """Line items that ended up in totals: a repeated label, or 3+ totals summing to the grand total with no item table."""
+    tot = [x for x in r.get("totals") or [] if isinstance(x, dict) and num(x.get("value")) is not None]
+    if len(tot) < 2:
+        return
+    labs = {}
+    for x in tot:
+        k = str(x.get("label") or "").strip().lower()
+        labs[k] = labs.get(k, 0) + 1
+    rep = next(((k, n) for k, n in labs.items() if k and n >= 2), None)
+    has_amt = any(any((c or {}).get("role") == "amount" for c in t.get("columns") or []) and t.get("rows") for t in r.get("tables") or [])
+    gt = num(r.get("grand_total"))
+    cand = [x for x in tot if (gt is None or abs(num(x["value"]) - gt) > 0.011) and not SUMMARY_LBL.search(x.get("label") or "")]
+    s = sum(num(x["value"]) for x in cand)
+    if rep or (not has_amt and gt is not None and len(cand) >= 3 and abs(s - gt) < 0.011):
+        add(False, "itemstot", l=rep[0] if rep else "", n=rep[1] if rep else len(cand), sum=round(s, 2))
+
+
+SUMMARY_LBL = re.compile(r"sub|tax|sst|gst|vat|disc|round|cukai|diskaun|小计|税|折|總|总计", re.I)
 
 
 KNOWN_DOMAINS = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "jaring.my", "streamyx.com", "tm.net.my", "yahoo.com.my", "gmail.com.my"]

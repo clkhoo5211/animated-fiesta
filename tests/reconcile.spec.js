@@ -93,7 +93,8 @@ test("cross-field checks: early handwritten date and one-digit stamp/address mis
     document_date: "23/9/2026",
     parties: [{ role: "supplier", name: "DEMO", tax_id: "TIN:C6850683100", contact: "email: frizz@po.jarving.my" }, { role: "ship_to", address: "2346 JH TMN SKUDAI INDAH" }],
     stamps_and_chops: [{ text: "99 SPEED MART (2348) JH Tmn Skudai Indah" }],
-    handwritten_notes: [{ text: "BC 26/4/26 1:50pm" }],
+    handwritten_notes: [{ text: "BC 26/4/26 1:50pm" }], tables: [], grand_total: "384.00",
+    totals: [{ label: "Total Price", value: "125.16" }, { label: "Total Price", value: "49.60" }, { label: "Total Price", value: "124.92" }, { label: "Total Price", value: "84.32" }],
     fields: [{ label: "Ref 1", value: "BC 26/4/26 1:50pm" }, { label: "Customer Account", value: "NO10" }, { label: "email", value: "frizz@po.jarving.my" }],
   }) }) });
   await preset(page);
@@ -108,5 +109,6 @@ test("cross-field checks: early handwritten date and one-digit stamp/address mis
   await expect(page.locator("#view")).toContainText("Tax ID TIN:C6850683100 has 10 digits");
   await expect(page.locator("#view")).toContainText("misread of “jaring.my”");
   await expect(page.locator("#view")).toContainText("Probably N010");
-  await expect(page.locator(".job")).toHaveAttribute("data-status", "warn");
+  await expect(page.locator("#view")).toContainText("Line items were extracted as totals");
+  await expect(page.locator(".job")).toHaveAttribute("data-status", "bad");
 });
