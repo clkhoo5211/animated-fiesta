@@ -35,9 +35,12 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--b
 <div class="c"><pre id="out">结果将显示在这里</pre></div>
 </main>
 <script type="module">
-import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs";
-import { readBarcodes } from "https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index.js";
-pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
+const PDFJS="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/";
+const ZXING="https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index.js";
+let _pdf,_zx;
+const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pdf.GlobalWorkerOptions.workerSrc=PDFJS+"pdf.worker.min.mjs";}catch(e){throw new Error("PDF 库加载失败（网络/CDN）："+e.message)}}return _pdf};
+const loadZx=async()=>_zx||(_zx=await import(ZXING));
+window.addEventListener("error",e=>{const l=document.getElementById("log");if(l)l.textContent="脚本错误："+e.message});
 const $=id=>document.getElementById(id), log=t=>$("log").textContent=t;
 const PROMPT="Extract document information into a JSON object with keys: 'invoice_metadata', 'line_items_table', 'stamps_and_chops_found', 'handwritten_notes'. Return raw JSON only, no markdown.";
 const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.85).split(",")[1];
@@ -47,7 +50,7 @@ const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{retur
 async function ingest(file){
   const n=file.name.toLowerCase(), segs=[];
   if(file.type==="application/pdf"||n.endsWith(".pdf")){
-    const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+    const pdfjs=await loadPdf();const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
     for(let i=1;i<=pdf.numPages;i++){
       const p=await pdf.getPage(i), vp=p.getViewport({scale:2}), c=document.createElement("canvas");
       c.width=vp.width;c.height=vp.height;await p.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
@@ -69,7 +72,7 @@ async function ingest(file){
   return segs;
 }
 async function local(seg){
-  try{const r=await readBarcodes(b64ToBlob(seg.b64),{tryHarder:true,maxNumberOfSymbols:20});
+  try{const {readBarcodesFromImageFile}=await loadZx();const r=await readBarcodesFromImageFile(b64ToBlob(seg.b64),{tryHarder:true,maxNumberOfSymbols:20});
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
@@ -99,8 +102,9 @@ async function processSeg(seg,cfg){
   return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai_compatible:oa,anthropic:an},cross_verification_audit:audit};
 }
 $("go").onclick=async()=>{
+  if(!$("ok").value.trim()&&!$("ak").value.trim())log("提示：未填任何 API Key，只做本地条码/文本识别");
   const file=$("f").files[0];if(!file)return log("请先选择文件");
-  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),ob:$("ob").value.trim()||"https://api.openai.com/v1",jm:$("jm").checked,px:$("px").value.trim(),am:$("am").value.trim()};
+  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),ob:($("ob").value.trim()||"https://api.openai.com/v1").replace(/\/+$/,"").replace(/\/(models|chat\/completions)$/,""),jm:$("jm").checked,px:$("px").value.trim(),am:$("am").value.trim()};
   $("go").disabled=true;$("th").innerHTML="";
   try{log("解析文件…");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");
     segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;$("th").append(i)});
