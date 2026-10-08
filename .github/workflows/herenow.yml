@@ -1,0 +1,29 @@
+name: Deploy here.now
+on:
+  push:
+    branches: [main, claude/eloquent-edison-i91gj0]
+    paths: [site/**, .github/workflows/herenow.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: herenow, cancel-in-progress: false}
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch official here.now publish script (pinned)
+        run: |
+          curl -fsSL -o publish.sh https://raw.githubusercontent.com/heredotnow/skill/0f60d2374d3c8c6ffda1ecad4c0af69f278f7f27/skills/here-now/scripts/publish.sh
+          chmod +x publish.sh
+      - name: Publish site/
+        env:
+          HERENOW_API_KEY: ${{ secrets.HERENOW_API_KEY }}
+          HERENOW_SLUG: ${{ vars.HERENOW_SLUG }}
+        run: |
+          test -n "$HERENOW_API_KEY" || { echo "::error::Missing secret HERENOW_API_KEY"; exit 1; }
+          args=(site --client github-actions --title "Unified Vision Pipeline")
+          # First run creates a new site; set repo variable HERENOW_SLUG to the printed slug so later runs update it.
+          [ -n "$HERENOW_SLUG" ] && args+=(--slug "$HERENOW_SLUG" --overwrite)
+          ./publish.sh "${args[@]}" 2> result.txt | tee url.txt || { cat result.txt; exit 1; }
+          cat result.txt
+          { echo "### here.now"; echo; echo "URL: $(cat url.txt)"; grep -E 'publish_result\.(slug|action|persistence)=' result.txt | sed 's/^/- /'; } >> "$GITHUB_STEP_SUMMARY"
