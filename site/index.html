@@ -79,7 +79,7 @@ fieldset{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;
     <div class="pad">
       <div class="drop" id="drop" tabindex="0" role="button">
         <b>拖入、点击或粘贴文件</b>
-        <span class="sub">支持图片 · PDF（逐页渲染）· 视频（取 3 帧）</span>
+        <span class="sub">发票、收据、送货单、出货清单等任意单据 · 图片 / PDF / 视频</span>
         <input type="file" id="f" accept="image/*,.pdf,video/*" hidden>
       </div>
       <div class="file" id="file-info" hidden></div>
@@ -97,10 +97,10 @@ fieldset{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;
 <section class="card" id="results">
   <div class="tabs" role="tablist">
     <button class="tab on" data-tab="overview">概览</button>
-    <button class="tab" data-tab="items">明细</button>
+    <button class="tab" data-tab="items">表格</button>
     <button class="tab" data-tab="checks">校验 <span id="check-count"></span></button>
     <button class="tab" data-tab="json">原始 JSON</button>
-    <div class="tools"><button class="btn sm" id="copy" disabled>复制 JSON</button><button class="btn sm" id="dl" disabled>下载 JSON</button><button class="btn sm" id="csv" disabled>导出明细 CSV</button></div>
+    <div class="tools"><button class="btn sm" id="copy" disabled>复制 JSON</button><button class="btn sm" id="dl" disabled>下载 JSON</button><button class="btn sm" id="csv" disabled>导出表格 CSV</button></div>
   </div>
   <div class="pad" id="view"><div class="empty">上传发票并点击“开始识别”，结果会显示在这里。</div></div>
 </section>
@@ -152,21 +152,24 @@ const ZXING="https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index
 let _pdf,_zx;
 const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pdf.GlobalWorkerOptions.workerSrc=PDFJS+"pdf.worker.min.mjs";}catch(e){throw new Error("PDF 库加载失败（网络/CDN）："+e.message)}}return _pdf};
 const loadZx=async()=>_zx||(_zx=await import(ZXING));
-const PROMPT=`You are an invoice data extractor. Read the image carefully and return ONE JSON object with exactly this shape (use null when absent, keep numbers as strings exactly as printed, never guess digits):
-{"supplier":{"name","registration_no","tin","address","phone"},
- "invoice":{"invoice_no","date","customer_account","sales_executive","issued_by","page","payment_terms","reference"},
- "bill_to":{"name","registration_no","tin","address","attn","tel"},
- "deliver_to":{"name","address"},
- "line_items":[{"no","item_code","description","qty","uom","unit_price","discount","line_total"}],
- "totals":{"currency","subtotal","tax","total_payable","amount_in_words"},
- "stamps_and_chops":[{"text","position"}],
- "handwritten_notes":[{"text","position"}],
- "low_confidence_fields":["dot.path of any field you are unsure about"]}
-Field rules:
-- Copy every ID, phone, TIN and amount character-by-character as printed. If a character is unreadable write "?" for it and add the field to low_confidence_fields. Never invent or reorder digits.
-- Each value must come from the label printed next to/under it: "Sales Executive" -> invoice.sales_executive, "Customer Account" -> invoice.customer_account, "Name" -> invoice.issued_by, "Ref"/"Ref 1" -> invoice.reference (null if the space after the label is blank; the "1" in "Ref 1" is part of the label).
-- supplier = the company in the letterhead (its TIN is usually near its address); bill_to = "Billing Address" block; include fax numbers in the phone field as "Fax: ...".
-- Handwriting is often ambiguous: transcribe literally and list it in low_confidence_fields.
+const PROMPT=`You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.
+Return ONE JSON object with this shape (null when absent; all values as strings exactly as printed):
+{"document_type":"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other",
+ "title":"heading as printed","document_number","document_date","currency",
+ "parties":[{"role":"supplier|customer|bill_to|ship_to|transporter|issuer|other","name","registration_no","tax_id","address","contact"}],
+ "fields":[{"label":"label exactly as printed","value":"value as printed"}],
+ "tables":[{"name","columns":[{"name":"header as printed","role":"text|id|date|qty|unit_price|amount|number|row_total"}],
+   "rows":[["cell", "..."]],"total_row":["cell or null per column"]|null,"printed_row_count":"e.g. 7 from '7 Orders'"|null}],
+ "totals":[{"label","value"}],"grand_total","amount_in_words",
+ "stamps_and_chops":[{"text","position"}],"handwritten_notes":[{"text","position"}],
+ "rotation_degrees":"0|90|180|270",
+ "low_confidence_fields":["path or label of anything you are unsure about"]}
+Rules:
+- Only output text that is actually on the page. Never invent company names, numbers or rows.
+- Put EVERY labelled value on the page into "fields" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.
+- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> "?" and list the field in low_confidence_fields.
+- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.
+- Handwriting and tick marks: transcribe literally, list in low_confidence_fields.
 Raw JSON only, no markdown.`;
 const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.95).split(",")[1];
 const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
@@ -197,17 +200,37 @@ async function ingest(file){
   return segs;
 }
 const num=v=>{const n=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n};
-function arithmetic(r){
-  if(!r||r.error||!Array.isArray(r.line_items))return null;
-  const issues=[];let sum=0;
-  r.line_items.forEach((it,k)=>{const q=num(it.qty),p=num(it.unit_price),t=num(it.line_total),d=num(it.discount)||0;
-    if(t!=null)sum+=t;
-    if(q!=null&&p!=null&&t!=null&&Math.abs(q*p-d-t)>0.011)issues.push(`line ${k+1}: ${q} × ${p}${d?` − ${d}`:""} = ${(q*p-d).toFixed(2)} ≠ ${t}`);});
-  const tp=num(r.totals?.total_payable);
-  if(tp==null)issues.push("total_payable missing");
-  else if(Math.abs(sum+(num(r.totals?.tax)||0)-tp)>0.011)issues.push(`sum of lines ${sum.toFixed(2)} (+tax) ≠ total_payable ${tp}`);
-  return {lines_sum:sum.toFixed(2),total_payable:r.totals?.total_payable??null,passed:issues.length===0,issues};
+function verify(r){
+  if(!r||r.error||r.status)return null;
+  const checks=[],add=(ok,label,detail)=>checks.push({ok,label,detail});
+  (r.tables||[]).forEach((t,ti)=>{
+    const tn=t.name||`表 ${ti+1}`,cols=t.columns||[],rows=(t.rows||[]).filter(Array.isArray),idx=role=>cols.map((c,i)=>c&&c.role===role?i:-1).filter(i=>i>=0);
+    const numeric=cols.map((c,i)=>["qty","amount","number","row_total"].includes(c?.role)?i:-1).filter(i=>i>=0);
+    // column sums vs printed total row
+    if(Array.isArray(t.total_row))numeric.forEach(ci=>{const tv=num(t.total_row[ci]);if(tv==null)return;
+      const sum=rows.reduce((a,row)=>a+(num(row[ci])||0),0);
+      add(Math.abs(sum-tv)<0.011,`${tn} · 列「${cols[ci].name}」合计`,`逐行相加 ${+sum.toFixed(2)}，印刷合计 ${t.total_row[ci]}`)});
+    // row totals
+    const rt=idx("row_total"),parts=numeric.filter(i=>!rt.includes(i)&&cols[i].role!=="amount");
+    if(rt.length===1&&parts.length)rows.forEach((row,ri)=>{const tv=num(row[rt[0]]);if(tv==null)return;const sum=parts.reduce((a,i)=>a+(num(row[i])||0),0);
+      if(Math.abs(sum-tv)>0.011)add(false,`${tn} · 第 ${ri+1} 行合计`,`${parts.map(i=>cols[i].name).join("+")} = ${+sum.toFixed(2)} ≠ ${row[rt[0]]}`)});
+    if(rt.length===1&&parts.length&&!checks.some(c=>!c.ok&&c.label.startsWith(`${tn} · 第`)))add(true,`${tn} · 每行合计`,`${rows.length} 行全部一致`);
+    // qty x unit price = amount
+    const [q,pz,am]=[idx("qty")[0],idx("unit_price")[0],idx("amount")[0]];
+    if(q!=null&&pz!=null&&am!=null){let bad=0;rows.forEach((row,ri)=>{const a=num(row[q]),b=num(row[pz]),c=num(row[am]);if(a==null||b==null||c==null)return;
+      if(Math.abs(a*b-c)>0.011){bad++;add(false,`${tn} · 第 ${ri+1} 行金额`,`${row[q]} × ${row[pz]} = ${(a*b).toFixed(2)} ≠ ${row[am]}`)}});if(!bad)add(true,`${tn} · 数量×单价=金额`,`${rows.length} 行全部一致`)}
+    // printed row count
+    const pc=num(t.printed_row_count);if(pc!=null)add(pc===rows.length,`${tn} · 行数`,`印刷 ${t.printed_row_count}，识别 ${rows.length} 行`);
+  });
+  // grand total vs single amount column
+  const gt=num(r.grand_total);
+  if(gt!=null){const amts=(r.tables||[]).flatMap(t=>(t.columns||[]).map((c,i)=>c?.role==="amount"?(t.rows||[]).reduce((a,row)=>a+(num(row?.[i])||0),0):null).filter(x=>x!=null));
+    if(amts.length===1){const tax=(r.totals||[]).filter(x=>/tax|gst|sst|vat|税/i.test(x.label||"")).reduce((a,x)=>a+(num(x.value)||0),0);const disc=(r.totals||[]).filter(x=>/disc|折/i.test(x.label||"")).reduce((a,x)=>a+(num(x.value)||0),0);
+      add(Math.abs(amts[0]+tax-disc-gt)<0.011,"金额合计 vs 总额",`明细 ${amts[0].toFixed(2)}${tax?` + 税 ${tax}`:""}${disc?` − 折扣 ${disc}`:""}，总额 ${r.grand_total}`)}}
+  return {passed:checks.every(c=>c.ok),checks};
 }
+async function rotateB64(b64,deg){const bmp=await createImageBitmap(b64ToBlob(b64)),c=document.createElement("canvas"),sw=deg%180!==0;
+  c.width=sw?bmp.height:bmp.width;c.height=sw?bmp.width:bmp.height;const x=c.getContext("2d");x.translate(c.width/2,c.height/2);x.rotate(deg*Math.PI/180);x.drawImage(bmp,-bmp.width/2,-bmp.height/2);return canvasToJpeg(c)}
 async function decodeScaled(seg,scale){
   const bmp=await createImageBitmap(b64ToBlob(seg.b64)),c=document.createElement("canvas");
   c.width=bmp.width*scale;c.height=bmp.height*scale;const x=c.getContext("2d");x.imageSmoothingEnabled=false;x.filter="grayscale(1) contrast(1.6)";x.drawImage(bmp,0,0,c.width,c.height);
@@ -283,14 +306,14 @@ async function processSeg(seg,cfg,onStep){
   const run=c=>c.key?safe(callModel(c,msg,seg.b64)):Promise.resolve({status:"skipped"});
   const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
   return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
-    arithmetic_check:{model_a:arithmetic(ra),model_b:arithmetic(rb)},cross_verification:compare(ra,rb)};
+    checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
 }
 
 /* ---------- UI ---------- */
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2200)};
-let file=null,RESULT=null,tab="overview",segIdx=0;
-function setFile(f){if(!f)return;file=f;$("#file-info").hidden=false;$("#file-info").innerHTML=`📄 <b>${esc(f.name)}</b><span class="sub">${(f.size/1024).toFixed(0)} KB</span>`;$("#go").disabled=false;$("#th").innerHTML=""}
+let file=null,RESULT=null,tab="overview",segIdx=0,rot=0;
+function setFile(f){if(!f)return;file=f;$("#file-info").hidden=false;rot=0;$("#file-info").innerHTML=`📄 <b>${esc(f.name)}</b><span class="sub">${(f.size/1024).toFixed(0)} KB</span><span class="sp"></span><button class="btn sm" id="rot" title="识别前旋转页面">↻ 旋转 <span id="rotv">0°</span></button>`;$("#rot").onclick=()=>{rot=(rot+90)%360;$("#rotv").textContent=rot+"°"};$("#go").disabled=false;$("#th").innerHTML=""}
 const drop=$("#drop"),fi=$("#f");
 drop.onclick=()=>fi.click();drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")fi.click()};fi.onchange=()=>setFile(fi.files[0]);
 ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("on")}));
@@ -309,7 +332,7 @@ $("#go").onclick=async()=>{
   steps([["ingest","解析文件"],["local","本地 QR / 条码"],["a",`模型 A · ${cfg.a.key?cfg.a.model:"未启用"}`],["b",`模型 B · ${cfg.b.key?cfg.b.model:"未启用"}`],["verify","算术校验与交叉核验"]]);
   if(!cfg.a.key)st("a","","模型 A · 未启用");if(!cfg.b.key)st("b","","模型 B · 未启用");
   const t0=performance.now();
-  try{st("ingest","run");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");st("ingest","done",`解析文件 · ${segs.length} 个片段`);
+  try{st("ingest","run");const segs=await ingest(file);if(rot)for(const sg of segs)sg.b64=await rotateB64(sg.b64,rot);if(!segs.length)throw new Error("不支持的文件类型");st("ingest","done",`解析文件 · ${segs.length} 个片段`);
     segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;i.onclick=()=>{$("#zoom img").src=i.src;$("#zoom").showModal()};$("#th").append(i)});
     st("local","run");if(cfg.a.key)st("a","run");if(cfg.b.key)st("b","run");
     const left={local:segs.length,a:segs.length,b:segs.length},onStep=k=>{if(--left[k]===0&&(k==="local"||cfg[k]?.key))st(k,"done")};
@@ -323,55 +346,59 @@ $("#go").onclick=async()=>{
 };
 
 function best(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
-  const ca=seg.arithmetic_check.model_a,cb=seg.arithmetic_check.model_b;
+  const ca=seg.checks.model_a,cb=seg.checks.model_b;
   if(ok(a)&&ok(b)&&cb?.passed&&!ca?.passed)return ["B",b];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
 function issues(seg){const L=[];const cv=seg.cross_verification;
-  for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.arithmetic_check["model_"+k],K=k.toUpperCase();
+  for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.checks["model_"+k],K=k.toUpperCase();
     if(r.error)L.push(["bad",`模型 ${K} 调用失败`,r.error]);
-    if(c)c.passed?L.push(["ok",`模型 ${K} 算术校验通过`,`明细合计 ${c.lines_sum} = 应付 ${c.total_payable}`]):c.issues.forEach(i=>L.push(["bad",`模型 ${K} 算术不一致`,i]));
+    if(c){c.checks.forEach(x=>L.push([x.ok?"ok":"bad",`模型 ${K} · ${x.label}`,x.detail]));if(!c.checks.length)L.push(["mut",`模型 ${K} · 无可自动核算的数字`,"文档没有合计行 / 数量×单价结构"])}
     (r.low_confidence_fields||[]).forEach(f=>L.push(["warn",`模型 ${K} 自报低置信`,f]))}
   if(cv){cv.discrepancies.forEach(d=>L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`]));if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
-  else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果"]);
+  else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果（推荐：数字、编号类字段只有交叉核验能发现错误）"]);
   const q=seg.local_extraction.qr_and_barcodes;L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
   return L}
-function kv(o,labels){if(!o)return'<p class="sub">—</p>';return`<dl class="kv">${Object.entries(labels).map(([k,l])=>`<dt>${l}</dt><dd>${esc(o[k]??"—")}</dd>`).join("")}</dl>`}
+const TYPES={invoice:"发票",receipt:"收据",delivery_order:"送货单",invoice_register:"发票登记 / 出货清单",purchase_order:"采购单",statement:"对账单",quotation:"报价单",other:"其他"};
+const ROLES={supplier:"供应商",customer:"客户",bill_to:"买方",ship_to:"收货方",transporter:"承运方",issuer:"开具方",other:"其他方"};
+function kv(o,labels){if(!o)return'<p class="sub">—</p>';const e=Object.entries(labels).filter(([k])=>o[k]!=null&&o[k]!=="");return e.length?`<dl class="kv">${e.map(([k,l])=>`<dt>${l}</dt><dd>${esc(o[k])}</dd>`).join("")}</dl>`:'<p class="sub">—</p>'}
+function tableHTML(t,ti,rowChecks){const cols=t.columns||[],rows=(t.rows||[]).filter(Array.isArray),isNum=c=>["qty","unit_price","amount","number","row_total"].includes(c?.role);
+  return`<div class="sec"><h3>${esc(t.name||`表 ${ti+1}`)} · ${rows.length} 行${t.printed_row_count?`（印刷：${esc(t.printed_row_count)}）`:""}</h3><div class="tw"><table><thead><tr>${cols.map(c=>`<th class="${isNum(c)?"n":""}">${esc(c.name)}</th>`).join("")}</tr></thead><tbody>
+  ${rows.map((row,ri)=>`<tr class="${rowChecks.has(`${ti}:${ri}`)?"flag":""}">${cols.map((c,ci)=>`<td class="${isNum(c)?"n":""}">${esc(row[ci])}</td>`).join("")}</tr>`).join("")}</tbody>
+  ${Array.isArray(t.total_row)?`<tfoot><tr>${cols.map((c,ci)=>`<th class="${isNum(c)?"n":""}">${esc(t.total_row[ci]??"")}</th>`).join("")}</tr></tfoot>`:""}</table></div></div>`}
 function render(){const v=$("#view");if(!RESULT){return}
   const seg=RESULT.segments[segIdx],[who,r]=best(seg),iss=issues(seg),bad=iss.filter(i=>i[0]==="bad").length,warn=iss.filter(i=>i[0]==="warn").length;
   $("#check-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:warn?`<span class="badge warn">${warn}</span>`:'<span class="badge ok">✓</span>';
   const segs=RESULT.segments.length>1?`<div class="seg">${RESULT.segments.map((s,i)=>`<button class="btn sm ${i===segIdx?"pri":""}" data-seg="${i}">${esc(s.segment_identifier)}</button>`).join("")}</div>`:"";
   let h=segs;
   if(tab==="json")h+=`<pre>${esc(JSON.stringify(RESULT,null,2))}</pre>`;
-  else if(!r&&tab!=="checks")h+=`<div class="empty">没有可用的模型结果。${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||"请先在“模型设置”中配置模型。")}</div>`;
-  else if(tab==="overview"){const inv=r.invoice||{},t=r.totals||{},verdict=bad?'<span class="badge bad">需复核</span>':warn?'<span class="badge warn">有待确认项</span>':'<span class="badge ok">校验通过</span>';
+  else if(tab==="checks")h+=`<div class="list">${iss.map(([k,t,d])=>`<div class="item"><span class="badge ${k}">${{ok:"通过",bad:"错误",warn:"注意",mut:"信息"}[k]}</span><div><b>${esc(t)}</b><div class="sub">${esc(d)}</div></div></div>`).join("")}</div>`;
+  else if(!r)h+=`<div class="empty">没有可用的模型结果。${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||"请先在“模型设置”中配置模型。")}</div>`;
+  else if(tab==="overview"){const verdict=bad?'<span class="badge bad">需复核</span>':warn?'<span class="badge warn">有待确认项</span>':'<span class="badge ok">校验通过</span>';
+    const nt=(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0);
     h+=`<div class="kpis">
-      <div class="kpi big"><span>应付总额 ${esc(t.currency||"")}</span><b>${esc(t.total_payable??"—")}</b></div>
-      <div class="kpi"><span>发票号</span><b>${esc(inv.invoice_no??"—")}</b></div>
-      <div class="kpi"><span>日期</span><b>${esc(inv.date??"—")}</b></div>
+      <div class="kpi"><span>文档类型</span><b>${esc(TYPES[r.document_type]||r.document_type||"—")}</b></div>
+      <div class="kpi"><span>编号</span><b>${esc(r.document_number??"—")}</b></div>
+      <div class="kpi"><span>日期</span><b>${esc(r.document_date??"—")}</b></div>
+      ${r.grand_total!=null?`<div class="kpi big"><span>总额 ${esc(r.currency||"")}</span><b>${esc(r.grand_total)}</b></div>`:`<div class="kpi"><span>表格行数</span><b>${nt}</b></div>`}
       <div class="kpi"><span>状态</span><b>${verdict}</b></div></div>
-    <p class="sub" style="margin:10px 0 0">显示来源：模型 ${who}${seg.cross_verification?` · A/B 一致率 ${Math.round(seg.cross_verification.agreement_rate*100)}%`:""}</p>
-    <div class="sec grid2">
-      <div class="box"><h4>供应商</h4>${kv(r.supplier,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",phone:"电话"})}</div>
-      <div class="box"><h4>买方（Bill to）</h4>${kv(r.bill_to,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",attn:"联系人",tel:"电话"})}</div>
-      <div class="box"><h4>发票信息</h4>${kv(inv,{customer_account:"客户账号",sales_executive:"销售",issued_by:"开单人",payment_terms:"付款条件",reference:"参考号",page:"页码"})}</div>
-      <div class="box"><h4>送货地址</h4>${kv(r.deliver_to,{name:"名称",address:"地址"})}${t.amount_in_words?`<p class="sub" style="margin:10px 0 0">${esc(t.amount_in_words)}</p>`:""}</div></div>
+    <p class="sub" style="margin:10px 0 0">${esc(r.title||"")} · 显示来源：模型 ${who}${seg.cross_verification?` · A/B 一致率 ${Math.round(seg.cross_verification.agreement_rate*100)}%`:""}${r.rotation_degrees&&r.rotation_degrees!=="0"?` · 页面旋转 ${esc(r.rotation_degrees)}°`:""}</p>
+    ${(r.parties||[]).length?`<div class="sec grid2">${r.parties.map(p=>`<div class="box"><h4>${esc(ROLES[p.role]||p.role||"相关方")}</h4>${kv(p,{name:"名称",registration_no:"注册号",tax_id:"税号",address:"地址",contact:"联系"})}</div>`).join("")}</div>`:""}
+    ${(r.fields||[]).length?`<div class="sec"><h3>字段（按原文标签）</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${r.fields.map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(f.value??"—")}</dd>`).join("")}</dl></div></div>`:""}
+    ${(r.totals||[]).length||r.amount_in_words?`<div class="sec"><h3>合计</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${(r.totals||[]).map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd>`).join("")}</dl>${r.amount_in_words?`<p class="sub" style="margin:8px 0 0">${esc(r.amount_in_words)}</p>`:""}</div></div>`:""}
     <div class="sec grid2">
       <div class="box"><h4>印章 / 盖章</h4>${(r.stamps_and_chops||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
-      <div class="box"><h4>手写内容</h4>${(Array.isArray(r.handwritten_notes)?r.handwritten_notes:[r.handwritten_notes].filter(Boolean)).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
-  else if(tab==="items"){const rows=r.line_items||[];const c=seg.arithmetic_check["model_"+who.toLowerCase()];
-    h+=`<div class="tw"><table><thead><tr><th>#</th><th>编码</th><th>描述</th><th class="n">数量</th><th>单位</th><th class="n">单价</th><th class="n">折扣</th><th class="n">金额</th><th class="n">核算</th></tr></thead><tbody>
-    ${rows.map((x,i)=>{const q=num(x.qty),p=num(x.unit_price),t=num(x.line_total),d=num(x.discount)||0,okc=q==null||p==null||t==null?null:Math.abs(q*p-d-t)<=0.011;
-      return`<tr class="${okc===false?"flag":""}"><td>${esc(x.no??i+1)}</td><td>${esc(x.item_code)}</td><td>${esc(x.description)}</td><td class="n">${esc(x.qty)}</td><td>${esc(x.uom)}</td><td class="n">${esc(x.unit_price)}</td><td class="n">${esc(x.discount)}</td><td class="n"><b>${esc(x.line_total)}</b></td><td class="n">${okc==null?"—":okc?'<span class="badge ok">✓</span>':`<span class="badge bad">${(q*p-d).toFixed(2)}</span>`}</td></tr>`}).join("")}
-    </tbody><tfoot><tr><th colspan="7" style="text-align:right">明细合计 / 应付总额</th><th class="n">${c?.lines_sum??"—"}</th><th class="n">${esc(r.totals?.total_payable??"—")}</th></tr></tfoot></table></div>`}
-  else if(tab==="checks"){h+=`<div class="list">${iss.map(([k,t,d])=>`<div class="item"><span class="badge ${k}">${{ok:"通过",bad:"错误",warn:"注意",mut:"信息"}[k]}</span><div><b>${esc(t)}</b><div class="sub">${esc(d)}</div></div></div>`).join("")}</div>`}
+      <div class="box"><h4>手写内容</h4>${(r.handwritten_notes||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
+  else if(tab==="items"){const flagged=new Set();(seg.checks["model_"+who.toLowerCase()]?.checks||[]).forEach(c=>{const m=c.label.match(/^(.*) · 第 (\d+) 行/);if(!c.ok&&m){const ti=(r.tables||[]).findIndex((t,i)=>(t.name||`表 ${i+1}`)===m[1]);flagged.add(`${ti}:${+m[2]-1}`)}});
+    h+=(r.tables||[]).length?r.tables.map((t,ti)=>tableHTML(t,ti,flagged)).join(""):'<div class="empty">文档中没有识别到表格</div>'}
   v.innerHTML=h;v.querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{segIdx=+b.dataset.seg;render()});
 }
 const dlBlob=(name,text,type)=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 const base=()=>RESULT.source_document.replace(/\.[^.]+$/,"");
 $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(RESULT,null,2));toast("已复制")}catch{toast("复制失败")}};
 $("#dl").onclick=()=>dlBlob(base()+".json",JSON.stringify(RESULT,null,2),"application/json");
-$("#csv").onclick=()=>{const cols=["segment","no","item_code","description","qty","uom","unit_price","discount","line_total"],q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
-  const lines=[cols.join(",")];RESULT.segments.forEach(s=>{const [,r]=best(s);(r?.line_items||[]).forEach(x=>lines.push([s.segment_identifier,...cols.slice(1).map(c=>x[c])].map(q).join(",")))});
-  dlBlob(base()+"_items.csv","﻿"+lines.join("\n"),"text/csv")};
+$("#csv").onclick=()=>{const q=v=>`"${String(v??"").replace(/"/g,'""')}"`,lines=[];
+  RESULT.segments.forEach(s=>{const [,r]=best(s);(r?.tables||[]).forEach((t,ti)=>{lines.push([s.segment_identifier,t.name||`表 ${ti+1}`].map(q).join(","));lines.push(["",...(t.columns||[]).map(c=>c.name)].map(q).join(","));
+    (t.rows||[]).forEach(row=>lines.push(["",...row].map(q).join(",")));if(Array.isArray(t.total_row))lines.push(["TOTAL",...t.total_row].map(q).join(","));lines.push("")})});
+  dlBlob(base()+"_tables.csv","﻿"+lines.join("\n"),"text/csv")};
 refreshChips();if(!S.a_key&&!S.b_key)setTimeout(()=>{fillForm();$("#settings").showModal()},300);
 </script>
 </body>
