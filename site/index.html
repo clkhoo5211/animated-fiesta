@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vision Pipeline</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--bd:#e2e2dc;--ac:#2f5bd3}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecece8;--mut:#9a9a93;--card:#1e1e1c;--bd:#33332f;--ac:#7b9cff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 20px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}input[type=password],input[type=text]{width:100%;padding:8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{background:var(--ac);color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:600;cursor:pointer;margin-top:12px}button:disabled{opacity:.5}
+pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--bg);padding:12px;border-radius:6px;max-height:600px;overflow:auto}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumbs img{height:90px;border:1px solid var(--bd);border-radius:4px}
+#log{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body><main>
+<h1>Unified Vision Pipeline</h1>
+<p class="s">图片 / PDF / 视频 → 本地 QR·条码 + PDF 文本层 → OpenAI & Anthropic 视觉抽取 → 交叉核验。全部在浏览器运行，密钥只存在本页内存。</p>
+<div class="c">
+<label>OpenAI API Key（可选）</label><input id="ok" type="password" autocomplete="off">
+<label>OpenAI 模型</label><input id="om" type="text" value="gpt-4o">
+<label>Anthropic API Key（可选）</label><input id="ak" type="password" autocomplete="off">
+<label>Anthropic 模型</label><input id="am" type="text" value="claude-sonnet-5-5">
+<label>文件</label><input id="f" type="file" accept="image/*,.pdf,video/*">
+<button id="go">运行</button> <span id="log"></span>
+</div>
+<div class="c"><div class="thumbs" id="th"></div></div>
+<div class="c"><pre id="out">结果将显示在这里</pre></div>
+</main>
+<script type="module">
+import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs";
+import { readBarcodes } from "https://cdn.jsdelivr.net/npm/zxing-wasm@1.2.11/dist/es/reader/index.js";
+pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
+const $=id=>document.getElementById(id), log=t=>$("log").textContent=t;
+const PROMPT="Extract document information into a JSON object with keys: 'invoice_metadata', 'line_items_table', 'stamps_and_chops_found', 'handwritten_notes'. Return raw JSON only, no markdown.";
+const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.85).split(",")[1];
+const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
+const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{return JSON.parse(t)}catch{const m=t.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{raw:t}}};
+
+async function ingest(file){
+  const n=file.name.toLowerCase(), segs=[];
+  if(file.type==="application/pdf"||n.endsWith(".pdf")){
+    const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+    for(let i=1;i<=pdf.numPages;i++){
+      const p=await pdf.getPage(i), vp=p.getViewport({scale:2}), c=document.createElement("canvas");
+      c.width=vp.width;c.height=vp.height;await p.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
+      const text=(await p.getTextContent()).items.map(x=>x.str).join(" ");
+      segs.push({id:`Page_${i}`,b64:canvasToJpeg(c),text});
+    }
+  }else if(file.type.startsWith("video/")){
+    const v=document.createElement("video");v.muted=true;v.src=URL.createObjectURL(file);
+    await new Promise((r,j)=>{v.onloadedmetadata=r;v.onerror=()=>j(new Error("视频无法解码"))});
+    for(const [k,fr] of [0.25,0.5,0.75].entries()){
+      v.currentTime=v.duration*fr;await new Promise(r=>v.onseeked=r);
+      const c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);
+      segs.push({id:`Video_Frame_${k+1}_${fr*100}pct`,b64:canvasToJpeg(c),text:""});
+    }
+  }else if(file.type.startsWith("image/")){
+    const bmp=await createImageBitmap(file),c=document.createElement("canvas");c.width=bmp.width;c.height=bmp.height;c.getContext("2d").drawImage(bmp,0,0);
+    segs.push({id:"Image_1",b64:canvasToJpeg(c),text:""});
+  }
+  return segs;
+}
+async function local(seg){
+  try{const r=await readBarcodes(b64ToBlob(seg.b64),{tryHarder:true,maxNumberOfSymbols:20});
+    return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
+  catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
+}
+async function openai(key,model,content){
+  const r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},
+    body:JSON.stringify({model,response_format:{type:"json_object"},max_tokens:2000,messages:[{role:"user",content}]})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.choices[0].message.content);
+}
+async function anthropic(key,model,content){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model,max_tokens:2000,messages:[{role:"user",content}]})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.content.find(b=>b.type==="text").text);
+}
+const safe=p=>p.catch(e=>({error:String(e.message||e)}));
+async function processSeg(seg,cfg){
+  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
+  const [loc,oa,an]=await Promise.all([local(seg),
+    cfg.ok?safe(openai(cfg.ok,cfg.om,[{type:"text",text:PROMPT+hint},{type:"image_url",image_url:{url:`data:image/jpeg;base64,${seg.b64}`}}])):{status:"skipped"},
+    cfg.ak?safe(anthropic(cfg.ak,cfg.am,[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:seg.b64}},{type:"text",text:PROMPT+hint}])):{status:"skipped"}]);
+  let audit={};
+  if(cfg.ok&&cfg.ak){
+    if(oa.error||an.error)audit={status:"Verification Bypassed",reason:"A provider failed."};
+    else{const q=`You are a strict data auditor. Compare two extractions of the same document.\nA (OpenAI): ${JSON.stringify(oa)}\nB (Anthropic): ${JSON.stringify(an)}\nReturn JSON with 'consensus_data' (fields both agree on) and 'discrepancy_flags' (each with field, value_a, value_b). Raw JSON only.`;
+      audit=await safe(anthropic(cfg.ak,cfg.am,[{type:"text",text:q}]));}
+  }
+  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai:oa,anthropic:an},cross_verification_audit:audit};
+}
+$("go").onclick=async()=>{
+  const file=$("f").files[0];if(!file)return log("请先选择文件");
+  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),am:$("am").value.trim()};
+  $("go").disabled=true;$("th").innerHTML="";
+  try{log("解析文件…");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");
+    segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;$("th").append(i)});
+    log(`并发处理 ${segs.length} 个片段…`);
+    const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg))));
+    $("out").textContent=JSON.stringify({source_document:file.name,total_extracted_segments:out.length,segments:out},null,2);log("完成");
+  }catch(e){log("错误："+e.message)}finally{$("go").disabled=false}
+};
+</script>
+</body></html>

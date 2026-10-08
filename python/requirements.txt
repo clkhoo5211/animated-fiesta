@@ -1,0 +1,6 @@
+opencv-python-headless
+pyzbar
+pymupdf
+numpy
+openai
+anthropic
