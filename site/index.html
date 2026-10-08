@@ -42,7 +42,17 @@ const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pd
 const loadZx=async()=>_zx||(_zx=await import(ZXING));
 window.addEventListener("error",e=>{const l=document.getElementById("log");if(l)l.textContent="脚本错误："+e.message});
 const $=id=>document.getElementById(id), log=t=>$("log").textContent=t;
-const PROMPT="Extract document information into a JSON object with keys: 'invoice_metadata', 'line_items_table', 'stamps_and_chops_found', 'handwritten_notes'. Return raw JSON only, no markdown.";
+const PROMPT=`You are an invoice data extractor. Read the image carefully and return ONE JSON object with exactly this shape (use null when absent, keep numbers as strings exactly as printed, never guess digits):
+{"supplier":{"name","registration_no","tin","address","phone"},
+ "invoice":{"invoice_no","date","customer_account","sales_executive","page","payment_terms","reference"},
+ "bill_to":{"name","registration_no","tin","address","attn","tel"},
+ "deliver_to":{"name","address"},
+ "line_items":[{"no","item_code","description","qty","uom","unit_price","discount","line_total"}],
+ "totals":{"currency","subtotal","tax","total_payable","amount_in_words"},
+ "stamps_and_chops":[{"text","position"}],
+ "handwritten_notes":[{"text","position"}],
+ "low_confidence_fields":["dot.path of any field you are unsure about"]}
+Raw JSON only, no markdown.`;
 const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.85).split(",")[1];
 const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
 const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{return JSON.parse(t)}catch{const m=t.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{raw:t}}};
@@ -71,8 +81,27 @@ async function ingest(file){
   }
   return segs;
 }
+const num=v=>{const n=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n};
+function arithmetic(r){
+  if(!r||r.error||!Array.isArray(r.line_items))return null;
+  const issues=[];let sum=0;
+  r.line_items.forEach((it,k)=>{const q=num(it.qty),p=num(it.unit_price),t=num(it.line_total),d=num(it.discount)||0;
+    if(t!=null)sum+=t;
+    if(q!=null&&p!=null&&t!=null&&Math.abs(q*p-d-t)>0.011)issues.push(`line ${k+1}: ${q} × ${p}${d?` − ${d}`:""} = ${(q*p-d).toFixed(2)} ≠ ${t}`);});
+  const tp=num(r.totals?.total_payable);
+  if(tp==null)issues.push("total_payable missing");
+  else if(Math.abs(sum+(num(r.totals?.tax)||0)-tp)>0.011)issues.push(`sum of lines ${sum.toFixed(2)} (+tax) ≠ total_payable ${tp}`);
+  return {lines_sum:sum.toFixed(2),total_payable:r.totals?.total_payable??null,passed:issues.length===0,issues};
+}
+async function decodeScaled(seg,scale){
+  const bmp=await createImageBitmap(b64ToBlob(seg.b64)),c=document.createElement("canvas");
+  c.width=bmp.width*scale;c.height=bmp.height*scale;const x=c.getContext("2d");x.imageSmoothingEnabled=false;x.filter="grayscale(1) contrast(1.6)";x.drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,"image/png"));
+}
 async function local(seg){
-  try{const {readBarcodesFromImageFile}=await loadZx();const r=await readBarcodesFromImageFile(b64ToBlob(seg.b64),{tryHarder:true,maxNumberOfSymbols:20});
+  try{const {readBarcodesFromImageFile}=await loadZx();const opt={tryHarder:true,maxNumberOfSymbols:20};
+    let r=(await readBarcodesFromImageFile(b64ToBlob(seg.b64),opt)).filter(x=>x.isValid);
+    for(const sc of [2,3]){if(r.length)break;r=(await readBarcodesFromImageFile(await decodeScaled(seg,sc),opt)).filter(x=>x.isValid);}
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
@@ -99,7 +128,7 @@ async function processSeg(seg,cfg){
     else{const q=`You are a strict data auditor. Compare two extractions of the same document.\nA (OpenAI): ${JSON.stringify(oa)}\nB (Anthropic): ${JSON.stringify(an)}\nReturn JSON with 'consensus_data' (fields both agree on) and 'discrepancy_flags' (each with field, value_a, value_b). Raw JSON only.`;
       audit=await safe(anthropic(cfg.ak,cfg.am,[{type:"text",text:q}]));}
   }
-  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai_compatible:oa,anthropic:an},cross_verification_audit:audit};
+  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai_compatible:oa,anthropic:an},arithmetic_check:{openai_compatible:arithmetic(oa),anthropic:arithmetic(an)},cross_verification_audit:audit};
 }
 $("go").onclick=async()=>{
   if(!$("ok").value.trim()&&!$("ak").value.trim())log("提示：未填任何 API Key，只做本地条码/文本识别");
