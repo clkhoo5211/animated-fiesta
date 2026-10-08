@@ -197,3 +197,17 @@ def test_max_tokens_default_and_length_error():
     with pytest.raises(RuntimeError, match="used all 65536"):
         asyncio.run(run(il.ModelConfig(base="https://relay.test/v1", key="k", model="m", max_tokens=65536)))
     assert seen == [32000, 65536]
+
+
+def test_cross_checks_and_unrelated_register():
+    r = {"document_date": "23/9/2026", "parties": [{"role": "ship_to", "address": "2346 JH TMN SKUDAI INDAH"}],
+         "stamps_and_chops": [{"text": "SPEED MART (2348) JH"}], "handwritten_notes": [{"text": "BC 26/4/26 1:50pm"}], "tables": []}
+    v = il.verify(r)
+    assert v["passed"] and {c["code"] for c in v["checks"] if not c["ok"]} == {"notedate", "stampno"}
+    reg = {"source_document": "reg.jpg", "segments": [{"final_result": {"document_type": "invoice_register", "tables": [{
+        "columns": [{"name": "Ship-To"}, {"name": "Name"}, {"name": "Invoice No."}],
+        "rows": [["1009135", "WATSONS", "1561454467"], ["1009215", "WATSONS 2", "1561454438"]]}]}}]}
+    inv = {"source_document": "inv.jpg", "segments": [{"final_result": {"document_number": "A260907007"}}]}
+    rc = il.reconcile([reg, inv])
+    assert rc["registers"][0]["related"] is False and rc["extra"] == []
+    assert rc["registers"][0]["rows"][0]["name"] == "WATSONS" and rc["registers"][0]["rows"][0]["status"] == "not_uploaded"

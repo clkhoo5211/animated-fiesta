@@ -69,3 +69,39 @@ test("duplicates: identical files are skipped, repeated invoice numbers are flag
   await expect(page.locator("#view")).toContainText("Duplicate invoice numbers");
   await expect(page.locator("#view")).toContainText("INV-5555");
 });
+
+test("an unrelated register is informational; all register columns are shown", async ({ page, context }) => {
+  await serve(context, { model: ({ doc }) => (doc && doc.includes("Invoice No.") ? { json: register } : { json: invoice({ document_number: "A260907007" }) }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", [FIX("register.csv"), FIX("invoice.jpg")]);
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=recon]");
+  const view = page.locator("#view");
+  await expect(view).toContainText("None of the uploaded invoices belong to this register");
+  await expect(view).toContainText("Not uploaded");
+  await expect(view).not.toContainText("Missing");
+  await expect(view).not.toContainText("does not appear on any register");
+  await expect(view.locator("thead")).toContainText("Delivery No");
+  await expect(view.locator("tbody tr").first()).toContainText("SHOP ALPHA");
+  await expect(view.locator("tbody tr.flag")).toHaveCount(0);
+});
+
+test("cross-field checks: early handwritten date and one-digit stamp/address mismatch", async ({ page, context }) => {
+  await serve(context, { model: () => ({ json: invoice({
+    document_date: "23/9/2026",
+    parties: [{ role: "supplier", name: "DEMO" }, { role: "ship_to", address: "2346 JH TMN SKUDAI INDAH" }],
+    stamps_and_chops: [{ text: "99 SPEED MART (2348) JH Tmn Skudai Indah" }],
+    handwritten_notes: [{ text: "BC 26/4/26 1:50pm" }],
+  }) }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("26/4/26 is earlier than the document date");
+  await expect(page.locator("#view")).toContainText("Stamp number 2348 vs address number 2346");
+  await expect(page.locator(".job")).toHaveAttribute("data-status", "warn");
+});
