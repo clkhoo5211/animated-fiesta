@@ -1,9 +1,10 @@
 # InvoiceLens
 
+**▶ Live demo:** [GitHub Pages](https://clkhoo5211.github.io/animated-fiesta/) · [here.now mirror](https://lapis-bloom-hav8.here.now/)
+
 In-browser document extraction: invoices, receipts, delivery orders, shipment lists and more.
 Images (incl. iPhone HEIC), PDF, Excel/CSV, Word and video → OpenAI-compatible or Anthropic models → arithmetic checks, A/B cross-verification, manual review, export. UI in English (default), 中文 and Bahasa Melayu.
 
-- Live: https://clkhoo5211.github.io/animated-fiesta/ · https://lapis-bloom-hav8.here.now/
 - Everything runs in the browser. Files go only to the model providers you configure. API keys are stored in this browser only if you tick “Remember”.
 
 ## Layout
