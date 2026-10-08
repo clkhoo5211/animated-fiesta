@@ -91,9 +91,10 @@ test("an unrelated register is informational; all register columns are shown", a
 test("cross-field checks: early handwritten date and one-digit stamp/address mismatch", async ({ page, context }) => {
   await serve(context, { model: () => ({ json: invoice({
     document_date: "23/9/2026",
-    parties: [{ role: "supplier", name: "DEMO" }, { role: "ship_to", address: "2346 JH TMN SKUDAI INDAH" }],
+    parties: [{ role: "supplier", name: "DEMO", tax_id: "TIN:C6850683100", contact: "email: frizz@po.jarving.my" }, { role: "ship_to", address: "2346 JH TMN SKUDAI INDAH" }],
     stamps_and_chops: [{ text: "99 SPEED MART (2348) JH Tmn Skudai Indah" }],
     handwritten_notes: [{ text: "BC 26/4/26 1:50pm" }],
+    fields: [{ label: "Ref 1", value: "BC 26/4/26 1:50pm" }, { label: "Customer Account", value: "NO10" }, { label: "email", value: "frizz@po.jarving.my" }],
   }) }) });
   await preset(page);
   await page.goto("/");
@@ -103,5 +104,9 @@ test("cross-field checks: early handwritten date and one-digit stamp/address mis
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("26/4/26 is earlier than the document date");
   await expect(page.locator("#view")).toContainText("Stamp number 2348 vs address number 2346");
+  await expect(page.locator("#view")).toContainText("Field “Ref 1” contains handwriting");
+  await expect(page.locator("#view")).toContainText("Tax ID TIN:C6850683100 has 10 digits");
+  await expect(page.locator("#view")).toContainText("misread of “jaring.my”");
+  await expect(page.locator("#view")).toContainText("Probably N010");
   await expect(page.locator(".job")).toHaveAttribute("data-status", "warn");
 });
