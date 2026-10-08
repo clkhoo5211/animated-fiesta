@@ -76,6 +76,11 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .split{display:grid;grid-template-columns:minmax(220px,38%) 1fr;gap:16px;align-items:start}.split>*{min-width:0}
 .pv{position:sticky;top:76px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--soft);max-height:calc(100vh - 100px);overflow-y:auto}.pv img{width:100%;display:block;cursor:zoom-in}
 @media (max-width:900px){.split{grid-template-columns:1fr}.pv{position:static;max-height:300px}}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--ac-soft);border-top-color:var(--ac);animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.prog{padding:8px 4px}.prog-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.prog .steps{margin-top:16px;font-size:14px;gap:10px}
+.job.running{border-color:var(--ac);background:linear-gradient(90deg,var(--ac-soft),var(--panel) 60%);background-size:200% 100%;animation:sh 1.6s ease-in-out infinite}
+@keyframes sh{0%{background-position:100% 0}50%{background-position:0 0}100%{background-position:100% 0}}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
@@ -118,7 +123,7 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
     <button class="tab" data-tab="json">原始 JSON</button>
     <div class="tools"><button class="btn sm" id="copy" disabled>复制 JSON</button><button class="btn sm" id="dl" disabled>下载全部 JSON</button><button class="btn sm" id="csv" disabled>导出表格 CSV</button><button class="btn sm" id="csvsum" disabled>导出汇总 CSV</button></div>
   </div>
-  <div class="pad" id="view"><div class="empty">上传发票并点击“开始识别”，结果会显示在这里。</div></div>
+  <div class="pad" id="view"><div class="empty">上传文件并点击“开始识别”，这里会显示文档类型、编号、日期、总额与各方信息。</div></div>
 </section>
 </main>
 
@@ -307,8 +312,8 @@ async function local(seg){
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
-async function anthropic(key,model,content,maxTok=4000){
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+async function anthropic(key,model,content,maxTok=4000,signal){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{signal,method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model,max_tokens:maxTok,messages:[{role:"user",content}]})});
   const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.content.find(b=>b.type==="text").text);
 }
@@ -343,14 +348,21 @@ function refreshChips(){const a=slot("a"),b=slot("b");
   $("#status-pill").textContent=a.key||b.key?"":"尚未配置模型 → 点击右上角“模型设置”"}
 
 /* ---------- model calls ---------- */
+const MODEL_TIMEOUT=window.__IL_TIMEOUT||180000;
+function callSignal(c){const t=typeof AbortSignal.timeout==="function"?AbortSignal.timeout(c.timeout||MODEL_TIMEOUT):null;
+  if(!c.signal)return t;if(!t)return c.signal;return typeof AbortSignal.any==="function"?AbortSignal.any([c.signal,t]):c.signal}
+function abortMsg(e,c){if(c.signal?.aborted)return new Error("已取消");if(e?.name==="TimeoutError"||e?.name==="AbortError")return new Error(`模型 ${Math.round((c.timeout||MODEL_TIMEOUT)/1000)} 秒未回复（超时）`);return null}
 async function callModel(c,content,img,maxTok=4000){
+  const signal=callSignal(c);
+  try{return await callModelInner(c,content,img,maxTok,signal)}catch(e){throw abortMsg(e,c)||e}}
+async function callModelInner(c,content,img,maxTok,signal){
   const imgs=img?(Array.isArray(img)?img:[img]):[];
-  if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts)}
+  if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts,maxTok,signal)}
   const parts=[...content,...imgs.map(d=>({type:"image_url",image_url:{url:`data:image/jpeg;base64,${d}`,detail:"high"}}))];
   const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
-  const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,
+  const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{signal,method:"POST",headers:h,
     body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
-    .catch(()=>{throw new Error(`无法连接 ${c.base}${c.proxy?"（经代理）":"（可能是 CORS，可在高级设置中填写代理）"}`)});
+    .catch(e=>{if(e?.name==="AbortError"||e?.name==="TimeoutError")throw e;throw new Error(`无法连接 ${c.base}${c.proxy?"（经代理）":"（可能是 CORS，可在高级设置中填写代理）"}`)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
   return parseJSON(j.choices?.[0]?.message?.content||"");
 }
@@ -377,7 +389,7 @@ async function processSeg(seg,cfg,onStep){
     let body=rows.slice(1),total=null;if(body.length&&/total|合计|总计/i.test(String(body.at(-1)[0])))total=body.pop();
     const ra={model:"本地解析",document_type:"other",title:seg.source,tables:[{name:seg.source,columns:cols,rows:body,total_row:total}],fields:[],parties:[]};
     return {segment_identifier:seg.id,source_kind:"text",image_size:null,local_extraction:await local(seg),provider_responses:{model_a:ra,model_b:{status:"skipped"}},checks:{model_a:verify(ra),model_b:null},cross_verification:null}}
-  const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
+  onStep("start");const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local",r),r)),run(cfg.a).then(r=>(onStep("a",r),r)),run(cfg.b).then(r=>(onStep("b",r),r))]);
   const im=seg.b64?await createImageBitmap(b64ToBlob(seg.b64)):null;
   return {segment_identifier:seg.id,source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
     checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
@@ -395,10 +407,10 @@ function addFiles(list){const fs=[...list].filter(f=>kindOf(f));
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
 function drawQueue(){scheduleSave();const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,t]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
-    const info=r?[TYPES[r.document_type]||r.document_type,r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
-    return`<div class="job ${CUR===j?"sel":""}" data-id="${j.id}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
+    const info=j.status==="run"?`<span><span class="stage">${esc(stageText(j))}</span> · <span data-el="${j.id}">${Math.round((Date.now()-(j.t0||Date.now()))/1000)}</span>s</span>`:r?[TYPES[r.document_type]||r.document_type,r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
+    return`<div class="job ${CUR===j?"sel":""} ${j.status==="run"?"running":""}" data-id="${j.id}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
       <div><div class="nm">${esc(j.file.name)}</div><div class="meta"><span class="badge ${k}">${t}</span>${info}</div></div>
-      <div class="acts">${(j.status==="wait"||j.status==="err")&&["image","heic","pdf","video"].includes(kindOf(j.file))?`<button data-act="rot" title="识别前旋转">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="重新识别">重试</button>`:""}${j.status!=="run"?`<button data-act="del" title="移除">✕</button>`:""}</div></div>`}).join("");
+      <div class="acts">${(j.status==="wait"||j.status==="err")&&["image","heic","pdf","video"].includes(kindOf(j.file))?`<button data-act="rot" title="识别前旋转">↻${j.rot?` ${j.rot}°`:""}</button>`:""}${j.status==="err"||(j.status!=="wait"&&j.status!=="run")?`<button data-act="retry" title="重新识别">重试</button>`:""}${j.status!=="run"?`<button data-act="del" title="移除">✕</button>`:`<button data-act="cancel" title="取消">取消</button>`}</div></div>`}).join("");
   const n=JOBS.length,done=JOBS.filter(j=>!["wait","run"].includes(j.status)).length;
   $("#qsum").textContent=n?`${done}/${n}`:"";$("#clearq").hidden=!n||running;
   $("#go").disabled=running||!JOBS.some(j=>j.status==="wait");$("#go").textContent=running?"识别中…":JOBS.filter(j=>j.status==="wait").length>1?`开始识别（${JOBS.filter(j=>j.status==="wait").length} 个文件）`:"开始识别";
@@ -408,12 +420,18 @@ function drawQueue(){scheduleSave();const q=$("#queue");
   q.querySelectorAll(".job").forEach(el=>{const j=JOBS.find(x=>x.id==el.dataset.id);
     el.onclick=e=>{const a=e.target.closest("[data-act]")?.dataset.act;
       if(a==="rot"){j.rot=(j.rot+90)%360;drawQueue();return}
+      if(a==="cancel"){cancelJob(j);return}
       if(a==="del"){if(j.result?.segments?.some(sg=>sg.manual_edits?.length)&&!confirm("这个文件有手动修正，删除后无法恢复。确定删除？"))return;JOBS=JOBS.filter(x=>x!==j);if(CUR===j){CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">选择左侧文件查看结果</div>'}drawQueue();return}
       if(a==="retry"){if(j.result&&j.result.segments.some(sg=>sg.manual_edits?.length)&&!confirm("重新识别会丢失这个文件的手动修正，继续？"))return;j.status="wait";j.result=null;j.error=null;j.reviewed=false;drawQueue();if(!running)runQueue();return}
       select(j)}})}
-function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");drawQueue();
-  if(j.result)render();else $("#view").innerHTML=`<div class="empty">${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:j.status==="run"?"处理中…":"尚未识别"}</div>`}
-function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));if(t==="summary")renderSummary();else if(RESULT)render()}
+function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");drawQueue();showCurrent()}
+function showCurrent(){const j=CUR;if(tab==="summary")return renderSummary();
+  if(!j)return $("#view").innerHTML=emptyFor(tab);
+  if(j.status==="run")return paintProgress(j);
+  if(j.result)return render();
+  $("#view").innerHTML=`<div class="empty">${j.error?`<b style="color:var(--bad)">识别失败</b><br><span class="sub">${esc(j.error)}</span><br><br>点击左侧该文件的“重试”。`:"该文件尚未识别，点击“开始识别”。"}</div>`}
+function emptyFor(t){return`<div class="empty">${{overview:"上传文件并点击“开始识别”，这里会显示文档类型、编号、日期、总额与各方信息。",items:"识别完成后，这里显示文档中的所有表格，可逐行核对与编辑。",checks:"识别完成后，这里列出算术校验、A/B 不一致、低置信字段等需要确认的项目。",json:"识别完成后，这里显示完整的原始 JSON（含模型原始输出与手动修正）。"}[t]||"还没有结果"}</div>`}
+function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));showCurrent()}
 /* ---------- autosave (IndexedDB) ---------- */
 const DB={db:null,ok:false,
   open(){return new Promise(res=>{try{const rq=indexedDB.open("invoicelens",1);rq.onupgradeneeded=()=>{rq.result.createObjectStore("jobs",{keyPath:"id"})};
@@ -446,17 +464,41 @@ window.addEventListener("paste",e=>{const f=[...e.clipboardData.files];if(f.leng
 $("#clearq").onclick=()=>{const ed=JOBS.some(j=>j.result?.segments?.some(sg=>sg.manual_edits?.length));if(!confirm(ed?"清空队列会删除已保存的结果和手动修正（建议先导出）。确定清空？":"确定清空队列和已保存的结果？"))return;JOBS=[];CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">上传文件并点击“开始识别”，结果会显示在这里。</div>';drawQueue()};
 $$(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
 
+const STAGES=[["parse","解析文件"],["local","本地 QR / 条码"],["a","模型 A"],["b","模型 B"],["verify","校验"]];
+function setStage(j,k,st,note){j.stages[k]={st,note:note??j.stages[k]?.note,t:st==="run"?Date.now():j.stages[k]?.t,end:st!=="run"?Date.now():null};paintProgress(j)}
 async function runJob(j,cfg){
-  j.status="run";drawQueue();const t0=performance.now();
-  try{const segs=await ingest(j.file);if(!segs.length)throw new Error("不支持或无法解析的文件");if(j.rot)for(const sg of segs)if(sg.b64)sg.b64=await rotateB64(sg.b64,j.rot);
-    if(!j.thumb&&segs[0].b64){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}j.previews=segs.map(sg=>sg.b64);j.texts=segs.map(sg=>sg.b64?null:sg.text);
-    const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg,()=>{}))));
+  j.status="run";j.error=null;j.t0=Date.now();j.ctrl=new AbortController();j.stages={};
+  STAGES.forEach(([k])=>j.stages[k]={st:"wait"});
+  if(!cfg.a.key)j.stages.a={st:"skip",note:"未配置"};if(!cfg.b.key)j.stages.b={st:"skip",note:"未配置"};
+  const jcfg={...cfg,a:{...cfg.a,signal:j.ctrl.signal},b:{...cfg.b,signal:j.ctrl.signal}};
+  if(!CUR||CUR.status==="wait"||(CUR!==j&&!CUR.result&&CUR.status!=="run"))select(j);else drawQueue();
+  const t0=performance.now();
+  try{setStage(j,"parse","run");const segs=await ingest(j.file);if(!segs.length)throw new Error("不支持或无法解析的文件");if(j.rot)for(const sg of segs)if(sg.b64)sg.b64=await rotateB64(sg.b64,j.rot);
+    if(j.ctrl.signal.aborted)throw new Error("已取消");
+    setStage(j,"parse","done",`${segs.length} 个片段`);
+    if(!j.thumb&&segs[0].b64){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}j.previews=segs.map(sg=>sg.b64);j.texts=segs.map(sg=>sg.b64?null:sg.text);drawQueue();
+    const left={local:segs.length,a:segs.length,b:segs.length},errs={a:null,b:null};
+    const onStep=(k,r)=>{if(k==="start"){if(j.stages.local.st==="wait")setStage(j,"local","run");for(const m of ["a","b"])if(jcfg[m].key&&j.stages[m].st==="wait")setStage(j,m,"run",jcfg[m].model);return}
+      if(r?.error)errs[k]=r.error;if(--left[k]===0&&j.stages[k].st==="run")setStage(j,k,errs[k]?"err":"done",errs[k]?errs[k].slice(0,80):k==="local"?(r?.qr_and_barcodes?.length?`${r.qr_and_barcodes.length} 个码`:"无"):jcfg[k].model)};
+    const out=[];for(let i=0;i<segs.length;i+=3){if(j.ctrl.signal.aborted)throw new Error("已取消");out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,jcfg,onStep))))}
+    setStage(j,"verify","run");
     j.result={source_document:j.file.name,processed_at:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-t0),total_extracted_segments:out.length,segments:out};
     const allFail=out.every(sg=>["a","b"].every(k=>{const r=sg.provider_responses["model_"+k];return r.error||r.status}))&&(cfg.a.key||cfg.b.key);
-    if(allFail){const r=out[0].provider_responses;j.error=r.model_a.error||r.model_b.error||"模型调用失败";j.status="err"}else j.status=verdict(j.result);
-  }catch(e){j.status="err";j.error=e.message}
-  drawQueue();if(CUR===j||(!CUR&&j.result))select(j);else if(tab==="summary")renderSummary();
+    if(allFail){const r=out[0].provider_responses;j.error=r.model_a.error||r.model_b.error||"模型调用失败";j.status="err";j.result=null;setStage(j,"verify","skip")}else{j.status=verdict(j.result);setStage(j,"verify","done")}
+  }catch(e){j.status="err";j.error=e.message;for(const [k] of STAGES)if(j.stages[k]?.st==="run")setStage(j,k,"err",e.message.slice(0,60))}
+  j.ctrl=null;drawQueue();if(CUR===j)select(j);else if(!CUR&&j.result)select(j);else if(tab==="summary")renderSummary();
 }
+function progressHTML(j){const el=Math.round((Date.now()-j.t0)/1000);
+  return`<div class="prog"><div class="prog-h"><span class="spin"></span><b>正在识别 ${esc(j.file.name)}</b><span class="sub">已用 <span data-el="${j.id}">${el}</span> 秒</span><span class="sp"></span><button class="btn sm" id="cancel-job">取消</button></div>
+  <ul class="steps">${STAGES.map(([k,l])=>{const x=j.stages[k]||{};const secs=x.st==="run"&&x.t?` · <span data-st="${j.id}:${k}">${Math.round((Date.now()-x.t)/1000)}</span>s`:x.t&&x.end?` · ${Math.round((x.end-x.t)/1000)}s`:"";
+    return`<li class="${x.st==="run"?"run":x.st==="done"?"done":x.st==="err"?"err":""}"><span>${l}${x.note?` · ${esc(x.note)}`:""}${x.st==="skip"?"（跳过）":""}${x.st==="run"&&(k==="a"||k==="b")?" · 等待模型回复":""}${secs}</span></li>`}).join("")}</ul>
+  <p class="sub">模型回复通常需要 5–60 秒；超过 ${MODEL_TIMEOUT/1000} 秒会自动判定超时，可点“重试”。你可以同时查看其他已完成的文件。</p></div>`}
+function paintProgress(j){if(CUR===j&&j.status==="run"&&tab!=="summary"){$("#view").innerHTML=progressHTML(j);const b=$("#cancel-job");if(b)b.onclick=()=>cancelJob(j)}
+  const row=document.querySelector(`.job[data-id="${j.id}"] .stage`);if(row)row.textContent=stageText(j)}
+function stageText(j){const r=STAGES.find(([k])=>j.stages?.[k]?.st==="run");return r?`${r[1]}${r[0]==="a"||r[0]==="b"?" 等待回复":""}…`:"处理中…"}
+function cancelJob(j){if(j.ctrl){j.ctrl.abort();toast("已取消")}}
+setInterval(()=>{const now=Date.now();JOBS.filter(j=>j.status==="run").forEach(j=>{document.querySelectorAll(`[data-el="${j.id}"]`).forEach(e=>e.textContent=Math.round((now-j.t0)/1000));
+  for(const [k] of STAGES){const x=j.stages?.[k];if(x?.st==="run")document.querySelectorAll(`[data-st="${j.id}:${k}"]`).forEach(e=>e.textContent=Math.round((now-x.t)/1000))}})},1000);
 async function runQueue(){
   const cfg={a:slot("a"),b:slot("b"),enhance:S.enhance,tiles:S.tiles};
   if(!cfg.a.key&&!cfg.b.key)toast("未配置模型，仅做本地识别");
