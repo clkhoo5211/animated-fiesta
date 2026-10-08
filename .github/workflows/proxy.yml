@@ -1,7 +1,7 @@
 name: Deploy CORS proxy (Cloudflare Worker)
 on:
   push:
-    branches: [main, claude/eloquent-edison-i91gj0]
+    branches: [main]
     paths: [proxy/**, .github/workflows/proxy.yml]
   workflow_dispatch:
 permissions: {contents: read}
