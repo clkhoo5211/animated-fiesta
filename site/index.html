@@ -217,7 +217,7 @@ en:{
  need_key:"Enter a key first",testing:"Testing…",conn_ok:"✓ Connection OK",
  chip_local:"Local QR / barcode",chip_pdf:"PDF text layer",not_set:"not set",chip_cross:"Cross-check",chip_enh:"Small-text boost",chip_tiles:"Multi-scale",
  no_model_hint:"No model configured → click “Model settings” (top right)",
- cancelled:"Cancelled",timeout:"Model did not reply within {s} s (timeout)",cant_connect:"Cannot connect to {b}{x}",via_proxy:" (via proxy)",maybe_cors:" (possibly CORS — set a proxy under Advanced)",
+ retrying:"Temporary error {code} — retrying ({n}/{max})…",cancelled:"Cancelled",timeout:"Model did not reply within {s} s (timeout)",cant_connect:"Cannot connect to {b}{x}",via_proxy:" (via proxy)",maybe_cors:" (possibly CORS — set a proxy under Advanced)",
  col_n:"Column {n}",local_parse:"Local parse",
  st_rev:"Reviewed",st_wait:"Waiting",st_run:"Processing…",st_ok:"Passed",st_warn:"To confirm",st_bad:"Needs review",st_err:"Failed",
  skipped_files:"Skipped {n} unsupported file(s)",rotate_title:"Rotate before extraction",retry_title:"Re-extract",retry:"Retry",remove:"Remove",cancel:"Cancel",
@@ -287,7 +287,7 @@ zh:{
  need_key:"请先填 Key",testing:"测试中…",conn_ok:"✓ 连接正常",
  chip_local:"本地 QR / 条码",chip_pdf:"PDF 文本层",not_set:"未配置",chip_cross:"交叉核验",chip_enh:"小字增强",chip_tiles:"多尺度",
  no_model_hint:"尚未配置模型 → 点击右上角“模型设置”",
- cancelled:"已取消",timeout:"模型 {s} 秒未回复（超时）",cant_connect:"无法连接 {b}{x}",via_proxy:"（经代理）",maybe_cors:"（可能是 CORS，可在高级设置中填写代理）",
+ retrying:"临时错误 {code}，重试中（{n}/{max}）…",cancelled:"已取消",timeout:"模型 {s} 秒未回复（超时）",cant_connect:"无法连接 {b}{x}",via_proxy:"（经代理）",maybe_cors:"（可能是 CORS，可在高级设置中填写代理）",
  col_n:"列{n}",local_parse:"本地解析",
  st_rev:"已复核",st_wait:"等待",st_run:"处理中…",st_ok:"通过",st_warn:"待确认",st_bad:"需复核",st_err:"失败",
  skipped_files:"已跳过 {n} 个不支持的文件",rotate_title:"识别前旋转",retry_title:"重新识别",retry:"重试",remove:"移除",cancel:"取消",
@@ -357,7 +357,7 @@ ms:{
  need_key:"Masukkan kunci dahulu",testing:"Menguji…",conn_ok:"✓ Sambungan OK",
  chip_local:"QR / kod bar tempatan",chip_pdf:"Lapisan teks PDF",not_set:"belum ditetapkan",chip_cross:"Semakan silang",chip_enh:"Peningkatan teks kecil",chip_tiles:"Pelbagai skala",
  no_model_hint:"Tiada model ditetapkan → klik “Tetapan model” (kanan atas)",
- cancelled:"Dibatalkan",timeout:"Model tidak membalas dalam {s} saat (tamat masa)",cant_connect:"Tidak dapat bersambung ke {b}{x}",via_proxy:" (melalui proksi)",maybe_cors:" (mungkin CORS — tetapkan proksi di bahagian Lanjutan)",
+ retrying:"Ralat sementara {code} — mencuba semula ({n}/{max})…",cancelled:"Dibatalkan",timeout:"Model tidak membalas dalam {s} saat (tamat masa)",cant_connect:"Tidak dapat bersambung ke {b}{x}",via_proxy:" (melalui proksi)",maybe_cors:" (mungkin CORS — tetapkan proksi di bahagian Lanjutan)",
  col_n:"Lajur {n}",local_parse:"Bacaan tempatan",
  st_rev:"Disemak",st_wait:"Menunggu",st_run:"Sedang diproses…",st_ok:"Lulus",st_warn:"Perlu disahkan",st_bad:"Perlu semakan",st_err:"Gagal",
  skipped_files:"{n} fail tidak disokong dilangkau",rotate_title:"Putar sebelum pengekstrakan",retry_title:"Ekstrak semula",retry:"Cuba semula",remove:"Buang",cancel:"Batal",
@@ -558,7 +558,7 @@ function withUsage(r,u){if(r&&typeof r==="object"&&u)Object.defineProperty(r,"__
 async function anthropic(key,model,content,maxTok=4000,signal){
   const r=await fetch("https://api.anthropic.com/v1/messages",{signal,method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model,max_tokens:maxTok,messages:[{role:"user",content}]})});
-  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return withUsage(parseJSON(j.content.find(b=>b.type==="text").text),j.usage);
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);return withUsage(parseJSON(j.content.find(b=>b.type==="text").text),j.usage);
 }
 const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 
@@ -616,9 +616,15 @@ const MODEL_TIMEOUT=window.__IL_TIMEOUT||180000;
 function callSignal(c){const t=typeof AbortSignal.timeout==="function"?AbortSignal.timeout(c.timeout||MODEL_TIMEOUT):null;
   if(!c.signal)return t;if(!t)return c.signal;return typeof AbortSignal.any==="function"?AbortSignal.any([c.signal,t]):c.signal}
 function abortMsg(e,c){if(c.signal?.aborted)return new Error(t("cancelled"));if(e?.name==="TimeoutError"||e?.name==="AbortError")return new Error(t("timeout",{s:Math.round((c.timeout||MODEL_TIMEOUT)/1000)}));return null}
+const RETRY_CODES=[429,502,503,504],RETRY_MS=window.__IL_RETRY_MS||[3000,8000];
+const sleep=(ms,sig)=>new Promise((res,rej)=>{const h=setTimeout(res,ms);sig?.addEventListener("abort",()=>{clearTimeout(h);rej(sig.reason||new DOMException("aborted","AbortError"))},{once:true})});
 async function callModel(c,content,img,maxTok=4000){
-  const signal=callSignal(c);
-  try{return await callModelInner(c,content,img,maxTok,signal)}catch(e){throw abortMsg(e,c)||e}}
+  for(let i=0;;i++){const signal=callSignal(c);
+    try{return await callModelInner(c,content,img,maxTok,signal)}
+    catch(e){const ab=abortMsg(e,c);if(ab)throw ab;
+      if(!RETRY_CODES.includes(e.status)||i>=RETRY_MS.length)throw e;
+      c.onRetry?.(i+1,e);try{await sleep(RETRY_MS[i],c.signal)}catch(x){throw abortMsg(x,c)||x}}}}
+const httpErr=(msg,status)=>Object.assign(new Error(msg),{status});
 async function callModelInner(c,content,img,maxTok,signal){
   const imgs=img?(Array.isArray(img)?img:[img]):[];
   if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts,maxTok,signal)}
@@ -627,7 +633,7 @@ async function callModelInner(c,content,img,maxTok,signal){
   const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{signal,method:"POST",headers:h,
     body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
     .catch(e=>{if(e?.name==="AbortError"||e?.name==="TimeoutError")throw e;throw new Error(t("cant_connect",{b:c.base,x:c.proxy?t("via_proxy"):t("maybe_cors")}))});
-  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);
   return withUsage(parseJSON(j.choices?.[0]?.message?.content||""),j.usage);
 }
 
@@ -740,6 +746,7 @@ async function runJob(j,cfg){
   STAGES.forEach(([k])=>j.stages[k]={st:"wait"});
   if(!cfg.a.key)j.stages.a={st:"skip",note:t("not_set")};if(!cfg.b.key)j.stages.b={st:"skip",note:t("not_set")};
   const jcfg={...cfg,a:{...cfg.a,signal:j.ctrl.signal},b:{...cfg.b,signal:j.ctrl.signal}};
+  for(const m of ["a","b"])jcfg[m].onRetry=(n,e)=>{if(j.stages[m]?.st==="run")setStage(j,m,"run",t("retrying",{n,max:RETRY_MS.length,code:e.status}))};
   if(!CUR||CUR.status==="wait"||(CUR!==j&&!CUR.result&&CUR.status!=="run"))select(j);else drawQueue();
   const t0=performance.now();
   try{setStage(j,"parse","run");const segs=await ingest(j.file);if(!segs.length)throw new Error(t("err_unsupported"));if(j.rot)for(const sg of segs)if(sg.b64)sg.b64=await rotateB64(sg.b64,j.rot);
