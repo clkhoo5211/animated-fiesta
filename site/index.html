@@ -170,6 +170,8 @@ Rules:
 - Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> "?" and list the field in low_confidence_fields.
 - Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.
 - Handwriting and tick marks: transcribe literally, list in low_confidence_fields.
+- Parties come only from printed letterheads / address blocks (e.g. "Billing Address", "Delivery Address", "Bill To"). A rubber stamp, company chop or "Received by" stamp is NOT a party: put it only in stamps_and_chops.
+- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the "1" in "Ref 1:") are not its value. If the space after a label is empty, its value is null.
 Raw JSON only, no markdown.`;
 const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.95).split(",")[1];
 const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
@@ -305,7 +307,8 @@ async function processSeg(seg,cfg,onStep){
   const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";const msg=[{type:"text",text:PROMPT+hint}];
   const run=c=>c.key?safe(callModel(c,msg,seg.b64)):Promise.resolve({status:"skipped"});
   const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
-  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
+  const im=await createImageBitmap(b64ToBlob(seg.b64));
+  return {segment_identifier:seg.id,image_size:[im.width,im.height],local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
     checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
 }
 
@@ -355,6 +358,7 @@ function issues(seg){const L=[];const cv=seg.cross_verification;
     (r.low_confidence_fields||[]).forEach(f=>L.push(["warn",`模型 ${K} 自报低置信`,f]))}
   if(cv){cv.discrepancies.forEach(d=>L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`]));if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
   else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果（推荐：数字、编号类字段只有交叉核验能发现错误）"]);
+  if(seg.image_size&&Math.min(...seg.image_size)<1000)L.unshift(["warn",`图片分辨率偏低（${seg.image_size.join("×")}）`,"小字（税号、电话、标签）易误读。请上传手机相册原图，不要用 WhatsApp / 微信压缩后的图片"]);
   const q=seg.local_extraction.qr_and_barcodes;L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
   return L}
 const TYPES={invoice:"发票",receipt:"收据",delivery_order:"送货单",invoice_register:"发票登记 / 出货清单",purchase_order:"采购单",statement:"对账单",quotation:"报价单",other:"其他"};
