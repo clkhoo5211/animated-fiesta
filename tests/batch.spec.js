@@ -7,7 +7,7 @@ test("batch queue: skips unsupported, max 2 concurrent, failure then retry, summ
   await serve(context, { model: async () => {
     inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
     await new Promise((r) => setTimeout(r, 400)); inFlight--;
-    if (failOnce) { failOnce = false; return { error: "upstream overloaded" }; }
+    if (failOnce) { failOnce = false; return { error: "invalid request" }; }
     return { json: invoice() };
   } });
   await preset(page);
