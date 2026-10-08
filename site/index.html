@@ -154,7 +154,7 @@ const loadPdf=async()=>{if(!_pdf){try{_pdf=await import(PDFJS+"pdf.min.mjs");_pd
 const loadZx=async()=>_zx||(_zx=await import(ZXING));
 const PROMPT=`You are an invoice data extractor. Read the image carefully and return ONE JSON object with exactly this shape (use null when absent, keep numbers as strings exactly as printed, never guess digits):
 {"supplier":{"name","registration_no","tin","address","phone"},
- "invoice":{"invoice_no","date","customer_account","sales_executive","page","payment_terms","reference"},
+ "invoice":{"invoice_no","date","customer_account","sales_executive","issued_by","page","payment_terms","reference"},
  "bill_to":{"name","registration_no","tin","address","attn","tel"},
  "deliver_to":{"name","address"},
  "line_items":[{"no","item_code","description","qty","uom","unit_price","discount","line_total"}],
@@ -162,8 +162,13 @@ const PROMPT=`You are an invoice data extractor. Read the image carefully and re
  "stamps_and_chops":[{"text","position"}],
  "handwritten_notes":[{"text","position"}],
  "low_confidence_fields":["dot.path of any field you are unsure about"]}
+Field rules:
+- Copy every ID, phone, TIN and amount character-by-character as printed. If a character is unreadable write "?" for it and add the field to low_confidence_fields. Never invent or reorder digits.
+- Each value must come from the label printed next to/under it: "Sales Executive" -> invoice.sales_executive, "Customer Account" -> invoice.customer_account, "Name" -> invoice.issued_by, "Ref"/"Ref 1" -> invoice.reference (null if the space after the label is blank; the "1" in "Ref 1" is part of the label).
+- supplier = the company in the letterhead (its TIN is usually near its address); bill_to = "Billing Address" block; include fax numbers in the phone field as "Fax: ...".
+- Handwriting is often ambiguous: transcribe literally and list it in low_confidence_fields.
 Raw JSON only, no markdown.`;
-const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.85).split(",")[1];
+const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.95).split(",")[1];
 const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
 const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{return JSON.parse(t)}catch{const m=t.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{raw:t}}};
 
@@ -253,7 +258,7 @@ function refreshChips(){const a=slot("a"),b=slot("b");
 /* ---------- model calls ---------- */
 async function callModel(c,content,img,maxTok=2500){
   if(c.type==="anthropic"){const parts=img?[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:img}},...content]:content;return anthropic(c.key,c.model,parts)}
-  const parts=img?[...content,{type:"image_url",image_url:{url:`data:image/jpeg;base64,${img}`}}]:content;
+  const parts=img?[...content,{type:"image_url",image_url:{url:`data:image/jpeg;base64,${img}`,detail:"high"}}]:content;
   const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
   const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,
     body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
@@ -347,7 +352,7 @@ function render(){const v=$("#view");if(!RESULT){return}
     <div class="sec grid2">
       <div class="box"><h4>供应商</h4>${kv(r.supplier,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",phone:"电话"})}</div>
       <div class="box"><h4>买方（Bill to）</h4>${kv(r.bill_to,{name:"名称",registration_no:"注册号",tin:"TIN",address:"地址",attn:"联系人",tel:"电话"})}</div>
-      <div class="box"><h4>发票信息</h4>${kv(inv,{customer_account:"客户账号",sales_executive:"销售",payment_terms:"付款条件",reference:"参考号",page:"页码"})}</div>
+      <div class="box"><h4>发票信息</h4>${kv(inv,{customer_account:"客户账号",sales_executive:"销售",issued_by:"开单人",payment_terms:"付款条件",reference:"参考号",page:"页码"})}</div>
       <div class="box"><h4>送货地址</h4>${kv(r.deliver_to,{name:"名称",address:"地址"})}${t.amount_in_words?`<p class="sub" style="margin:10px 0 0">${esc(t.amount_in_words)}</p>`:""}</div></div>
     <div class="sec grid2">
       <div class="box"><h4>印章 / 盖章</h4>${(r.stamps_and_chops||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
