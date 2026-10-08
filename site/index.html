@@ -20,8 +20,11 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--b
 <h1>Unified Vision Pipeline</h1>
 <p class="s">图片 / PDF / 视频 → 本地 QR·条码 + PDF 文本层 → OpenAI & Anthropic 视觉抽取 → 交叉核验。全部在浏览器运行，密钥只存在本页内存。</p>
 <div class="c">
-<label>OpenAI API Key（可选）</label><input id="ok" type="password" autocomplete="off">
-<label>OpenAI 模型</label><input id="om" type="text" value="gpt-4o">
+<label>OpenAI 兼容 Base URL（OpenAI / DeepSeek / 通义 / OpenRouter / 中转站…）</label><input id="ob" type="text" value="https://api.openai.com/v1" list="presets">
+<datalist id="presets"><option value="https://api.openai.com/v1"><option value="https://openrouter.ai/api/v1"><option value="https://dashscope.aliyuncs.com/compatible-mode/v1"><option value="https://generativelanguage.googleapis.com/v1beta/openai"><option value="https://api.deepseek.com/v1"></datalist>
+<label>API Key（可选）</label><input id="ok" type="password" autocomplete="off">
+<label>模型（需支持图片输入）</label><input id="om" type="text" value="gpt-4o">
+<label><input id="jm" type="checkbox" checked style="width:auto"> 使用 JSON 模式（服务商报错时取消勾选）</label>
 <label>Anthropic API Key（可选）</label><input id="ak" type="password" autocomplete="off">
 <label>Anthropic 模型</label><input id="am" type="text" value="claude-sonnet-5-5">
 <label>文件</label><input id="f" type="file" accept="image/*,.pdf,video/*">
@@ -69,10 +72,10 @@ async function local(seg){
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
-async function openai(key,model,content){
-  const r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},
-    body:JSON.stringify({model,response_format:{type:"json_object"},max_tokens:2000,messages:[{role:"user",content}]})});
-  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.choices[0].message.content);
+async function openai(key,model,content,base,json){
+  const r=await fetch(base.replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},
+    body:JSON.stringify({model,...(json?{response_format:{type:"json_object"}}:{}),max_tokens:2000,messages:[{role:"user",content}]})}).catch(e=>{throw new Error(`无法连接 ${base}（可能是服务商不允许浏览器跨域调用 / CORS）`)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);return parseJSON(j.choices[0].message.content);
 }
 async function anthropic(key,model,content){
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
@@ -83,7 +86,7 @@ const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 async function processSeg(seg,cfg){
   const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
   const [loc,oa,an]=await Promise.all([local(seg),
-    cfg.ok?safe(openai(cfg.ok,cfg.om,[{type:"text",text:PROMPT+hint},{type:"image_url",image_url:{url:`data:image/jpeg;base64,${seg.b64}`}}])):{status:"skipped"},
+    cfg.ok?safe(openai(cfg.ok,cfg.om,[{type:"text",text:PROMPT+hint},{type:"image_url",image_url:{url:`data:image/jpeg;base64,${seg.b64}`}}],cfg.ob,cfg.jm)):{status:"skipped"},
     cfg.ak?safe(anthropic(cfg.ak,cfg.am,[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:seg.b64}},{type:"text",text:PROMPT+hint}])):{status:"skipped"}]);
   let audit={};
   if(cfg.ok&&cfg.ak){
@@ -91,11 +94,11 @@ async function processSeg(seg,cfg){
     else{const q=`You are a strict data auditor. Compare two extractions of the same document.\nA (OpenAI): ${JSON.stringify(oa)}\nB (Anthropic): ${JSON.stringify(an)}\nReturn JSON with 'consensus_data' (fields both agree on) and 'discrepancy_flags' (each with field, value_a, value_b). Raw JSON only.`;
       audit=await safe(anthropic(cfg.ak,cfg.am,[{type:"text",text:q}]));}
   }
-  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai:oa,anthropic:an},cross_verification_audit:audit};
+  return {segment_identifier:seg.id,local_extraction:loc,provider_responses:{openai_compatible:oa,anthropic:an},cross_verification_audit:audit};
 }
 $("go").onclick=async()=>{
   const file=$("f").files[0];if(!file)return log("请先选择文件");
-  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),am:$("am").value.trim()};
+  const cfg={ok:$("ok").value.trim(),ak:$("ak").value.trim(),om:$("om").value.trim(),ob:$("ob").value.trim()||"https://api.openai.com/v1",jm:$("jm").checked,am:$("am").value.trim()};
   $("go").disabled=true;$("th").innerHTML="";
   try{log("解析文件…");const segs=await ingest(file);if(!segs.length)throw new Error("不支持的文件类型");
     segs.forEach(s=>{const i=new Image();i.src=`data:image/jpeg;base64,${s.b64}`;i.title=s.id;$("th").append(i)});
