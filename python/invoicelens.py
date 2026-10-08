@@ -220,6 +220,7 @@ class ModelConfig:
     key: str = ""
     json_mode: bool = True
     timeout: float = MODEL_TIMEOUT
+    max_tokens: int = 32000
 
     @property
     def enabled(self):
@@ -238,6 +239,7 @@ def _with_usage(r, i, o):
 
 
 RETRY_CODES = {429, 502, 503, 504}
+OUT_OF_TOKENS = "Model used all {n} output tokens (probably on thinking) and returned no answer - raise --max-tokens"
 RETRY_DELAYS = [3.0, 8.0]
 
 
@@ -247,11 +249,11 @@ class HTTPStatusError(RuntimeError):
         self.status = status
 
 
-async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=4000):
+async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=None):
     """Call the model, retrying temporary errors (429/502/503/504) with backoff."""
     for i in range(len(RETRY_DELAYS) + 1):
         try:
-            return await _call_model_once(client, c, text, images, max_tokens)
+            return await _call_model_once(client, c, text, images, max_tokens or c.max_tokens)
         except HTTPStatusError as e:
             if e.status not in RETRY_CODES or i >= len(RETRY_DELAYS):
                 raise
@@ -259,7 +261,7 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
             await asyncio.sleep(RETRY_DELAYS[i])
 
 
-async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=4000):
+async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens: int):
     images = images or []
     if c.type == "anthropic":
         content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": d}} for d in images] + [{"type": "text", "text": text}]
@@ -273,7 +275,10 @@ async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str,
         if r.status_code >= 400:
             raise HTTPStatusError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}", r.status_code)
         u = j.get("usage") or {}
-        return _with_usage(parse_json(next((b["text"] for b in j.get("content", []) if b.get("type") == "text"), "")), u.get("input_tokens"), u.get("output_tokens"))
+        txt = next((b["text"] for b in j.get("content", []) if b.get("type") == "text"), "")
+        if not txt.strip() and j.get("stop_reason") == "max_tokens":
+            raise RuntimeError(OUT_OF_TOKENS.format(n=max_tokens))
+        return _with_usage(parse_json(txt), u.get("input_tokens"), u.get("output_tokens"))
     content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{d}", "detail": "high"}} for d in images]
     body = {"model": c.model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]}
     if c.json_mode:
@@ -287,7 +292,11 @@ async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str,
     if r.status_code >= 400:
         raise HTTPStatusError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}", r.status_code)
     u = j.get("usage") or {}
-    return _with_usage(parse_json(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or ""), u.get("prompt_tokens"), u.get("completion_tokens"))
+    ch = (j.get("choices") or [{}])[0]
+    txt = (ch.get("message") or {}).get("content") or ""
+    if not txt.strip() and ch.get("finish_reason") == "length":
+        raise RuntimeError(OUT_OF_TOKENS.format(n=max_tokens))
+    return _with_usage(parse_json(txt), u.get("prompt_tokens"), u.get("completion_tokens"))
 
 
 async def safe(coro):
@@ -631,9 +640,10 @@ def main(argv=None, transport=None):
     ap.add_argument("--concurrency", type=int, default=2)
     ap.add_argument("--pdf-image", action="store_true", help="always send PDF pages as images (default: use the text layer when present)")
     ap.add_argument("--timeout", type=float, default=MODEL_TIMEOUT)
+    ap.add_argument("--max-tokens", type=int, default=int(os.getenv("IL_MAX_TOKENS", "32000")), help="max output tokens per model call (thinking models need a high value)")
     ap.add_argument("--out", type=Path, default=Path("invoicelens-out"))
     a = ap.parse_args(argv)
-    mk = lambda s: ModelConfig(getattr(a, f"{s}_type"), getattr(a, f"{s}_base"), getattr(a, f"{s}_model"), getattr(a, f"{s}_key"), not getattr(a, f"{s}_no_json"), a.timeout)
+    mk = lambda s: ModelConfig(getattr(a, f"{s}_type"), getattr(a, f"{s}_base"), getattr(a, f"{s}_model"), getattr(a, f"{s}_key"), not getattr(a, f"{s}_no_json"), a.timeout, a.max_tokens)
     o = Options(mk("a"), mk("b"), not a.no_enhance, a.tiles, a.concurrency, "image" if a.pdf_image else "auto")
     if not o.a.enabled and not o.b.enabled:
         print("No model key configured — only local parsing (CSV/Excel tables, barcodes).", file=sys.stderr)
