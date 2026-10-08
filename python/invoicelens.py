@@ -237,16 +237,41 @@ def _with_usage(r, i, o):
     return r
 
 
+RETRY_CODES = {429, 502, 503, 504}
+RETRY_DELAYS = [3.0, 8.0]
+
+
+class HTTPStatusError(RuntimeError):
+    def __init__(self, msg, status):
+        super().__init__(msg)
+        self.status = status
+
+
 async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=4000):
+    """Call the model, retrying temporary errors (429/502/503/504) with backoff."""
+    for i in range(len(RETRY_DELAYS) + 1):
+        try:
+            return await _call_model_once(client, c, text, images, max_tokens)
+        except HTTPStatusError as e:
+            if e.status not in RETRY_CODES or i >= len(RETRY_DELAYS):
+                raise
+            print(f"  temporary error {e.status} from {c.model}, retrying ({i + 1}/{len(RETRY_DELAYS)})", file=sys.stderr)
+            await asyncio.sleep(RETRY_DELAYS[i])
+
+
+async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=4000):
     images = images or []
     if c.type == "anthropic":
         content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": d}} for d in images] + [{"type": "text", "text": text}]
         r = await client.post("https://api.anthropic.com/v1/messages", timeout=c.timeout,
                               headers={"x-api-key": c.key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
                               json={"model": c.model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]})
-        j = r.json() if r.content else {}
+        try:
+            j = r.json() if r.content else {}
+        except ValueError:
+            j = {}
         if r.status_code >= 400:
-            raise RuntimeError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}")
+            raise HTTPStatusError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}", r.status_code)
         u = j.get("usage") or {}
         return _with_usage(parse_json(next((b["text"] for b in j.get("content", []) if b.get("type") == "text"), "")), u.get("input_tokens"), u.get("output_tokens"))
     content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{d}", "detail": "high"}} for d in images]
@@ -255,9 +280,12 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
         body["response_format"] = {"type": "json_object"}
     r = await client.post(clean_base(c.base) + "/chat/completions", timeout=c.timeout,
                           headers={"Authorization": f"Bearer {c.key}", "content-type": "application/json"}, json=body)
-    j = r.json() if r.content else {}
+    try:
+        j = r.json() if r.content else {}
+    except ValueError:
+        j = {}
     if r.status_code >= 400:
-        raise RuntimeError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}")
+        raise HTTPStatusError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}", r.status_code)
     u = j.get("usage") or {}
     return _with_usage(parse_json(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or ""), u.get("prompt_tokens"), u.get("completion_tokens"))
 

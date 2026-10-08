@@ -158,3 +158,24 @@ def test_text_pdf_sent_as_text_and_usage_reported(tmp_path):
     assert (row["tokens_in"], row["tokens_out"]) == ("10000", "1000")
     seg = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
     assert seg["usage"]["model_a"] == {"in": 10000, "out": 1000} and "__usage" not in seg["final_result"]
+
+
+def test_retries_temporary_errors(monkeypatch):
+    monkeypatch.setattr(il, "RETRY_DELAYS", [0, 0])
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        if len(calls) < 3:
+            return httpx.Response(504, json={"error": {"message": "queue wait exceeded"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": true}'}}]})
+
+    async def run(h):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(h)) as client:
+            return await il.call_model(client, il.ModelConfig(type="openai", base="https://relay.test/v1", key="k", model="m"), "hi", None)
+
+    assert asyncio.run(run(handler)) == {"ok": True} and len(calls) == 3
+    calls.clear()
+    with pytest.raises(il.HTTPStatusError):
+        asyncio.run(run(lambda req: (calls.append(1), httpx.Response(401, json={}))[1]))
+    assert len(calls) == 1  # non-temporary errors fail immediately
