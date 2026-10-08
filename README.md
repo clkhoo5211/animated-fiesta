@@ -13,7 +13,7 @@ Images (incl. iPhone HEIC), PDF, Excel/CSV, Word and video → OpenAI-compatible
 | `site/index.html` | The whole app (single file, libraries from jsDelivr with pinned versions) |
 | `tests/` | Playwright end-to-end tests + synthetic fixtures (`tests/fixtures/make_fixtures.py`) |
 | `proxy/` | Optional Cloudflare Worker CORS proxy |
-| `python/` | Server-side Python version of the pipeline (images/PDF/video) |
+| `python/invoicelens.py` | Command-line / server version with the same prompt, checks, cross-check and reconciliation as the web app |
 | `.github/workflows/` | `tests.yml` → on success `pages.yml` + `herenow.yml` deploy; `proxy.yml` deploys the worker |
 
 ## Tests
@@ -27,6 +27,19 @@ npm test
 The tests serve `site/index.html` locally, map the jsDelivr libraries to `node_modules` (same pinned versions) and mock every model call, so they need no network or API keys. They cover: extraction and all result tabs, arithmetic checks, batch queue (concurrency, failure, retry, CSV), manual review (A/B pick, inline edit, undo, reviewed, export), autosave/restore, HEIC/Excel/Word/CSV, progress/cancel/timeout, i18n (no untranslated text in en/ms/zh), mobile overflow at 375px, and provider presets.
 
 When you change a library version in `site/index.html`, change it in `package.json` too.
+
+## Python / command line
+
+Same extraction rules as the web app, for batch or server use (any OpenAI-compatible endpoint or Anthropic):
+
+```bash
+pip install -r python/requirements.txt
+export IL_A_KEY=sk-...                     # model A; optional model B via IL_B_KEY / --b-*
+python python/invoicelens.py invoices/ register.pdf \
+  --a-base https://openrouter.ai/api/v1 --a-model google/gemini-2.5-flash --out out/
+```
+
+Writes `results.json`, `summary.csv`, `tables.csv` and `reconcile.csv` to `--out`. Run `python python/invoicelens.py -h` for all options (`--tiles`, `--no-enhance`, `--concurrency`, `--b-type anthropic`, …). Tests: `pytest python/tests` (a test fails if the prompt drifts from `site/index.html`).
 
 ## Deployment
 
