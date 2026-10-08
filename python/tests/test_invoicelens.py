@@ -220,3 +220,11 @@ def test_format_checks():
     bad = {c["code"]: c for c in il.verify(r)["checks"] if not c["ok"]}
     assert {"hwfield", "tin", "email", "o0", "notedate"} <= set(bad)
     assert bad["email"]["k"] == "jaring.my" and bad["o0"]["s"] == "N010" and bad["tin"]["n"] == 10
+
+
+def test_items_extracted_as_totals():
+    r = {"grand_total": "384.00", "tables": [], "totals": [{"label": "Total Price", "value": v} for v in ("125.16", "49.60", "124.92", "84.32")]}
+    bad = [c for c in il.verify(r)["checks"] if c["code"] == "itemstot"]
+    assert bad and bad[0]["n"] == 4 and bad[0]["sum"] == 384.0
+    ok = {"grand_total": "110", "tables": [], "totals": [{"label": "Subtotal", "value": "100"}, {"label": "SST", "value": "10"}, {"label": "Total", "value": "110"}]}
+    assert not [c for c in il.verify(ok)["checks"] if c["code"] == "itemstot"]
