@@ -1,0 +1,8 @@
+name = "vision-cors-proxy"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://clkhoo5211.github.io,https://lapis-bloom-hav8.here.now"
+# Optional: comma-separated hostnames to restrict upstreams, e.g. "api.deepseek.com,dashscope.aliyuncs.com"
+ALLOWED_TARGET_HOSTS = ""

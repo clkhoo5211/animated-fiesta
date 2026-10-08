@@ -1,0 +1,22 @@
+name: Deploy CORS proxy (Cloudflare Worker)
+on:
+  push:
+    branches: [main, claude/eloquent-edison-i91gj0]
+    paths: [proxy/**, .github/workflows/proxy.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        env: {T: "${{ secrets.CLOUDFLARE_API_TOKEN }}", A: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"}
+        run: |
+          if [ -z "$T" ] || [ -z "$A" ]; then echo "::warning::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to deploy the proxy"; echo "skip=1" >> "$GITHUB_ENV"; fi
+      - if: env.skip != '1'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: proxy
