@@ -68,6 +68,14 @@ fieldset{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;
 .job .acts{display:flex;gap:4px}.job .acts button{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:3px 7px;font-size:12px;cursor:pointer}
 .job .acts button:hover{background:var(--soft)}
 tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
+.editbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ev{display:inline-block;min-width:3ch;padding:1px 4px;margin:-2px -4px;border-radius:4px;outline:1px dashed var(--line);cursor:text}
+.ev:hover{outline-color:var(--ac)}.ev:focus{outline:2px solid var(--ac);background:var(--ac-soft)}
+.ed{background:var(--warn-soft);border-radius:3px;box-shadow:0 0 0 2px var(--warn-soft)}
+.acts2{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.split{display:grid;grid-template-columns:minmax(220px,38%) 1fr;gap:16px;align-items:start}.split>*{min-width:0}
+.pv{position:sticky;top:76px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--soft);max-height:calc(100vh - 100px);overflow-y:auto}.pv img{width:100%;display:block;cursor:zoom-in}
+@media (max-width:900px){.split{grid-template-columns:1fr}.pv{position:static;max-height:300px}}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
 </style>
@@ -345,12 +353,12 @@ async function processSeg(seg,cfg,onStep){
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2200)};
 let JOBS=[],CUR=null,RESULT=null,tab="overview",segIdx=0,running=false,seq=0;
-const STATUS={wait:["mut","等待"],run:["mut","处理中…"],ok:["ok","通过"],warn:["warn","待确认"],bad:["bad","需复核"],err:["bad","失败"]};
+const STATUS={rev:["ok","已复核"],wait:["mut","等待"],run:["mut","处理中…"],ok:["ok","通过"],warn:["warn","待确认"],bad:["bad","需复核"],err:["bad","失败"]};
 function addFiles(list){const fs=[...list].filter(f=>/^(image|video)\//.test(f.type)||/\.pdf$/i.test(f.name)||f.type==="application/pdf");
   const skipped=list.length-fs.length;fs.forEach(f=>JOBS.push({id:++seq,file:f,rot:0,status:"wait",result:null,error:null,thumb:null}));
   fs.forEach(f=>{if(f.type.startsWith("image/")){const j=JOBS.find(x=>x.file===f);j.thumb=URL.createObjectURL(f)}});
   if(skipped)toast(`已跳过 ${skipped} 个不支持的文件`);drawQueue()}
-function verdict(res){if(!res)return"err";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
+function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
 function drawQueue(){const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,t]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
     const info=r?[TYPES[r.document_type]||r.document_type,r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(" · "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`;
@@ -367,7 +375,7 @@ function drawQueue(){const q=$("#queue");
     el.onclick=e=>{const a=e.target.closest("[data-act]")?.dataset.act;
       if(a==="rot"){j.rot=(j.rot+90)%360;drawQueue();return}
       if(a==="del"){JOBS=JOBS.filter(x=>x!==j);if(CUR===j){CUR=null;RESULT=null;$("#view").innerHTML='<div class="empty">选择左侧文件查看结果</div>'}drawQueue();return}
-      if(a==="retry"){j.status="wait";j.result=null;j.error=null;drawQueue();if(!running)runQueue();return}
+      if(a==="retry"){if(j.result&&j.result.segments.some(sg=>sg.manual_edits?.length)&&!confirm("重新识别会丢失这个文件的手动修正，继续？"))return;j.status="wait";j.result=null;j.error=null;j.reviewed=false;drawQueue();if(!running)runQueue();return}
       select(j)}})}
 function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");drawQueue();
   if(j.result)render();else $("#view").innerHTML=`<div class="empty">${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:j.status==="run"?"处理中…":"尚未识别"}</div>`}
@@ -384,7 +392,7 @@ $$(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
 async function runJob(j,cfg){
   j.status="run";drawQueue();const t0=performance.now();
   try{const segs=await ingest(j.file);if(!segs.length)throw new Error("不支持或无法解析的文件");if(j.rot)for(const sg of segs)sg.b64=await rotateB64(sg.b64,j.rot);
-    if(!j.thumb){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}
+    if(!j.thumb){j.thumb=`data:image/jpeg;base64,${segs[0].b64}`}j.previews=segs.map(sg=>sg.b64);
     const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg,()=>{}))));
     j.result={source_document:j.file.name,processed_at:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-t0),total_extracted_segments:out.length,segments:out};
     const allFail=out.every(sg=>["a","b"].every(k=>{const r=sg.provider_responses["model_"+k];return r.error||r.status}))&&(cfg.a.key||cfg.b.key);
@@ -413,52 +421,98 @@ function renderSummary(){const v=$("#view");const done=JOBS.filter(j=>j.result||
   </tbody></table></div><p class="sub">点击任一行查看该文件详情。</p>`;
   v.querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>select(JOBS.find(j=>j.id==tr.dataset.id)))}
 
-function best(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
+function pickModel(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
   const ca=seg.checks.model_a,cb=seg.checks.model_b;
   if(ok(a)&&ok(b)&&cb?.passed&&!ca?.passed)return ["B",b];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
-function issues(seg){const L=[];const cv=seg.cross_verification;
+/* final (editable) result per segment: starts as a copy of the chosen model output */
+function best(seg){if(!seg.final_result){const [w,r]=pickModel(seg);seg.final_source=w;seg.final_result=r?JSON.parse(JSON.stringify(r)):null;seg.manual_edits=[];seg.accepted=[]}
+  return [seg.final_source,seg.final_result]}
+const getPath=(o,p)=>p.split(".").reduce((a,k)=>a==null?a:a[k],o);
+function setPath(o,p,v){const ks=p.split(".");let a=o;for(let i=0;i<ks.length-1;i++){const k=ks[i];if(a[k]==null)a[k]=/^\d+$/.test(ks[i+1])?[]:{};a=a[k]}a[ks.at(-1)]=v}
+const edited=(seg,p)=>(seg.manual_edits||[]).some(e=>e.path===p);
+const touched=(seg,f)=>{f=String(f);return (seg.accepted||[]).includes(f)||(seg.manual_edits||[]).some(e=>e.path===f||e.path.endsWith("."+f)||f.endsWith(e.path))};
+function commitEdit(seg,path,val){best(seg);const r=seg.final_result;const old=getPath(r,path);const v=val===""?null:val;
+  if(String(old??"")===String(v??""))return false;setPath(r,path,v);seg.manual_edits.push({path,from:old??null,to:v,at:new Date().toISOString()});afterEdit();return true}
+function afterEdit(){if(!CUR)return;CUR.reviewed=false;CUR.status=verdict(CUR.result);drawQueue()}
+window.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&EDIT&&!document.activeElement?.classList.contains("ev")){$("#undo")?.click()}});
+function issues(seg){const L=[];const cv=seg.cross_verification;best(seg);
+  const nEd=seg.manual_edits.length;
+  if(nEd){const c=verify(seg.final_result);(c?.checks||[]).forEach(x=>L.push([x.ok?"ok":"bad",`最终结果 · ${x.label}`,x.detail]));L.unshift(["ok",`已手动修正 ${nEd} 处`,seg.manual_edits.slice(-3).map(e=>`${e.path}: ${e.from??"—"} → ${e.to??"—"}`).join(" | ")])}
   for(const k of ["a","b"]){const r=seg.provider_responses["model_"+k],c=seg.checks["model_"+k],K=k.toUpperCase();
     if(r.error)L.push(["bad",`模型 ${K} 调用失败`,r.error]);
-    if(c){c.checks.forEach(x=>L.push([x.ok?"ok":"bad",`模型 ${K} · ${x.label}`,x.detail]));if(!c.checks.length)L.push(["mut",`模型 ${K} · 无可自动核算的数字`,"文档没有合计行 / 数量×单价结构"])}
-    (r.low_confidence_fields||[]).forEach(f=>L.push(["warn",`模型 ${K} 自报低置信`,f]))}
-  if(cv){cv.discrepancies.forEach(d=>L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`]));if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
+    if(c&&!nEd){c.checks.forEach(x=>L.push([x.ok?"ok":"bad",`模型 ${K} · ${x.label}`,x.detail]));if(!c.checks.length)L.push(["mut",`模型 ${K} · 无可自动核算的数字`,"文档没有合计行 / 数量×单价结构"])}
+    (r.low_confidence_fields||[]).forEach(f=>{if(!touched(seg,f))L.push(["warn",`模型 ${K} 自报低置信`,f,{field:f}])})}
+  if(cv){cv.discrepancies.forEach(d=>{if(!touched(seg,d.field))L.push(["warn",`A/B 不一致 · ${d.field}`,`A: ${d.a??"—"}　B: ${d.b??"—"}`,{field:d.field,a:d.a,b:d.b}])});if(!cv.discrepancies.length)L.push(["ok","A/B 交叉核验全部一致",`${cv.agreed_fields} 个字段`])}
   else L.push(["mut","未做交叉核验","配置模型 B 后可对比两个模型的结果（推荐：数字、编号类字段只有交叉核验能发现错误）"]);
-  if(seg.image_size&&Math.min(...seg.image_size)<1000)L.unshift(["warn",`图片分辨率偏低（${seg.image_size.join("×")}）`,"小字（税号、电话、标签）易误读：建议开启「多尺度识别」或配置模型 B 交叉核验；有原图时优先用原图"]);
+  if(seg.image_size&&Math.min(...seg.image_size)<1000&&!seg.accepted.includes("_lowres"))L.unshift(["warn",`图片分辨率偏低（${seg.image_size.join("×")}）`,"小字（税号、电话、标签）易误读：建议开启「多尺度识别」或配置模型 B 交叉核验；有原图时优先用原图",{field:"_lowres",noValue:true}]);
   const q=seg.local_extraction.qr_and_barcodes;L.push(q.length?["ok",`本地识别到 ${q.length} 个码`,q.map(x=>`${x.type}: ${x.data}`).join(" | ")]:["mut","未识别到 QR / 条码","若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍"]);
   return L}
 const TYPES={invoice:"发票",receipt:"收据",delivery_order:"送货单",invoice_register:"发票登记 / 出货清单",purchase_order:"采购单",statement:"对账单",quotation:"报价单",other:"其他"};
 const ROLES={supplier:"供应商",customer:"客户",bill_to:"买方",ship_to:"收货方",transporter:"承运方",issuer:"开具方",other:"其他方"};
-function kv(o,labels){if(!o)return'<p class="sub">—</p>';const e=Object.entries(labels).filter(([k])=>o[k]!=null&&o[k]!=="");return e.length?`<dl class="kv">${e.map(([k,l])=>`<dt>${l}</dt><dd>${esc(o[k])}</dd>`).join("")}</dl>`:'<p class="sub">—</p>'}
-function tableHTML(t,ti,rowChecks){const cols=t.columns||[],rows=(t.rows||[]).filter(Array.isArray),isNum=c=>["qty","unit_price","amount","number","row_total"].includes(c?.role);
-  return`<div class="sec"><h3>${esc(t.name||`表 ${ti+1}`)} · ${rows.length} 行${t.printed_row_count?`（印刷：${esc(t.printed_row_count)}）`:""}</h3><div class="tw"><table><thead><tr>${cols.map(c=>`<th class="${isNum(c)?"n":""}">${esc(c.name)}</th>`).join("")}</tr></thead><tbody>
-  ${rows.map((row,ri)=>`<tr class="${rowChecks.has(`${ti}:${ri}`)?"flag":""}">${cols.map((c,ci)=>`<td class="${isNum(c)?"n":""}">${esc(row[ci])}</td>`).join("")}</tr>`).join("")}</tbody>
-  ${Array.isArray(t.total_row)?`<tfoot><tr>${cols.map((c,ci)=>`<th class="${isNum(c)?"n":""}">${esc(t.total_row[ci]??"")}</th>`).join("")}</tr></tfoot>`:""}</table></div></div>`}
+let EDIT=false;
+/* editable value */
+function ev(seg,path,val,cls=""){const e=edited(seg,path);
+  return EDIT?`<span class="ev ${cls}${e?" ed":""}" contenteditable="plaintext-only" spellcheck="false" data-path="${esc(path)}">${esc(val??"")}</span>`
+             :`<span class="${cls}${e?" ed":""}" ${e?`title="已修正，原值：${esc((seg.manual_edits.filter(x=>x.path===path)[0]||{}).from??"—")}"`:""}>${esc(val??"—")}</span>`}
+function kvE(seg,base,o,labels){if(!o)return'<p class="sub">—</p>';const e=Object.entries(labels).filter(([k])=>EDIT||(o[k]!=null&&o[k]!==""));
+  return e.length?`<dl class="kv">${e.map(([k,l])=>`<dt>${l}</dt><dd>${ev(seg,`${base}.${k}`,o[k])}</dd>`).join("")}</dl>`:'<p class="sub">—</p>'}
+function tableHTML(seg,t,ti,rowChecks){const cols=t.columns||[],rows=(t.rows||[]),isNum=c=>["qty","unit_price","amount","number","row_total"].includes(c?.role);
+  return`<div class="sec"><h3>${esc(t.name||`表 ${ti+1}`)} · ${rows.length} 行${t.printed_row_count?`（印刷：${esc(t.printed_row_count)}）`:""}</h3><div class="tw"><table><thead><tr>${cols.map(c=>`<th class="${isNum(c)?"n":""}">${esc(c.name)}</th>`).join("")}${EDIT?"<th></th>":""}</tr></thead><tbody>
+  ${rows.map((row,ri)=>Array.isArray(row)?`<tr class="${rowChecks.has(`${ti}:${ri}`)?"flag":""}">${cols.map((c,ci)=>`<td class="${isNum(c)?"n":""}">${ev(seg,`tables.${ti}.rows.${ri}.${ci}`,row[ci])}</td>`).join("")}${EDIT?`<td><button class="btn sm" data-delrow="${ti}.${ri}" title="删除此行">✕</button></td>`:""}</tr>`:"").join("")}</tbody>
+  ${Array.isArray(t.total_row)||EDIT?`<tfoot><tr>${cols.map((c,ci)=>`<th class="${isNum(c)?"n":""}">${ev(seg,`tables.${ti}.total_row.${ci}`,(t.total_row||[])[ci])}</th>`).join("")}${EDIT?"<th></th>":""}</tr></tfoot>`:""}</table></div>
+  ${EDIT?`<button class="btn sm" style="margin-top:8px" data-addrow="${ti}">＋ 添加一行</button>`:""}</div>`}
+function refreshBadges(seg){const iss=issues(seg),bad=iss.filter(i=>i[0]==="bad").length,warn=iss.filter(i=>i[0]==="warn").length;
+  $("#check-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:warn?`<span class="badge warn">${warn}</span>`:'<span class="badge ok">✓</span>';
+  const n=seg.manual_edits.length,bar=$(".editbar");if(bar&&!$("#undo")){bar.insertAdjacentHTML("beforeend",`<span class="sub" id="edcount"></span>`)}const ec=$("#edcount")||[...document.querySelectorAll(".editbar .sub")].find(x=>x.textContent.startsWith("已修正"));if(ec)ec.textContent=`已修正 ${n} 处`;
+  // reflect row-level flags in tables
+  if(tab==="items"){const r=seg.final_result,chk=verify(r)?.checks||[];document.querySelectorAll("#view tbody tr").forEach(tr=>tr.classList.remove("flag"));
+    chk.forEach(c=>{const m=c.label.match(/^(.*) · 第 (\d+) 行/);if(!c.ok&&m){const ti=(r.tables||[]).findIndex((t,i)=>(t.name||`表 ${i+1}`)===m[1]);const tb=document.querySelectorAll("#view tbody")[ti];tb?.children[+m[2]-1]?.classList.add("flag")}})}}
+function preview(){const src=CUR?.previews?.[segIdx];return src?`<div class="pv"><img src="data:image/jpeg;base64,${src}" alt="原图" title="点击放大"></div>`:""}
 function render(){const v=$("#view");if(!RESULT){return}
   const seg=RESULT.segments[segIdx],[who,r]=best(seg),iss=issues(seg),bad=iss.filter(i=>i[0]==="bad").length,warn=iss.filter(i=>i[0]==="warn").length;
   $("#check-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:warn?`<span class="badge warn">${warn}</span>`:'<span class="badge ok">✓</span>';
   const segs=RESULT.segments.length>1?`<div class="seg">${RESULT.segments.map((s,i)=>`<button class="btn sm ${i===segIdx?"pri":""}" data-seg="${i}">${esc(s.segment_identifier)}</button>`).join("")}</div>`:"";
-  let h=segs;
-  if(tab==="json")h+=`<pre>${esc(JSON.stringify(RESULT,null,2))}</pre>`;
-  else if(tab==="checks")h+=`<div class="list">${iss.map(([k,t,d])=>`<div class="item"><span class="badge ${k}">${{ok:"通过",bad:"错误",warn:"注意",mut:"信息"}[k]}</span><div><b>${esc(t)}</b><div class="sub">${esc(d)}</div></div></div>`).join("")}</div>`;
-  else if(!r)h+=`<div class="empty">没有可用的模型结果。${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||"请先在“模型设置”中配置模型。")}</div>`;
-  else if(tab==="overview"){const verdict=bad?'<span class="badge bad">需复核</span>':warn?'<span class="badge warn">有待确认项</span>':'<span class="badge ok">校验通过</span>';
+  const bar=r&&tab!=="json"?`<div class="editbar"><button class="btn sm ${EDIT?"pri":""}" id="tg-edit">${EDIT?"✓ 完成编辑":"✎ 编辑结果"}</button>
+    <button class="btn sm" id="tg-rev" ${CUR?.reviewed?"disabled":""}>${CUR?.reviewed?"✓ 已复核":"标记为已复核"}</button>
+    ${seg.manual_edits?.length?`<button class="btn sm" id="undo">↶ 撤销上一处修改</button><span class="sub">已修正 ${seg.manual_edits.length} 处</span>`:""}
+    ${EDIT?'<span class="sub">点击任意值直接修改，回车或点别处保存</span>':""}</div>`:"";
+  let h=segs+bar,body="";
+  if(tab==="json")body=`<pre>${esc(JSON.stringify(RESULT,null,2))}</pre>`;
+  else if(tab==="checks")body=`<div class="list">${iss.map(([k,t,d,x],i)=>`<div class="item"><span class="badge ${k}">${{ok:"通过",bad:"错误",warn:"注意",mut:"信息"}[k]}</span><div style="flex:1"><b>${esc(t)}</b><div class="sub">${esc(d)}</div>
+      ${x&&k==="warn"?`<div class="acts2">${x.a!==undefined?`<button class="btn sm" data-use="${i}" data-v="a">用 A 值</button><button class="btn sm" data-use="${i}" data-v="b">用 B 值</button>`:""}${!x.noValue&&getPath(r,x.field)!==undefined&&x.a===undefined?`<button class="btn sm" data-fix="${i}">修改</button>`:""}<button class="btn sm" data-ok="${i}">确认无误</button></div>`:""}</div></div>`).join("")}</div>`;
+  else if(!r)body=`<div class="empty">没有可用的模型结果。${esc(seg.provider_responses.model_a.error||seg.provider_responses.model_b.error||"请先在“模型设置”中配置模型。")}</div>`;
+  else if(tab==="overview"){const verdictB=CUR?.reviewed?'<span class="badge ok">已复核</span>':bad?'<span class="badge bad">需复核</span>':warn?'<span class="badge warn">有待确认项</span>':'<span class="badge ok">校验通过</span>';
     const nt=(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0);
-    h+=`<div class="kpis">
+    body=`<div class="kpis">
       <div class="kpi"><span>文档类型</span><b>${esc(TYPES[r.document_type]||r.document_type||"—")}</b></div>
-      <div class="kpi"><span>编号</span><b>${esc(r.document_number??"—")}</b></div>
-      <div class="kpi"><span>日期</span><b>${esc(r.document_date??"—")}</b></div>
-      ${r.grand_total!=null?`<div class="kpi big"><span>总额 ${esc(r.currency||"")}</span><b>${esc(r.grand_total)}</b></div>`:`<div class="kpi"><span>表格行数</span><b>${nt}</b></div>`}
-      <div class="kpi"><span>状态</span><b>${verdict}</b></div></div>
-    <p class="sub" style="margin:10px 0 0">${esc(r.title||"")} · 显示来源：模型 ${who}${seg.cross_verification?` · A/B 一致率 ${Math.round(seg.cross_verification.agreement_rate*100)}%`:""}${r.rotation_degrees&&r.rotation_degrees!=="0"?` · 页面旋转 ${esc(r.rotation_degrees)}°`:""}</p>
-    ${(r.parties||[]).length?`<div class="sec grid2">${r.parties.map(p=>`<div class="box"><h4>${esc(ROLES[p.role]||p.role||"相关方")}</h4>${kv(p,{name:"名称",registration_no:"注册号",tax_id:"税号",address:"地址",contact:"联系"})}</div>`).join("")}</div>`:""}
-    ${(r.fields||[]).length?`<div class="sec"><h3>字段（按原文标签）</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${r.fields.map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(f.value??"—")}</dd>`).join("")}</dl></div></div>`:""}
-    ${(r.totals||[]).length||r.amount_in_words?`<div class="sec"><h3>合计</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${(r.totals||[]).map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd>`).join("")}</dl>${r.amount_in_words?`<p class="sub" style="margin:8px 0 0">${esc(r.amount_in_words)}</p>`:""}</div></div>`:""}
+      <div class="kpi"><span>编号</span><b>${ev(seg,"document_number",r.document_number)}</b></div>
+      <div class="kpi"><span>日期</span><b>${ev(seg,"document_date",r.document_date)}</b></div>
+      ${r.grand_total!=null||EDIT?`<div class="kpi big"><span>总额 ${esc(r.currency||"")}</span><b>${ev(seg,"grand_total",r.grand_total)}</b></div>`:`<div class="kpi"><span>表格行数</span><b>${nt}</b></div>`}
+      <div class="kpi"><span>状态</span><b>${verdictB}</b></div></div>
+    <p class="sub" style="margin:10px 0 0">${esc(r.title||"")} · 来源：模型 ${who}${seg.cross_verification?` · A/B 一致率 ${Math.round(seg.cross_verification.agreement_rate*100)}%`:""}${r.rotation_degrees&&r.rotation_degrees!=="0"?` · 页面旋转 ${esc(r.rotation_degrees)}°`:""}</p>
+    ${(r.parties||[]).length?`<div class="sec grid2">${r.parties.map((p,pi)=>`<div class="box"><h4>${esc(ROLES[p.role]||p.role||"相关方")}</h4>${kvE(seg,`parties.${pi}`,p,{name:"名称",registration_no:"注册号",tax_id:"税号",address:"地址",contact:"联系"})}</div>`).join("")}</div>`:""}
+    ${(r.fields||[]).length?`<div class="sec"><h3>字段（按原文标签）</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${r.fields.map((f,fi)=>`<dt>${esc(f.label)}</dt><dd>${ev(seg,`fields.${fi}.value`,f.value)}</dd>`).join("")}</dl></div></div>`:""}
+    ${(r.totals||[]).length||r.amount_in_words?`<div class="sec"><h3>合计</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${(r.totals||[]).map((f,fi)=>`<dt>${esc(f.label)}</dt><dd>${ev(seg,`totals.${fi}.value`,f.value)}</dd>`).join("")}</dl>${r.amount_in_words?`<p class="sub" style="margin:8px 0 0">${ev(seg,"amount_in_words",r.amount_in_words)}</p>`:""}</div></div>`:""}
     <div class="sec grid2">
-      <div class="box"><h4>印章 / 盖章</h4>${(r.stamps_and_chops||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
-      <div class="box"><h4>手写内容</h4>${(r.handwritten_notes||[]).map(x=>`<p style="margin:0 0 6px">${esc(x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
-  else if(tab==="items"){const flagged=new Set();(seg.checks["model_"+who.toLowerCase()]?.checks||[]).forEach(c=>{const m=c.label.match(/^(.*) · 第 (\d+) 行/);if(!c.ok&&m){const ti=(r.tables||[]).findIndex((t,i)=>(t.name||`表 ${i+1}`)===m[1]);flagged.add(`${ti}:${+m[2]-1}`)}});
-    h+=(r.tables||[]).length?r.tables.map((t,ti)=>tableHTML(t,ti,flagged)).join(""):'<div class="empty">文档中没有识别到表格</div>'}
-  v.innerHTML=h;v.querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{segIdx=+b.dataset.seg;render()});
+      <div class="box"><h4>印章 / 盖章</h4>${(r.stamps_and_chops||[]).map((x,i)=>`<p style="margin:0 0 6px">${ev(seg,`stamps_and_chops.${i}.text`,x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
+      <div class="box"><h4>手写内容</h4>${(r.handwritten_notes||[]).map((x,i)=>`<p style="margin:0 0 6px">${ev(seg,`handwritten_notes.${i}.text`,x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
+  else if(tab==="items"){const flagged=new Set();const chk=seg.manual_edits.length?verify(r)?.checks:seg.checks["model_"+who.toLowerCase()]?.checks;(chk||[]).forEach(c=>{const m=c.label.match(/^(.*) · 第 (\d+) 行/);if(!c.ok&&m){const ti=(r.tables||[]).findIndex((t,i)=>(t.name||`表 ${i+1}`)===m[1]);flagged.add(`${ti}:${+m[2]-1}`)}});
+    body=(r.tables||[]).length?r.tables.map((t,ti)=>tableHTML(seg,t,ti,flagged)).join(""):'<div class="empty">文档中没有识别到表格</div>'}
+  const side=(EDIT||tab==="checks")&&tab!=="json"&&r?preview():"";
+  h+=side?`<div class="split">${side}<div>${body}</div></div>`:body;
+  v.innerHTML=h;
+  v.querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{segIdx=+b.dataset.seg;render()});
+  v.querySelectorAll(".pv img").forEach(i=>i.onclick=()=>{$("#zoom img").src=i.src;$("#zoom").showModal()});
+  const tg=$("#tg-edit");if(tg)tg.onclick=()=>{EDIT=!EDIT;render()};
+  const rv=$("#tg-rev");if(rv)rv.onclick=()=>{CUR.reviewed=true;CUR.status="rev";drawQueue();render();toast("已标记为已复核")};
+  const ud=$("#undo");if(ud)ud.onclick=()=>{const e=seg.manual_edits.pop();if(e){setPath(seg.final_result,e.path,e.snapshot?e.snapshot:e.from);afterEdit();render();toast("已撤销")}};
+  v.querySelectorAll(".ev").forEach(el=>{el.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();el.blur()}if(e.key==="Escape"){el.textContent=getPath(r,el.dataset.path)??"";el.blur()}};
+    el.onblur=()=>{if(commitEdit(seg,el.dataset.path,el.textContent.trim())){el.classList.add("ed");refreshBadges(seg)}}});
+  v.querySelectorAll("[data-delrow]").forEach(b=>b.onclick=()=>{const [ti,ri]=b.dataset.delrow.split(".").map(Number);const t=r.tables[ti];const snap=JSON.parse(JSON.stringify(t.rows));const old=t.rows[ri];t.rows.splice(ri,1);seg.manual_edits.push({path:`tables.${ti}.rows`,from:`删除第 ${ri+1} 行: ${JSON.stringify(old)}`,to:null,at:new Date().toISOString(),op:"delete_row",snapshot:snap});afterEdit();render()});
+  v.querySelectorAll("[data-addrow]").forEach(b=>b.onclick=()=>{const ti=+b.dataset.addrow,t=r.tables[ti];t.rows=t.rows||[];const snap=JSON.parse(JSON.stringify(t.rows));t.rows.push((t.columns||[]).map(()=>null));seg.manual_edits.push({path:`tables.${ti}.rows`,from:null,to:`新增第 ${t.rows.length} 行`,at:new Date().toISOString(),op:"add_row",snapshot:snap});afterEdit();render()});
+  v.querySelectorAll("[data-use]").forEach(b=>b.onclick=()=>{const x=iss[+b.dataset.use][3];const val=b.dataset.v==="a"?x.a:x.b;if(!commitEdit(seg,x.field,val)){seg.accepted.push(x.field);afterEdit()}render();toast(`已采用模型 ${b.dataset.v.toUpperCase()} 的值`)});
+  v.querySelectorAll("[data-ok]").forEach(b=>b.onclick=()=>{const x=iss[+b.dataset.ok][3];seg.accepted.push(String(x.field));afterEdit();render()});
+  v.querySelectorAll("[data-fix]").forEach(b=>b.onclick=()=>{const x=iss[+b.dataset.fix][3];const cur=getPath(r,x.field);const nv=prompt(`修改 ${x.field}`,cur??"");if(nv!==null){commitEdit(seg,x.field,nv.trim());render()}});
 }
 const dlBlob=(name,text,type)=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");
@@ -471,10 +525,10 @@ $("#csv").onclick=()=>{const lines=[];
     lines.push([res.source_document,s.segment_identifier,t.name||`表 ${ti+1}`].map(q).join(","));lines.push(["","",...(t.columns||[]).map(c=>c.name)].map(q).join(","));
     (t.rows||[]).forEach(row=>lines.push([res.source_document,r.document_number,...row].map(q).join(",")));if(Array.isArray(t.total_row))lines.push(["TOTAL","",...t.total_row].map(q).join(","));lines.push("")})}));
   dlBlob(`invoicelens_tables_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
-$("#csvsum").onclick=()=>{const cols=["file","status","document_type","document_number","document_date","counterparty","currency","grand_total","table_rows","issues"];
+$("#csvsum").onclick=()=>{const cols=["file","status","manual_edits","document_type","document_number","document_date","counterparty","currency","grand_total","table_rows","issues"];
   const lines=[cols.join(",")];JOBS.filter(j=>j.result||j.error).forEach(j=>{const sg=j.result?.segments[0],r=sg&&best(sg)[1];const party=r?.parties?.find(p=>p.role!=="issuer"&&p.role!=="supplier")||r?.parties?.[0];
     const iss=j.result?j.result.segments.flatMap(x=>issues(x).filter(i=>i[0]==="bad"||i[0]==="warn").map(i=>`${i[1]}: ${i[2]}`)).join(" | "):j.error;
-    lines.push([j.file.name,STATUS[j.status][1],r?.document_type,r?.document_number,r?.document_date,party?.name,r?.currency,r?.grand_total,r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"",iss].map(q).join(","))});
+    lines.push([j.file.name,STATUS[j.status][1],j.result?j.result.segments.reduce((a,x)=>a+(x.manual_edits?.length||0),0):0,r?.document_type,r?.document_number,r?.document_date,party?.name,r?.currency,r?.grand_total,r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"",iss].map(q).join(","))});
   dlBlob(`invoicelens_summary_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
 drawQueue();
 refreshChips();if(!S.a_key&&!S.b_key)setTimeout(()=>{fillForm();$("#settings").showModal()},300);
