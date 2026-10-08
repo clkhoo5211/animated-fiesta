@@ -139,7 +139,7 @@ def test_anthropic_and_ab_cross_check(tmp_path):
 
 
 def test_model_error_and_no_key_local_parse(tmp_path):
-    llm = FakeLLM(lambda c: {"error": "upstream overloaded"})
+    llm = FakeLLM(lambda c: {"error": "invalid request"})
     assert il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path / "e")], transport=llm.transport) == 1
     il.main([str(FIX / "data.csv"), "--a-key", "", "--b-key", "", "--out", str(tmp_path / "l")])
     seg = json.loads((tmp_path / "l" / "results.json").read_text())["documents"][0]["segments"][0]
@@ -264,3 +264,18 @@ def test_auto_straighten(tmp_path):
     il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
     res = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
     assert len(seen) == 2 and res["straightened"] == 90 and res["usage"]["model_a"] == {"in": 20, "out": 10}
+
+
+def test_same_relay_sequential(tmp_path):
+    order, live = [], [0, 0]
+
+    async def handler(req):
+        live[0] += 1; live[1] = max(live[1], live[0])
+        await asyncio.sleep(0.05)
+        live[0] -= 1
+        order.append(json.loads(req.content)["model"])
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"document_type": "invoice", "tables": []}'}}]})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--a-model", "ma",
+             "--b-type", "openai", "--b-base", "https://relay.test/v1", "--b-key", "k", "--b-model", "mb", "--out", str(tmp_path)],
+            transport=httpx.MockTransport(handler))
+    assert order == ["ma", "mb"] and live[1] == 1
