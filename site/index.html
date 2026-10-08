@@ -134,6 +134,8 @@ fieldset{border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;
     </fieldset>
     <fieldset>
       <legend>高级</legend>
+      <label class="chk"><input type="checkbox" name="enhance"> 小字增强：灰度 + 对比度 + 锐化 + 放大到约 2000px（适合复写纸 / 压缩图）</label>
+      <label class="chk"><input type="checkbox" name="tiles"> 多尺度识别：整页 + 两张放大的半页一起发送（更准，约 2–3 倍 token）</label>
       <div class="f"><label>CORS 代理 URL（仅在出现 CORS 错误时填写）</label><input name="proxy" placeholder="https://vision-cors-proxy.xxx.workers.dev"></div>
       <label class="chk"><input type="checkbox" name="remember_keys"> 在此浏览器记住 API Key</label>
       <p class="note warn">Key 会以明文保存在本浏览器的 localStorage，仅限个人设备使用；公用电脑请勿勾选。Base URL / 模型等其他设置始终会保存。</p>
@@ -233,6 +235,21 @@ function verify(r){
 }
 async function rotateB64(b64,deg){const bmp=await createImageBitmap(b64ToBlob(b64)),c=document.createElement("canvas"),sw=deg%180!==0;
   c.width=sw?bmp.height:bmp.width;c.height=sw?bmp.width:bmp.height;const x=c.getContext("2d");x.translate(c.width/2,c.height/2);x.rotate(deg*Math.PI/180);x.drawImage(bmp,-bmp.width/2,-bmp.height/2);return canvasToJpeg(c)}
+function loadImg(b64){return createImageBitmap(b64ToBlob(b64))}
+function sharpen(ctx,w,h){const d=ctx.getImageData(0,0,w,h),src=new Uint8ClampedArray(d.data),o=d.data,W=w*4;
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*W+x*4;for(let c=0;c<3;c++){const v=5*src[i+c]-src[i+c-4]-src[i+c+4]-src[i+c-W]-src[i+c+W];o[i+c]=v<0?0:v>255?255:v}}
+  ctx.putImageData(d,0,0)}
+async function enhanceCanvas(bmp,sx=0,sy=0,sw=bmp.width,sh=bmp.height,target=2000,enh=true){
+  const k=Math.min(3,Math.max(1,target/Math.max(sw,sh))),c=document.createElement("canvas");c.width=Math.round(sw*k);c.height=Math.round(sh*k);
+  const x=c.getContext("2d",{willReadFrequently:true});x.imageSmoothingQuality="high";if(enh)x.filter="grayscale(1) contrast(1.35) brightness(1.03)";
+  x.drawImage(bmp,sx,sy,sw,sh,0,0,c.width,c.height);if(enh){x.filter="none";sharpen(x,c.width,c.height)}return canvasToJpeg(c)}
+async function prepImages(b64,cfg){
+  if(!cfg.enhance&&!cfg.tiles)return [b64];
+  const bmp=await loadImg(b64),out=[await enhanceCanvas(bmp,0,0,bmp.width,bmp.height,2000,cfg.enhance)];
+  if(cfg.tiles){const W=bmp.width,H=bmp.height,ov=0.08;
+    if(H>=W){const h=Math.round(H*(0.5+ov));out.push(await enhanceCanvas(bmp,0,0,W,h,2000,cfg.enhance),await enhanceCanvas(bmp,0,H-h,W,h,2000,cfg.enhance))}
+    else{const w=Math.round(W*(0.5+ov));out.push(await enhanceCanvas(bmp,0,0,w,H,2000,cfg.enhance),await enhanceCanvas(bmp,W-w,0,w,H,2000,cfg.enhance))}}
+  return out}
 async function decodeScaled(seg,scale){
   const bmp=await createImageBitmap(b64ToBlob(seg.b64)),c=document.createElement("canvas");
   c.width=bmp.width*scale;c.height=bmp.height*scale;const x=c.getContext("2d");x.imageSmoothingEnabled=false;x.filter="grayscale(1) contrast(1.6)";x.drawImage(bmp,0,0,c.width,c.height);
@@ -245,9 +262,9 @@ async function local(seg){
     return {qr_and_barcodes:r.filter(x=>x.isValid).map(x=>({type:x.format,data:x.text})),native_extracted_text:seg.text};}
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
-async function anthropic(key,model,content){
+async function anthropic(key,model,content,maxTok=4000){
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model,max_tokens:2000,messages:[{role:"user",content}]})});
+    body:JSON.stringify({model,max_tokens:maxTok,messages:[{role:"user",content}]})});
   const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);return parseJSON(j.content.find(b=>b.type==="text").text);
 }
 const safe=p=>p.catch(e=>({error:String(e.message||e)}));
@@ -255,7 +272,7 @@ const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 /* ---------- settings ---------- */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS="invoicelens.settings.v1";
-const DEF={a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false};
+const DEF={a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false};
 const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
   set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
   clear(){try{localStorage.removeItem(LS)}catch{}}};
@@ -277,13 +294,14 @@ $$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dat
   try{await callModel(c,[{type:"text",text:'Reply with JSON {"ok":true}'}],null,40);out.innerHTML='<span class="badge ok">✓ 连接正常</span>'}
   catch(e){out.innerHTML=`<span class="badge bad">✗ ${esc(e.message).slice(0,140)}</span>`}});
 function refreshChips(){const a=slot("a"),b=slot("b");
-  $("#engine-chips").innerHTML=`<span class="chip on">本地 QR / 条码</span><span class="chip on">PDF 文本层</span><span class="chip ${a.key?"on":"off"}">A · ${esc(a.model||"未配置")}</span><span class="chip ${b.key?"on":"off"}">B · ${esc(b.model||"未配置")}</span>${a.key&&b.key?'<span class="chip on">交叉核验</span>':""}`;
+  $("#engine-chips").innerHTML=`<span class="chip on">本地 QR / 条码</span><span class="chip on">PDF 文本层</span><span class="chip ${a.key?"on":"off"}">A · ${esc(a.model||"未配置")}</span><span class="chip ${b.key?"on":"off"}">B · ${esc(b.model||"未配置")}</span>${a.key&&b.key?'<span class="chip on">交叉核验</span>':""}${S.enhance?'<span class="chip on">小字增强</span>':""}${S.tiles?'<span class="chip on">多尺度</span>':""}`;
   $("#status-pill").textContent=a.key||b.key?"":"尚未配置模型 → 点击右上角“模型设置”"}
 
 /* ---------- model calls ---------- */
-async function callModel(c,content,img,maxTok=2500){
-  if(c.type==="anthropic"){const parts=img?[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:img}},...content]:content;return anthropic(c.key,c.model,parts)}
-  const parts=img?[...content,{type:"image_url",image_url:{url:`data:image/jpeg;base64,${img}`,detail:"high"}}]:content;
+async function callModel(c,content,img,maxTok=4000){
+  const imgs=img?(Array.isArray(img)?img:[img]):[];
+  if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts)}
+  const parts=[...content,...imgs.map(d=>({type:"image_url",image_url:{url:`data:image/jpeg;base64,${d}`,detail:"high"}}))];
   const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
   const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,
     body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
@@ -304,8 +322,11 @@ function compare(a,b){if(!a||!b||a.error||b.error||a.status||b.status)return nul
 
 /* ---------- pipeline ---------- */
 async function processSeg(seg,cfg,onStep){
-  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";const msg=[{type:"text",text:PROMPT+hint}];
-  const run=c=>c.key?safe(callModel(c,msg,seg.b64)):Promise.resolve({status:"skipped"});
+  const hint=seg.text?`\n\nPDF text layer for reference:\n${seg.text.slice(0,6000)}`:"";
+  const imgs=await prepImages(seg.b64,cfg);seg.sent=imgs;
+  const multi=imgs.length>1?"\n\nYou receive "+imgs.length+" images of the SAME page: image 1 is the full page, the others are enlarged overlapping sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; output each field and table row only ONCE.":"";
+  const msg=[{type:"text",text:PROMPT+hint+multi}];
+  const run=c=>c.key?safe(callModel(c,msg,imgs)):Promise.resolve({status:"skipped"});
   const [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local"),r)),run(cfg.a).then(r=>(onStep("a"),r)),run(cfg.b).then(r=>(onStep("b"),r))]);
   const im=await createImageBitmap(b64ToBlob(seg.b64));
   return {segment_identifier:seg.id,image_size:[im.width,im.height],local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
@@ -329,7 +350,7 @@ function steps(list){const ul=$("#steps");ul.hidden=false;ul.innerHTML=list.map(
 const st=(id,c,t)=>{const e=$("#st-"+id);if(!e)return;e.className=c;if(t)e.textContent=t};
 
 $("#go").onclick=async()=>{
-  const cfg={a:slot("a"),b:slot("b")};
+  const cfg={a:slot("a"),b:slot("b"),enhance:S.enhance,tiles:S.tiles};
   if(!cfg.a.key&&!cfg.b.key)toast("未配置模型，仅做本地识别");
   $("#go").disabled=true;$("#th").innerHTML="";RESULT=null;
   steps([["ingest","解析文件"],["local","本地 QR / 条码"],["a",`模型 A · ${cfg.a.key?cfg.a.model:"未启用"}`],["b",`模型 B · ${cfg.b.key?cfg.b.model:"未启用"}`],["verify","算术校验与交叉核验"]]);
@@ -342,6 +363,7 @@ $("#go").onclick=async()=>{
     const out=[];for(let i=0;i<segs.length;i+=3)out.push(...await Promise.all(segs.slice(i,i+3).map(s=>processSeg(s,cfg,onStep))));
     out.forEach(s=>["a","b"].forEach(k=>{const r=s.provider_responses["model_"+k];if(r.error)st(k,"err",`模型 ${k.toUpperCase()} · ${r.error.slice(0,80)}`)}));
     st("verify","done");
+    if(segs[0].sent&&segs[0].sent.length&&(cfg.enhance||cfg.tiles)){segs.flatMap(sg=>sg.sent).forEach((b,k)=>{const i=new Image();i.src=`data:image/jpeg;base64,${b}`;i.title="发送给模型的图 "+(k+1);i.style.outline="2px solid var(--ac-soft)";i.onclick=()=>{$("#zoom img").src=i.src;$("#zoom").showModal()};$("#th").append(i)})}
     RESULT={source_document:file.name,processed_at:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-t0),total_extracted_segments:out.length,segments:out};
     segIdx=0;["copy","dl","csv"].forEach(id=>$("#"+id).disabled=false);render();toast(`完成 · ${(RESULT.elapsed_ms/1000).toFixed(1)} 秒`);
   }catch(e){$$("#steps li.run").forEach(l=>{l.className="err"});toast("错误："+e.message);$("#view").innerHTML=`<div class="empty" style="color:var(--bad)">${esc(e.message)}</div>`}
