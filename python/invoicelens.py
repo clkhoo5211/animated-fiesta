@@ -72,6 +72,7 @@ class Segment:
     source: str = ""
     truncated: bool = False
     raw_rows: list | None = None    # spreadsheet rows (for local parse without a model)
+    text_only: bool = False         # PDF page sent as its text layer (image kept for local QR)
 
 
 def kind_of(path: Path) -> str | None:
@@ -90,7 +91,7 @@ def _rows_text(rows):
     return "\n".join(" | ".join(re.sub(r"\s+", " ", str(c)).strip() for c in r) for r in rows)
 
 
-def ingest(path: Path, rotate: int = 0) -> list[Segment]:
+def ingest(path: Path, rotate: int = 0, pdf_text: str = "auto") -> list[Segment]:
     k = kind_of(path)
     segs: list[Segment] = []
     if k in ("image", "heic"):
@@ -105,7 +106,11 @@ def ingest(path: Path, rotate: int = 0) -> list[Segment]:
             for i, page in enumerate(doc, 1):
                 pix = page.get_pixmap(dpi=150)
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
-                segs.append(Segment(f"Page_{i}", jpeg_b64(img), text=page.get_text()))
+                text = page.get_text()
+                if pdf_text != "image" and len(re.sub(r"\s", "", text)) >= 200:   # real text layer: send text, keep image for QR
+                    segs.append(Segment(f"Page_{i}", jpeg_b64(img), text[:MAX_TEXT], "text", "PDF text layer", len(text) > MAX_TEXT, None, True))
+                else:
+                    segs.append(Segment(f"Page_{i}", jpeg_b64(img), text=text))
     elif k == "video":
         import cv2
         cap = cv2.VideoCapture(str(path))
@@ -226,6 +231,12 @@ def clean_base(u: str) -> str:
     return re.sub(r"/(models|chat/completions)$", "", u)
 
 
+def _with_usage(r, i, o):
+    if isinstance(r, dict) and (i or o):
+        r["__usage"] = {"in": i or 0, "out": o or 0}
+    return r
+
+
 async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens=4000):
     images = images or []
     if c.type == "anthropic":
@@ -236,7 +247,8 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
         j = r.json() if r.content else {}
         if r.status_code >= 400:
             raise RuntimeError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}")
-        return parse_json(next((b["text"] for b in j.get("content", []) if b.get("type") == "text"), ""))
+        u = j.get("usage") or {}
+        return _with_usage(parse_json(next((b["text"] for b in j.get("content", []) if b.get("type") == "text"), "")), u.get("input_tokens"), u.get("output_tokens"))
     content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{d}", "detail": "high"}} for d in images]
     body = {"model": c.model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]}
     if c.json_mode:
@@ -246,7 +258,8 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
     j = r.json() if r.content else {}
     if r.status_code >= 400:
         raise RuntimeError((j.get("error") or {}).get("message") or f"HTTP {r.status_code}")
-    return parse_json(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+    u = j.get("usage") or {}
+    return _with_usage(parse_json(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or ""), u.get("prompt_tokens"), u.get("completion_tokens"))
 
 
 async def safe(coro):
@@ -368,6 +381,7 @@ class Options:
     enhance: bool = True
     tiles: bool = False
     concurrency: int = 2
+    pdf_text: str = "auto"          # auto | image
 
 
 def _local_table_result(seg: Segment):
@@ -388,7 +402,7 @@ async def process_segment(client, seg: Segment, o: Options):
                 f"{'; content truncated' if seg.truncated else ''}). Apply the same rules to this text; rotation_degrees = \"0\".\n<<<DOCUMENT\n{seg.text}\nDOCUMENT>>>")
     elif seg.text:
         hint = f"\n\nPDF text layer for reference:\n{seg.text[:6000]}"
-    imgs = prep_images(seg.b64, o.enhance, o.tiles) if seg.b64 else None
+    imgs = prep_images(seg.b64, o.enhance, o.tiles) if seg.b64 and not seg.text_only else None
     text = PROMPT + hint + (MULTI_NOTE.format(n=len(imgs)) if imgs and len(imgs) > 1 else "")
     local = local_codes(seg)
     if not o.a.enabled and not o.b.enabled and seg.raw_rows:
@@ -398,8 +412,9 @@ async def process_segment(client, seg: Segment, o: Options):
         ra, rb = await asyncio.gather(run(o.a), run(o.b))
     ra = ra if isinstance(ra, dict) else {"error": "invalid model output"}
     rb = rb if isinstance(rb, dict) else {"error": "invalid model output"}
-    res = {"segment_identifier": seg.id, "source_kind": seg.kind,
-           "image_size": list(b64_image(seg.b64).size) if seg.b64 else None, "local_extraction": local,
+    usage = {"model_a": ra.pop("__usage", None), "model_b": rb.pop("__usage", None)}
+    res = {"segment_identifier": seg.id, "source_kind": seg.kind, "usage": usage,
+           "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,
            "provider_responses": {"model_a": {"model": o.a.model, **ra} if "model" not in ra else ra, "model_b": {"model": o.b.model, **rb}},
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
     who, final = pick_model(res)
@@ -409,7 +424,7 @@ async def process_segment(client, seg: Segment, o: Options):
 
 async def process_file(client, path: Path, o: Options, rotate=0):
     t0 = time.time()
-    segs = ingest(path, rotate)
+    segs = ingest(path, rotate, o.pdf_text)
     out = []
     for i in range(0, len(segs), 3):
         out += await asyncio.gather(*(process_segment(client, s, o) for s in segs[i:i + 3]))
@@ -542,10 +557,11 @@ def write_outputs(results, out: Path):
     (out / "results.json").write_text(json.dumps({"exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "documents": results, "reconciliation": rc}, ensure_ascii=False, indent=2), encoding="utf-8")
     dup_of = {f: ", ".join(x for x in d["files"] if x != f) for d in rc["duplicates"] for f in d["files"]}
     with open(out / "summary.csv", "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f); w.writerow(["file", "status", "duplicate_of", "document_type", "document_number", "document_date", "currency", "grand_total", "table_rows", "note"])
+        w = csv.writer(f); w.writerow(["file", "status", "duplicate_of", "tokens_in", "tokens_out", "document_type", "document_number", "document_date", "currency", "grand_total", "table_rows", "note"])
         for r in results:
             fr = next((sg["final_result"] for sg in r.get("segments", []) if sg.get("final_result")), {}) or {}
-            w.writerow([r["source_document"], r.get("status", "skipped"), dup_of.get(r["source_document"], ""), fr.get("document_type"), fr.get("document_number"), fr.get("document_date"),
+            us = [u for sg in r.get("segments", []) for u in (sg.get("usage") or {}).values() if u]
+            w.writerow([r["source_document"], r.get("status", "skipped"), dup_of.get(r["source_document"], ""), sum(u["in"] for u in us), sum(u["out"] for u in us), fr.get("document_type"), fr.get("document_number"), fr.get("document_date"),
                         fr.get("currency"), fr.get("grand_total"), sum(len(t.get("rows") or []) for t in fr.get("tables") or []), r.get("error") or r.get("skipped") or ""])
     with open(out / "tables.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
@@ -585,11 +601,12 @@ def main(argv=None, transport=None):
     ap.add_argument("--no-enhance", action="store_true", help="disable small-text enhancement")
     ap.add_argument("--tiles", action="store_true", help="multi-scale reading (full page + two enlarged halves)")
     ap.add_argument("--concurrency", type=int, default=2)
+    ap.add_argument("--pdf-image", action="store_true", help="always send PDF pages as images (default: use the text layer when present)")
     ap.add_argument("--timeout", type=float, default=MODEL_TIMEOUT)
     ap.add_argument("--out", type=Path, default=Path("invoicelens-out"))
     a = ap.parse_args(argv)
     mk = lambda s: ModelConfig(getattr(a, f"{s}_type"), getattr(a, f"{s}_base"), getattr(a, f"{s}_model"), getattr(a, f"{s}_key"), not getattr(a, f"{s}_no_json"), a.timeout)
-    o = Options(mk("a"), mk("b"), not a.no_enhance, a.tiles, a.concurrency)
+    o = Options(mk("a"), mk("b"), not a.no_enhance, a.tiles, a.concurrency, "image" if a.pdf_image else "auto")
     if not o.a.enabled and not o.b.enabled:
         print("No model key configured — only local parsing (CSV/Excel tables, barcodes).", file=sys.stderr)
     files = [p for f in a.files for p in (sorted(x for x in f.iterdir() if x.is_file()) if f.is_dir() else [f])]
