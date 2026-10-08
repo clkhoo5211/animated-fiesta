@@ -39,3 +39,16 @@ test("autosave restores results and edits; interrupted job returns to waiting; c
   await page.waitForTimeout(800);
   await expect(page.locator(".job")).toHaveCount(0);
 });
+
+test("continuous activity does not postpone autosave (regression)", async ({ page, context }) => {
+  await serve(context, { model: () => ({ json: invoice() }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  // keep interacting faster than the save delay, then reload immediately
+  for (let i = 0; i < 12; i++) await page.click(`.tab[data-tab=${["overview", "items", "checks"][i % 3]}]`, { delay: 0 });
+  await page.reload();
+  await expect(page.locator(".job")).toHaveAttribute("data-status", /^(ok|warn|bad)$/);
+});

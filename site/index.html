@@ -696,8 +696,9 @@ const DB={db:null,ok:false,
   all(){return new Promise(res=>{if(!this.ok)return res([]);try{const rq=this.tx("readonly").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>res([])}catch{res([])}})},
   replaceAll(rows){return new Promise(res=>{if(!this.ok)return res(false);try{const t=this.db.transaction("jobs","readwrite"),st=t.objectStore("jobs");st.clear();rows.forEach(r=>st.put(r));t.oncomplete=()=>res(true);t.onerror=t.onabort=()=>res(false)}catch{res(false)}})}};
 let saveTimer=null,restoring=false;
-function scheduleSave(){if(!DB.ok||restoring)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,400)}
-async function saveNow(){clearTimeout(saveTimer);if(!DB.ok)return;
+// throttle (not debounce): continuous activity must not postpone saving indefinitely
+function scheduleSave(){if(!DB.ok||restoring||saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;saveNow()},400)}
+async function saveNow(){clearTimeout(saveTimer);saveTimer=null;if(!DB.ok)return;
   const rows=JOBS.map(j=>({id:j.id,file:j.file,name:j.file.name,type:j.file.type,rot:j.rot,status:j.status==="run"?"wait":j.status,error:j.error,reviewed:!!j.reviewed,result:j.result,previews:j.previews||null,texts:j.texts||null,saved_at:Date.now()}));
   const ok=await DB.replaceAll(rows);SAVED={ok,at:new Date()};paintSaved()}
 let SAVED=null;function paintSaved(){const el=$("#saved");if(!el)return;if(!DB.ok){el.textContent=DB.db===null&&SAVED===false?t("no_autosave"):"";return}if(!SAVED){el.textContent="";return}el.textContent=SAVED.restored?t("restored_lbl"):SAVED.ok?t("autosaved",{t:SAVED.at.toLocaleTimeString(LANG==="zh"?"zh-CN":LANG==="ms"?"ms-MY":"en-GB",{hour:"2-digit",minute:"2-digit"})}):t("autosave_fail")}
@@ -743,7 +744,7 @@ async function runJob(j,cfg){
     const allFail=out.every(sg=>["a","b"].every(k=>{const r=sg.provider_responses["model_"+k];return r.error||r.status}))&&(cfg.a.key||cfg.b.key);
     if(allFail){const r=out[0].provider_responses;j.error=r.model_a.error||r.model_b.error||t("model_failed");j.status="err";j.result=null;setStage(j,"verify","skip")}else{j.status=verdict(j.result);setStage(j,"verify","done")}
   }catch(e){j.status="err";j.error=e.message;for(const [k] of STAGES)if(j.stages[k]?.st==="run")setStage(j,k,"err",e.message.slice(0,60))}
-  j.ctrl=null;drawQueue();if(CUR===j)select(j);else if(!CUR&&j.result)select(j);else if(tab==="summary")renderSummary();
+  j.ctrl=null;drawQueue();saveNow();if(CUR===j)select(j);else if(!CUR&&j.result)select(j);else if(tab==="summary")renderSummary();
 }
 function progressHTML(j){const el=Math.round((Date.now()-j.t0)/1000);
   return`<div class="prog"><div class="prog-h"><span class="spin"></span><b>${t("extracting",{f:esc(j.file.name)})}</b><span class="sub">${t("elapsed",{s:`<span data-el="${j.id}">${el}</span>`})}</span><span class="sp"></span><button class="btn sm" id="cancel-job">${t("cancel")}</button></div>
