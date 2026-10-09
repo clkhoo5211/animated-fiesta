@@ -382,3 +382,8 @@ def test_string_headers_get_roles_and_the_better_checked_model_wins():
     b = {"document_type": "invoice_register", "tables": [{"columns": [{"name": n, "role": r} for n, r in roles.items()], "rows": _delfi(good), "total_row": DELFI_TOTAL}]}
     seg = {"provider_responses": {"model_a": a, "model_b": b}, "checks": {"model_a": ca, "model_b": il.verify(b)}}
     assert il.pick_model(seg)[0] == "B"
+
+
+def test_bracketed_ids_are_unwrapped():
+    r = il.normalize_result({"parties": [{"name": "Iota", "registration_no": " (1340607-U) ", "tax_id": "C123"}], "tables": []})
+    assert r["parties"][0]["registration_no"] == "1340607-U" and r["parties"][0]["tax_id"] == "C123"

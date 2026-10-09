@@ -4,7 +4,7 @@ const { serve, preset, waitIdle, FIX } = require("./helpers");
 
 const iota = {
   document_type: "invoice", document_number: "#IN2100113",
-  parties: [{ role: "bill_to", name: "Jabatan Perkhidmatan Veterinar", address: "Wisma Tani Blok Podium 1 A, 62630 Putrajaya" }], document_date: "2 July 2026", currency: "RM", grand_total: "RM22,113.00",
+  parties: [{ role: "issuer", name: "Iota Technologies Sdn Bhd", registration_no: "(1340607-U)" }, { role: "bill_to", name: "Jabatan Perkhidmatan Veterinar", address: "Wisma Tani Blok Podium 1 A, 62630 Putrajaya" }], document_date: "2 July 2026", currency: "RM", grand_total: "RM22,113.00",
   tables: [{ name: "Items", columns: [{ name: "Description", role: "text" }, { name: "Quantity", role: "qty" }, { name: "Price", role: "amount" }], rows: [["Maintenance, 3 Bulan", "3", "RM20,475.00"]] }],
   totals: [{ label: "Subtotal", value: "RM20,475.00" }, { label: "SST 8%", value: "RM1,638.00" }, { label: "Discount", value: "-" }],
 };
@@ -33,7 +33,8 @@ test("generic checks: totals block, tax rate, statement balance; tables CSV has 
 
   const [dl2] = await Promise.all([page.waitForEvent("download"), page.click("#csvall")]);
   const all = fs.readFileSync(await dl2.path(), "utf8");
-  expect(all).toContain('"party","bill_to 1","address","Wisma Tani Blok Podium 1 A, 62630 Putrajaya"');
+  expect(all).toContain('"party","issuer 1","registration_no","1340607-U"');
+  expect(all).toContain('"party","bill_to 2","address","Wisma Tani Blok Podium 1 A, 62630 Putrajaya"');
   expect(all).toContain('"total","2","SST 8%","RM1,638.00"');
   expect(all).toContain('"table: Items","1","Price","RM20,475.00"');
 

@@ -689,6 +689,10 @@ def normalize_result(r):
     """Models sometimes return table headers as plain strings: give them roles from the data so every check can run."""
     if not isinstance(r, dict) or r.get("error"):
         return r
+    for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
+        for k in ("registration_no", "tax_id"):
+            if isinstance(p, dict) and isinstance(p.get(k), str):
+                p[k] = re.sub(r"^\((.*)\)$", r"\1", p[k].strip()).strip()
     for t in r.get("tables") or []:
         if not isinstance(t.get("columns"), list) or not any(isinstance(c, str) for c in t["columns"]):
             continue

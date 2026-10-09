@@ -520,6 +520,8 @@ function grounding(layer,r){if(!layer||!r)return null;const flat=layer.replace(/
   return {n:vals.length,miss}}
 /* models sometimes return table headers as plain strings: give them roles from the data so every check can run */
 function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;
+  // IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself so it matches across documents
+  for(const p of r.parties||[])for(const k of ["registration_no","tax_id"])if(typeof p?.[k]==="string")p[k]=p[k].trim().replace(/^\((.*)\)$/,"$1").trim();
   for(const t of r.tables||[]){if(!Array.isArray(t.columns)||!t.columns.some(c=>typeof c==="string"))continue;
     const rows=(t.rows||[]).filter(Array.isArray),cell=(row,i)=>String(row[i]??"").trim();
     const cols=t.columns.map((c,i)=>{if(c&&typeof c==="object")return c;const vals=rows.map(r=>cell(r,i)).filter(Boolean);
