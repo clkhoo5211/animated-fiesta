@@ -198,3 +198,15 @@ test("model A reads with temperature 0; a relay that refuses it is asked again w
   expect(calls.map((c) => c.temperature)).toEqual([0, undefined]);
   await expect(page.locator("#view")).toContainText("INV-1");
 });
+
+test("same model as A and B: B reads close-ups, B keeps its own temperature; printed notes shown and exported", async ({ page, context }) => {
+  const calls = await serve(context, { model: () => ({ json: { document_type: "invoice", document_number: "INV-1", tables: [], notes: ["* Private & Confidential"] } }) });
+  await preset(page, { b: { model: "model-a" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls.map((c) => [c.images, c.temperature]).sort()).toEqual([[1, 0], [3, undefined]]);
+  await expect(page.locator("#view")).toContainText("Printed notes");
+  await expect(page.locator("#view")).toContainText("* Private & Confidential");
+});
