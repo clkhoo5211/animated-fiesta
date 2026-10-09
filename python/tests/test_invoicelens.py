@@ -447,3 +447,16 @@ def test_merge_never_fills_empty_table_cells_and_is_undone_if_checks_break():
     diffs = [{"field": "tables.0.rows.1.2", "a": "", "b": "3", "kind": "missing"}]
     assert il.merge_from(final, "A", diffs) == [] and final == good
     assert not il.normalize_result({"tables": [{"columns": [{"name": "Header", "role": "text"}], "rows": [["7 Orders"]], "row_kinds": ["other"]}]})["tables"]
+
+
+def test_repair_shift_and_label_guarded_merge():
+    cols = [{"name": "Name", "role": "text"}] + [{"name": f"CTN-{i}", "role": "number"} for i in (1, 2, 3)] + [{"name": "Total", "role": "row_total"}]
+    rows = [["A", None, "1", None, "1"], ["B", "22", "6", None, "28"], ["C", None, "3", None, "3"], ["D", "5", "8", None, "13"]]
+    r = {"tables": [{"columns": cols, "rows": rows, "total_row": [None, "30", "15", "0", "45"]}]}
+    assert il.repair_shift(r) == [{"ti": 0, "row": 3, "from": "CTN-2", "to": "CTN-1", "v": "3"}]
+    assert rows[2] == ["C", "3", None, None, "3"] and il.verify(r)["passed"]
+    amb = {"tables": [{"columns": cols, "rows": [["A", None, "1", None, "1"], ["B", None, "1", None, "1"]], "total_row": [None, "1", "1", "0", "2"]}]}
+    assert il.repair_shift(amb) == []  # two candidate rows: nothing is guessed
+    final = {"fields": [{"label": "Collected By", "value": None}]}
+    diffs = [{"field": "fields.0.label", "a": "Time", "b": "Collected By"}, {"field": "fields.0.value", "a": "07:08:04", "b": None}]
+    assert il.merge_from(final, "B", diffs) == [] and final["fields"][0]["value"] is None
