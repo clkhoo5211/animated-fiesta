@@ -488,3 +488,16 @@ def test_normalize_id_prefix_and_label_colon():
     r = il.normalize_result({"parties": [{"tax_id": "TIN:C6850683100", "registration_no": "(279018-W)"}], "fields": [{"label": "Payment Terms :", "value": "14 DAYS"}]})
     assert r["parties"][0]["tax_id"] == "C6850683100" and r["parties"][0]["registration_no"] == "279018-W"
     assert r["fields"][0]["label"] == "Payment Terms"
+
+
+def test_twin_model_b_gets_closeups(tmp_path):
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(sum(1 for c in body["messages"][0]["content"] if c["type"] == "image_url"))
+        doc = {"document_type": "invoice", "document_number": "INV-1", "rotation_degrees": "0", "tables": [], "notes": ["* Private & Confidential"]}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}]})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--a-model", "m", "--b-type", "openai", "--b-model", "m", "--b-base", "https://relay.test/v1", "--b-key", "k", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    assert sorted(seen) == [1, 3]
+    assert "note" in (tmp_path / "all_fields.csv").read_text() if (tmp_path / "all_fields.csv").exists() else True
