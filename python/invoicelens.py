@@ -9,7 +9,7 @@ Gemini, OpenRouter, Qwen, relays…) or Anthropic over plain HTTPS.
     python python/invoicelens.py invoices/*.jpg register.pdf \
         --a-base https://api.openai.com/v1 --a-model gpt-4o --out out/
 
-Outputs in --out: results.json, summary.csv, tables.csv, reconcile.csv
+Outputs in --out: results.json, summary.csv, fields.csv (every value), tables.csv, reconcile.csv
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, number = other numbers.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -378,6 +378,9 @@ def verify(r) -> dict | None:
             tax = sum(num(x.get("value")) or 0 for x in tot if re.search(r"tax|gst|sst|vat|cukai|税", x.get("label") or "", re.I))
             disc = sum(num(x.get("value")) or 0 for x in tot if re.search(r"disc|diskaun|折", x.get("label") or "", re.I))
             add(abs(amts[0] + tax - disc - gt) < 0.011, "grand", lines=f"{amts[0]:.2f}", tax=tax, disc=disc, total=r.get("grand_total"))
+    totals_checks(r, add)
+    for ti, t in enumerate(r.get("tables") or []):
+        balance_check(t, ti, add)
     cross_checks(r, add)
     items_as_totals(r, add)
     return {"passed": all(c["ok"] or c.get("warn") for c in checks), "checks": checks}
@@ -459,6 +462,53 @@ def items_as_totals(r, add):
     s = sum(num(x["value"]) for x in cand)
     if rep or (not has_amt and gt is not None and len(cand) >= 3 and abs(s - gt) < 0.011):
         add(False, "itemstot", l=rep[0] if rep else "", n=rep[1] if rep else len(cand), sum=round(s, 2))
+
+
+def totals_checks(r, add):
+    """Totals block: subtotal + tax - discount + rounding = grand total; 'SST 8%' = 8% of subtotal."""
+    tot = [x for x in r.get("totals") or [] if isinstance(x, dict) and x.get("label") and num(x.get("value")) is not None]
+    f = lambda rx: [x for x in tot if re.search(rx, x["label"], re.I)]
+    sub, gt = next(iter(f(r"sub.?total|jumlah kecil|小计")), None), num(r.get("grand_total"))
+    if not sub or gt is None:
+        return
+    s = num(sub["value"])
+    tax, disc, rnd = f(r"tax|sst|gst|vat|cukai|税"), f(r"disc|diskaun|折"), f(r"round|pembundaran|舍入")
+    calc = s + sum(num(x["value"]) for x in tax) - sum(abs(num(x["value"])) for x in disc) + sum(num(x["value"]) for x in rnd)
+    add(abs(calc - gt) < 0.011, "totalsum", s=sub["value"], c=round(calc, 2), g=r.get("grand_total"))
+    for x in tax:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*%", x["label"])
+        if m:
+            want = s * float(m.group(1)) / 100
+            add(abs(want - num(x["value"])) < 0.051, "taxrate", l=x["label"], v=x["value"], w=f"{want:.2f}")
+
+
+def balance_check(t, ti, add):
+    """Statements: previous balance -/+ debit/credit = this balance (either sign convention)."""
+    cols = t.get("columns") or []
+    rows = [r for r in t.get("rows") or [] if isinstance(r, list)]
+    ix = lambda role: next((i for i, c in enumerate(cols) if (c or {}).get("role") == role), -1)
+    b, d, c = ix("balance"), ix("debit"), ix("credit")
+    if b < 0 or (d < 0 and c < 0) or len(rows) < 2:
+        return
+    g = lambda row, i: num(row[i]) if 0 <= i < len(row) else None
+    bal = [g(r, b) for r in rows]
+    mv = [(g(r, c) or 0) - (g(r, d) or 0) for r in rows]
+    bad, sign = [], None
+    for i in range(1, len(rows)):
+        if bal[i] is None or bal[i - 1] is None:
+            continue
+        delta = round(bal[i] - bal[i - 1], 2)
+        if sign is None:
+            if abs(delta - mv[i]) < 0.011: sign = 1
+            elif abs(delta + mv[i]) < 0.011: sign = -1
+            else:
+                bad.append(i); continue
+        if abs(delta - sign * mv[i]) > 0.011:
+            bad.append(i)
+    for i in bad:
+        add(False, "balance", ti=ti, tn=t.get("name"), row=i, p=rows[i - 1][b], v=rows[i][b])
+    if not bad:
+        add(True, "balance_all", ti=ti, tn=t.get("name"), n=len(rows))
 
 
 SUMMARY_LBL = re.compile(r"sub|tax|sst|gst|vat|disc|round|cukai|diskaun|小计|税|折|總|总计", re.I)
@@ -720,11 +770,47 @@ def reconcile(results):
 
 
 # ----------------------------------------------------------------- outputs / CLI
+def flat_rows(file, page, r):
+    """Every extracted value as rows: file, page, section, item, label, value."""
+    out = []
+    def put(sec, item, label, v):
+        if v not in (None, ""):
+            out.append([file, page, sec, item, label, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v])
+    for k in ("document_type", "title", "document_number", "document_date", "currency", "grand_total", "amount_in_words"):
+        put("document", "", k, r.get(k))
+    for i, p in enumerate(x for x in r.get("parties") or [] if isinstance(x, dict)):
+        for k in ("name", "registration_no", "tax_id", "address", "contact"):
+            put("party", f"{p.get('role') or 'party'} {i + 1}", k, p.get(k))
+    for i, x in enumerate(r.get("fields") or []):
+        put("field", i + 1, (x or {}).get("label"), (x or {}).get("value"))
+    for i, x in enumerate(r.get("totals") or []):
+        put("total", i + 1, (x or {}).get("label"), (x or {}).get("value"))
+    for ti, t in enumerate(r.get("tables") or []):
+        cols, tn = [c.get("name") for c in t.get("columns") or []], t.get("name") or f"Table {ti + 1}"
+        col = lambda ci: cols[ci] if ci < len(cols) and cols[ci] else f"col {ci + 1}"
+        for ri, row in enumerate(t.get("rows") or []):
+            for ci, v in enumerate(row or []):
+                put(f"table: {tn}", ri + 1, col(ci), v)
+        if isinstance(t.get("total_row"), list):
+            for ci, v in enumerate(t["total_row"]):
+                put(f"table: {tn}", "TOTAL", col(ci), v)
+    for sec, key in (("stamp", "stamps_and_chops"), ("handwriting", "handwritten_notes")):
+        for i, x in enumerate(r.get(key) or []):
+            put(sec, i + 1, (x.get("position") or "") if isinstance(x, dict) else "", x.get("text") if isinstance(x, dict) else x)
+    return out
+
+
 def write_outputs(results, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     rc = reconcile([r for r in results if r.get("segments")])
     (out / "results.json").write_text(json.dumps({"exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "documents": results, "reconciliation": rc}, ensure_ascii=False, indent=2), encoding="utf-8")
     dup_of = {f: ", ".join(x for x in d["files"] if x != f) for d in rc["duplicates"] for f in d["files"]}
+    with open(out / "fields.csv", "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f); w.writerow(["file", "page", "section", "item", "label", "value"])
+        for r in results:
+            for sg in r.get("segments", []):
+                if sg.get("final_result"):
+                    w.writerows(flat_rows(r["source_document"], sg["segment_identifier"], sg["final_result"]))
     with open(out / "summary.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f); w.writerow(["file", "status", "duplicate_of", "tokens_in", "tokens_out", "document_type", "document_number", "document_date", "currency", "grand_total", "table_rows", "note"])
         for r in results:
@@ -738,12 +824,12 @@ def write_outputs(results, out: Path):
             for sg in r.get("segments", []):
                 fr = sg.get("final_result") or {}
                 for ti, t in enumerate(fr.get("tables") or []):
-                    w.writerow([r["source_document"], sg["segment_identifier"], t.get("name") or f"Table {ti+1}"])
-                    w.writerow(["", ""] + [c.get("name") for c in t.get("columns") or []])
-                    for row in t.get("rows") or []:
-                        w.writerow([r["source_document"], fr.get("document_number")] + list(row))
+                    pre = lambda k: [r["source_document"], sg["segment_identifier"], fr.get("document_number"), t.get("name") or f"Table {ti+1}", k]
+                    w.writerow(["file", "page", "document_number", "table", "row"] + [c.get("name") for c in t.get("columns") or []])
+                    for ri, row in enumerate(t.get("rows") or []):
+                        w.writerow(pre(ri + 1) + list(row))
                     if isinstance(t.get("total_row"), list):
-                        w.writerow(["TOTAL", ""] + list(t["total_row"]))
+                        w.writerow(pre("TOTAL") + list(t["total_row"]))
                     w.writerow([])
     with open(out / "reconcile.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f); w.writerow(["register_file", "invoice_no", "register_date", "name", "matched_file", "matched_invoice_no", "invoice_date", "invoice_total", "status"])
