@@ -3,7 +3,7 @@ Requires: pip install pillow qrcode pillow-heif openpyxl python-docx
 Run: python tests/fixtures/make_fixtures.py
 """
 import os
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 import qrcode
 
 D = os.path.dirname(os.path.abspath(__file__))
@@ -68,3 +68,11 @@ for line in ["DEMO TRADING SDN BHD (000000-X)", "No. 1 Jalan Contoh, 50000 Kuala
 d.save(p("text-invoice.pdf"))
 open(p("note.txt"), "w").write("unsupported file\n")
 print("fixtures written to", D)
+
+# small, blurred QR in the bottom-left corner of a WhatsApp-sized photo (full-page scan misses it)
+sq = Image.new("RGB", (720, 1280), "white")
+dq = ImageDraw.Draw(sq)
+for y in range(80, 1050, 28):
+    dq.text((60, y), "ITEM %d   QTY 1.00 UNIT   PRICE 12.34   TOTAL 12.34" % y, fill="black")
+sq.paste(qrcode.make("https://myinvois.hasil.gov.my/TEST-UUID-0001/share/ABC123").convert("RGB").resize((72, 72), Image.BILINEAR), (20, 1100))
+sq.filter(ImageFilter.GaussianBlur(0.9)).save(p("small-qr.jpg"), "JPEG", quality=55)
