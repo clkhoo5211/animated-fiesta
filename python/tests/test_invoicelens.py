@@ -279,3 +279,27 @@ def test_same_relay_sequential(tmp_path):
              "--b-type", "openai", "--b-base", "https://relay.test/v1", "--b-key", "k", "--b-model", "mb", "--out", str(tmp_path)],
             transport=httpx.MockTransport(handler))
     assert order == ["ma", "mb"] and live[1] == 1
+
+
+def test_totals_taxrate_and_statement_balance():
+    inv = {"grand_total": "RM22,113.00", "tables": [],
+           "totals": [{"label": "Subtotal", "value": "RM20,475.00"}, {"label": "SST 8%", "value": "RM1,638.00"}, {"label": "Discount", "value": "-"}]}
+    ok = {c["code"]: c["ok"] for c in il.verify(inv)["checks"]}
+    assert ok["totalsum"] and ok["taxrate"]
+    inv["totals"][1]["value"] = "RM1,368.00"
+    ok = {c["code"]: c["ok"] for c in il.verify(inv)["checks"]}
+    assert not ok["totalsum"] and not ok["taxrate"]
+    st = {"tables": [{"columns": [{"name": "Date", "role": "date"}, {"name": "Debit", "role": "debit"}, {"name": "Credit", "role": "credit"}, {"name": "Balance", "role": "balance"}],
+                      "rows": [["1/9", "", "", "1,000.00"], ["2/9", "200.00", "", "800.00"], ["3/9", "", "50.00", "850.00"], ["4/9", "20.00", "", "830.00"]]}]}
+    assert [c for c in il.verify(st)["checks"] if c["code"] == "balance_all"]
+    st["tables"][0]["rows"][3][3] = "803.00"
+    bad = [c for c in il.verify(st)["checks"] if c["code"] == "balance"]
+    assert len(bad) == 1 and bad[0]["row"] == 3
+
+
+def test_tables_csv_one_header_per_table(tmp_path):
+    llm = FakeLLM(lambda c: invoice())
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=llm.transport)
+    rows = list(csv.reader(open(tmp_path / "tables.csv", encoding="utf-8-sig")))
+    assert rows[0][:5] == ["file", "page", "document_number", "table", "row"]
+    assert rows[1][0] == "invoice.jpg" and rows[1][4] == "1"
