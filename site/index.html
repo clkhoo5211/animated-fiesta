@@ -437,6 +437,7 @@ Rules:
 - Only output text that is actually on the page. Never invent company names, numbers or rows.
 - Put EVERY labelled value on the page into "fields" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.
 - Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> "?" and list the field in low_confidence_fields.
+- Table column headers are not field labels: never repeat table cells in fields.
 - Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).
 - Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.
 - Grouped reports (a group/customer header row, its lines, then a subtotal row such as "Total for X"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.
@@ -1027,9 +1028,12 @@ function renderSummary(){const v=$("#view");const done=JOBS.filter(j=>j.result||
   v.querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>select(JOBS.find(j=>j.id==tr.dataset.id)))}
 
 /* pick the model whose result held up under more checks: passed checks count, failures cost more; a result that ran no checks does not win by default */
+// tie-break: how much table content a result captured (a truncated description loses)
+const completeness=r=>(r?.tables||[]).reduce((s,t)=>s+(t.rows||[]).flat().reduce((a,c)=>a+String(c??"").replace(/\s/g,"").length,0),0);
 const checkScore=c=>c?(c.checks||[]).reduce((s,x)=>s+(x.ok?1:x.warn?-0.5:-3),0):-Infinity;
 function pickModel(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
-  if(ok(a)&&ok(b))return checkScore(seg.checks.model_b)>checkScore(seg.checks.model_a)?["B",b]:["A",a];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
+  if(ok(a)&&ok(b)){const sa=checkScore(seg.checks.model_a),sb=checkScore(seg.checks.model_b);
+    if(sa!==sb)return sb>sa?["B",b]:["A",a];return completeness(b)>completeness(a)*1.1?["B",b]:["A",a]}return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
 /* final (editable) result per segment: starts as a copy of the chosen model output */
 function best(seg){if(!seg.final_result){const [w,r]=pickModel(seg);seg.final_source=w;seg.final_result=r?JSON.parse(JSON.stringify(r)):null;seg.manual_edits=[];seg.accepted=[]}
   return [seg.final_source,seg.final_result]}
@@ -1100,8 +1104,8 @@ function render(){const v=$("#view");if(!RESULT){return}
       <div class="kpi"><span>${t("k_status")}</span><b>${verdictB}</b></div></div>
     <p class="sub" style="margin:10px 0 0">${esc(r.title||"")} · ${t("source",{w:who})}${seg.cross_verification?t("agree",{p:Math.round(seg.cross_verification.agreement_rate*100)}):""}${seg.straightened?t("straightened",{d:seg.straightened}):""}${!seg.straightened&&r.rotation_degrees&&r.rotation_degrees!=="0"?t("rotated",{d:esc(r.rotation_degrees)}):""}${seg.source_kind==="text"&&CUR?.previews?.[segIdx]?t("pdf_text_used"):""}${(()=>{const l=usageLine(usageOf(RESULT));return l?" · "+esc(l):""})()}</p>
     ${(r.parties||[]).length?`<div class="sec grid2">${r.parties.map((p,pi)=>`<div class="box"><h4>${esc(roleName(p.role))}</h4>${kvE(seg,`parties.${pi}`,p,{name:t("f_name"),registration_no:t("f_reg"),tax_id:t("f_tax"),address:t("f_addr"),contact:t("f_contact")})}</div>`).join("")}</div>`:""}
-    ${(r.fields||[]).length?`<div class="sec"><h3>${t("fields_h")}</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${r.fields.map((f,fi)=>`<dt>${esc(f.label)}</dt><dd>${ev(seg,`fields.${fi}.value`,f.value)}</dd>`).join("")}</dl></div></div>`:""}
-    ${(r.totals||[]).length||r.amount_in_words?`<div class="sec"><h3>${t("totals_h")}</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${(r.totals||[]).map((f,fi)=>`<dt>${esc(f.label)}</dt><dd>${ev(seg,`totals.${fi}.value`,f.value)}</dd>`).join("")}</dl>${r.amount_in_words?`<p class="sub" style="margin:8px 0 0">${ev(seg,"amount_in_words",r.amount_in_words)}</p>`:""}</div></div>`:""}
+    ${(r.fields||[]).length?`<div class="sec"><h3>${t("fields_h")}</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${r.fields.map((f,fi)=>f?.label==null&&f?.value==null?"":`<dt>${esc(f.label)}</dt><dd>${ev(seg,`fields.${fi}.value`,f.value)}</dd>`).join("")}</dl></div></div>`:""}
+    ${(r.totals||[]).length||r.amount_in_words?`<div class="sec"><h3>${t("totals_h")}</h3><div class="box"><dl class="kv" style="grid-template-columns:minmax(90px,max-content) 1fr">${(r.totals||[]).map((f,fi)=>f?.label==null&&f?.value==null?"":`<dt>${esc(f.label)}</dt><dd>${ev(seg,`totals.${fi}.value`,f.value)}</dd>`).join("")}</dl>${r.amount_in_words?`<p class="sub" style="margin:8px 0 0">${ev(seg,"amount_in_words",r.amount_in_words)}</p>`:""}</div></div>`:""}
     <div class="sec grid2">
       <div class="box"><h4>${t("stamps_h")}</h4>${(r.stamps_and_chops||[]).map((x,i)=>`<p style="margin:0 0 6px">${ev(seg,`stamps_and_chops.${i}.text`,x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div>
       <div class="box"><h4>${t("hand_h")}</h4>${(r.handwritten_notes||[]).map((x,i)=>`<p style="margin:0 0 6px">${ev(seg,`handwritten_notes.${i}.text`,x.text??x)}<span class="sub"> ${esc(x.position||"")}</span></p>`).join("")||'<p class="sub">—</p>'}</div></div>`}
