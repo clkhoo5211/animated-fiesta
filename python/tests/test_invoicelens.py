@@ -403,3 +403,10 @@ def test_guessed_names_phone_lengths_and_label_alignment():
     assert [f["label"] for f in b["fields"]] == ["Customer Account", "Payment Terms", "Ref 1"]
     cv = il.compare(a, b)
     assert [d["field"] for d in cv["discrepancies"] if d["kind"] == "mismatch"] == ["fields.0.value"]
+
+
+def test_tie_goes_to_the_fuller_table():
+    mk = lambda desc: {"document_type": "invoice", "tables": [{"columns": [{"name": "Description", "role": "text"}, {"name": "Qty", "role": "qty"}], "rows": [[desc, "3"]]}]}
+    a, b = mk("Tuntukan Bayaran Bagi:"), mk("Tuntukan Bayaran Bagi: PERKHIDMATAN PENYELENGGARAAN SISTEM MYWALET BLOCKCHAIN • 3 Bulan")
+    seg = {"provider_responses": {"model_a": a, "model_b": b}, "checks": {"model_a": il.verify(a), "model_b": il.verify(b)}}
+    assert il.pick_model(seg)[0] == "B"
