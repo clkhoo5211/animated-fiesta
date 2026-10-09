@@ -521,7 +521,8 @@ function grounding(layer,r){if(!layer||!r)return null;const flat=layer.replace(/
   return {n:vals.length,miss}}
 /* models sometimes return table headers as plain strings: give them roles from the data so every check can run */
 function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;
-  if(Array.isArray(r.tables))r.tables=r.tables.filter(t=>t&&Array.isArray(t.columns)&&t.columns.length); // "tables" without columns are stray text, not tables
+  if(Array.isArray(r.tables))r.tables=r.tables.filter(t=>t&&Array.isArray(t.columns)&&t.columns.length&&
+    !(Array.isArray(t.row_kinds)&&t.row_kinds.length&&t.row_kinds.every(k=>k==="other"))); // the model itself says none of its rows are table rows // "tables" without columns are stray text, not tables
   // IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself so it matches across documents
   for(const p of r.parties||[])for(const k of ["registration_no","tax_id"])if(typeof p?.[k]==="string")p[k]=p[k].trim().replace(/^\((.*)\)$/,"$1").trim();
   for(const t of r.tables||[]){if(!Array.isArray(t.columns)||!t.columns.some(c=>typeof c==="string"))continue;
@@ -1040,12 +1041,17 @@ function pickModel(seg){const a=seg.provider_responses.model_a,b=seg.provider_re
 const MERGE_SKIP=/(^|\.)(role|label|row_kinds|columns|name|low_confidence_fields|rotation_degrees|document_type)(\.|$)/;
 function mergeFrom(final,w,diffs){const out=[],other=w==="A"?"b":"a",mine=w==="A"?"a":"b",s=v=>String(v??"").replace(/\s+/g," ").trim();
   for(const d of diffs||[]){if(MERGE_SKIP.test(d.field)||/^tables\.\d+\.name$/.test(d.field))continue;const o=d[other],m=d[mine];if(o==null||s(o)==="")continue;
-    if(typeof o==="object")continue;const take=s(m)===""||(s(o).length>s(m).length&&s(o).toLowerCase().startsWith(s(m).toLowerCase().replace(/[^\p{L}\p{N}]+$/u,""))&&num(m)==null);
+    if(typeof o==="object")continue;const cell=/^tables\.\d+\.rows\./.test(d.field);
+    // empty table cells mean "nothing printed" and are never filled; only truncated text is completed
+    const take=(s(m)===""&&!cell)||(s(m)!==""&&s(o).length>s(m).length&&s(o).toLowerCase().startsWith(s(m).toLowerCase().replace(/[^\p{L}\p{N}]+$/u,""))&&num(m)==null);
     if(take&&getPath(final,d.field.split(".").slice(0,-1).join("."))!=null){setPath(final,d.field,o);out.push({path:d.field,from:other.toUpperCase(),v:o})}}
   return out}
 /* final (editable) result per segment: starts as a copy of the chosen model output */
 function best(seg){if(!seg.final_result){const [w,r]=pickModel(seg);seg.final_source=w;seg.final_result=r?JSON.parse(JSON.stringify(r)):null;seg.manual_edits=[];seg.accepted=[];
-    seg.merged=r&&seg.cross_verification?mergeFrom(seg.final_result,w,seg.cross_verification.discrepancies):[]}
+    seg.merged=[];if(r&&seg.cross_verification){const before=JSON.stringify(seg.final_result),fails=c=>(c?.checks||[]).filter(x=>!x.ok&&!x.warn).length,base=fails(verify(seg.final_result));
+      const m=mergeFrom(seg.final_result,w,seg.cross_verification.discrepancies);
+      // a fill-in that makes any check fail is undone
+      if(m.length&&fails(verify(seg.final_result))>base)seg.final_result=JSON.parse(before);else seg.merged=m}}
   return [seg.final_source,seg.final_result]}
 const getPath=(o,p)=>p.split(".").reduce((a,k)=>a==null?a:a[k],o);
 function setPath(o,p,v){const ks=p.split(".");let a=o;for(let i=0;i<ks.length-1;i++){const k=ks[i];if(a[k]==null)a[k]=/^\d+$/.test(ks[i+1])?[]:{};a=a[k]}a[ks.at(-1)]=v}

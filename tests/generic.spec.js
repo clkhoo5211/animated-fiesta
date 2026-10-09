@@ -142,7 +142,7 @@ test("field-level merge fills empty and truncated values from the other model; c
     fields: [{ label: "Ref", value: ref }], totals: [{ label: "Subtotal", value: "RM20,475.00" }, { label: "SST 8%", value: "RM1,638.00" }],
     tables: [{ name: "Items", columns: [{ name: "Description", role: "text" }, { name: "Quantity", role: "qty" }, { name: "Price", role: "amount" }], rows: [[desc, "3", "RM20,475.00"]] }, ...extra] });
   await serve(context, { model: ({ model }) => ({ json: model === "model-a"
-    ? mk("Tuntukan Bayaran Bagi:", null, [{ columns: [], rows: [["7 Orders"]] }])
+    ? mk("Tuntukan Bayaran Bagi:", null, [{ columns: [], rows: [["7 Orders"]] }, { columns: [{ name: "Header", role: "text" }], rows: [["TOTAL: 7 Orders"]], row_kinds: ["other"] }])
     : mk("Tuntukan Bayaran Bagi: PERKHIDMATAN PENYELENGGARAAN SISTEM • 3 Bulan", "Q-2026-17", []) }) });
   await preset(page, { b: {} });
   await page.goto("/");
@@ -155,4 +155,19 @@ test("field-level merge fills empty and truncated values from the other model; c
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("tables.0.rows.0.0");
   await expect(page.locator("#view")).toContainText("Q-2026-17");
+});
+
+test("merge never copies the other model's numbers into empty cells of a correct table", async ({ page, context }) => {
+  const cols = [{ name: "Name", role: "text" }, { name: "CTN-1", role: "number" }, { name: "CTN-2", role: "number" }, { name: "Total", role: "row_total" }];
+  const t = (rows) => ({ document_type: "invoice_register", tables: [{ name: "Reg", columns: cols, rows, total_row: [null, "7", "1", "8"] }] });
+  await serve(context, { model: ({ model }) => ({ json: model === "model-a" ? t([["A", "4", "1", "5"], ["B", "3", "", "3"]]) : t([["A", "", "4", "5"], ["B", "", "3", "3"]]) }) });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=items]");
+  await expect(page.locator("#view tbody tr").nth(1)).toHaveText(/^\s*B\s*3\s*3\s*$/);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).not.toContainText("Filled from model B");
 });
