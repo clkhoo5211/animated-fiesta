@@ -829,9 +829,23 @@ async function processSeg(seg,cfg,onStep){
     again.usage={model_a:add(again.usage.model_a,ra?.__usage),model_b:add(again.usage.model_b,rb?.__usage)};again.straightened=rd;return again}
   ra=normalizeResult(ra);rb=normalizeResult(rb);alignByLabel(ra,rb);
   const im=seg.b64&&!seg.textOnly?await createImageBitmap(b64ToBlob(seg.b64)):null;
-  return {segment_identifier:seg.id,text_layer:seg.text&&seg.b64?normText(seg.text).slice(0,40000):null,usage:{model_a:ra?.__usage||null,model_b:rb?.__usage||null},source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
+  const res={segment_identifier:seg.id,text_layer:seg.text&&seg.b64?normText(seg.text).slice(0,40000):null,usage:{model_a:ra?.__usage||null,model_b:rb?.__usage||null},source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
     checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
+  // every model's table fails its sums and the model claimed the page is upright: it may be sideways anyway — read it turned 90° / 270° and keep whichever reads better
+  if(seg.b64&&!seg.textOnly&&!seg.straightened&&cfg.straighten!==false&&tablesBroken(res)){const orig=seg.b64;let bestRes=res,bestB64=orig;
+    for(const d of [90,270]){seg.b64=await rotateB64(orig,d);seg.straightened=d;onStep("straighten",d);
+      const again=await processSeg(seg,cfg,onStep);again.usage=sumUsage(again.usage,bestRes.usage);
+      if(tablesFixed(again)&&segScore(again)>segScore(bestRes)){again.straightened=d;bestRes=again;bestB64=seg.b64}else bestRes.usage=again.usage;
+      if(!tablesBroken(bestRes))break}
+    seg.b64=bestB64;seg.straightened=bestRes.straightened||0;return bestRes}
+  return res;
 }
+const TABLE_CK=["colsum","rowsum","qtyprice","groupsum","balance"];
+function tablesBroken(res){const cs=[res.checks.model_a,res.checks.model_b].filter(Boolean);return cs.length>0&&cs.every(c=>c.checks.some(x=>!x.ok&&!x.warn&&TABLE_CK.includes(x.code)))}
+// a turned read only wins when its tables actually add up (an empty read scores 0 and would beat a failed sum otherwise)
+function tablesFixed(res){return !tablesBroken(res)&&[res.checks.model_a,res.checks.model_b].some(c=>c&&c.checks.some(x=>x.ok&&TABLE_CK.includes(x.code)))}
+function segScore(res){return Math.max(...[res.checks.model_a,res.checks.model_b].map(c=>c?checkScore(c):-Infinity))}
+function sumUsage(u,v){const add=(x,y)=>x||y?{in:(x?.in||0)+(y?.in||0),out:(x?.out||0)+(y?.out||0)}:null;return {model_a:add(u?.model_a,v?.model_a),model_b:add(u?.model_b,v?.model_b)}}
 
 /* ---------- UI ---------- */
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));

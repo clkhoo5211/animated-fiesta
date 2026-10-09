@@ -733,6 +733,29 @@ def completeness(r):
     return sum(len(re.sub(r"\s", "", str(c if c is not None else ""))) for t in r.get("tables") or [] for row in t.get("rows") or [] if isinstance(row, list) for c in row)
 
 
+TABLE_CK = ("colsum", "rowsum", "qtyprice", "groupsum", "balance")
+
+
+def tables_broken(res):
+    """Every model that answered has a table whose sums fail."""
+    cs = [c for c in res["checks"].values() if c]
+    return bool(cs) and all(any(not x["ok"] and not x.get("warn") and x["code"] in TABLE_CK for x in c["checks"]) for c in cs)
+
+
+def tables_fixed(res):
+    """A turned read only wins when its tables actually add up (an empty read would otherwise beat a failed sum)."""
+    return not tables_broken(res) and any(x["ok"] and x["code"] in TABLE_CK for c in res["checks"].values() if c for x in c["checks"])
+
+
+def seg_score(res):
+    return max(check_score(c) for c in res["checks"].values())
+
+
+def sum_usage(u, v):
+    add = lambda x, y: {"in": (x or {}).get("in", 0) + (y or {}).get("in", 0), "out": (x or {}).get("out", 0) + (y or {}).get("out", 0)} if x or y else None
+    return {k: add((u or {}).get(k), (v or {}).get(k)) for k in ("model_a", "model_b")}
+
+
 def check_score(c):
     """Passed checks count, failures cost more; a result that ran no checks does not win by default."""
     return sum(1 if x["ok"] else (-0.5 if x.get("warn") else -3) for x in c["checks"]) if c else float("-inf")
@@ -885,6 +908,22 @@ async def process_segment(client, seg: Segment, o: Options):
            "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,
            "provider_responses": {"model_a": {"model": o.a.model, **ra} if "model" not in ra else ra, "model_b": {"model": o.b.model, **rb}},
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
+    # every model's table fails its sums though the page was called upright: it may be sideways anyway — read it turned 90° / 270°, keep the better read
+    if seg.b64 and not seg.text_only and not seg.straightened and tables_broken(res):
+        orig, best_res, best_b64 = seg.b64, res, seg.b64
+        for d in (90, 270):
+            seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-d, expand=True)), d
+            again = await process_segment(client, seg, o)
+            again["usage"] = sum_usage(again["usage"], best_res["usage"])
+            if tables_fixed(again) and seg_score(again) > seg_score(best_res):
+                again["straightened"], best_res, best_b64 = d, again, seg.b64
+            else:
+                best_res["usage"] = again["usage"]
+            if not tables_broken(best_res):
+                break
+        seg.b64, seg.straightened = best_b64, best_res.get("straightened", 0)
+        if best_res is not res:
+            return best_res
     who, final = pick_model(res)
     res["final_source"], res["final_result"], res["manual_edits"], res["accepted"] = who, final, [], []
     res["merged"] = []
