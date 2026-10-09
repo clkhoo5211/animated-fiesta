@@ -14,13 +14,13 @@ Outputs in --out: results.json, summary.csv, fields.csv (every value), tables.cs
 from __future__ import annotations
 
 import argparse, asyncio, base64, csv, hashlib, io, json, os, re, sys, time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|aging_report|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"row_kinds\":[\"line|group_header|subtotal|other per row, same length as rows\"]|null,\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Table column headers are not field labels: never repeat table cells in fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Grouped reports (a group/customer header row, its lines, then a subtotal row such as \"Total for X\"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. If handwriting or a signature cannot be read with confidence, write \"[illegible]\" or \"[signature]\" - never guess names or words. Printed stamp text that overlaps handwriting belongs to stamps_and_chops. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- A party's name is the name only: a registration or tax number printed next to it goes in registration_no / tax_id, not in name.\n- registration_no is only a company registration number printed as such (e.g. \"(279018-W)\", \"Co. No.\", \"Reg. No.\", \"SSM\"). Branch, store, outlet or customer codes are not registration numbers: put them in fields.\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|aging_report|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"row_kinds\":[\"line|group_header|subtotal|other per row, same length as rows\"]|null,\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Payment details (bank name, account name, account number) and footer lines printed as \"Label: value\" are fields too.\n- Table column headers are not field labels: never repeat table cells in fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Grouped reports (a group/customer header row, its lines, then a subtotal row such as \"Total for X\"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. If handwriting or a signature cannot be read with confidence, write \"[illegible]\" or \"[signature]\" - never guess names or words. Printed stamp text that overlaps handwriting belongs to stamps_and_chops. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- A party's name is the name only: a registration or tax number printed next to it goes in registration_no / tax_id, not in name.\n- registration_no is only a company registration number printed as such (e.g. \"(279018-W)\", \"Co. No.\", \"Reg. No.\", \"SSM\"). Branch, store, outlet or customer codes are not registration numbers: put them in fields.\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -245,6 +245,7 @@ class ModelConfig:
     json_mode: bool = True
     timeout: float = MODEL_TIMEOUT
     max_tokens: int = 32000
+    temperature: float | None = None  # 0 = the same page reads the same way every run
 
     @property
     def enabled(self):
@@ -290,12 +291,22 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
 
 
 async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens: int):
+    try:
+        return await _call_model_raw(client, c, text, images, max_tokens)
+    except HTTPStatusError as e:  # a model/relay that refuses temperature is asked again without it
+        if c.temperature is not None and 400 <= e.status < 500 and "temperature" in str(e).lower():
+            return await _call_model_raw(client, replace(c, temperature=None), text, images, max_tokens)
+        raise
+
+
+async def _call_model_raw(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens: int):
     images = images or []
+    temp = {} if c.temperature is None else {"temperature": c.temperature}
     if c.type == "anthropic":
         content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": d}} for d in images] + [{"type": "text", "text": text}]
         r = await client.post("https://api.anthropic.com/v1/messages", timeout=c.timeout,
                               headers={"x-api-key": c.key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                              json={"model": c.model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]})
+                              json={"model": c.model, "max_tokens": max_tokens, **temp, "messages": [{"role": "user", "content": content}]})
         try:
             j = r.json() if r.content else {}
         except ValueError:
@@ -308,7 +319,7 @@ async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str,
             raise RuntimeError(OUT_OF_TOKENS.format(n=max_tokens))
         return _with_usage(parse_json(txt), u.get("input_tokens"), u.get("output_tokens"))
     content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{d}", "detail": "high"}} for d in images]
-    body = {"model": c.model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]}
+    body = {"model": c.model, "max_tokens": max_tokens, **temp, "messages": [{"role": "user", "content": content}]}
     if c.json_mode:
         body["response_format"] = {"type": "json_object"}
     r = await client.post(clean_base(c.base) + "/chat/completions", timeout=c.timeout,
@@ -721,7 +732,8 @@ def compare(a, b):
         if k not in A or k not in B:
             diff.append({"field": k, "a": A.get(k), "b": B.get(k), "kind": "missing"}); continue
         nx, ny = num(A[k]), num(B[k])
-        if norm(A[k]) == norm(B[k]) or (nx is not None and ny is not None and re.fullmatch(r"[\d.,\s-]+", str(A[k])) and abs(nx - ny) < 0.005):
+        syn = (lambda v: {"issuer": "supplier", "customer": "billto"}.get(norm(v), norm(v))) if k.endswith(".role") else norm  # same party, two names
+        if syn(A[k]) == syn(B[k]) or (nx is not None and ny is not None and re.fullmatch(r"[\d.,\s-]+", str(A[k])) and abs(nx - ny) < 0.005):
             agree.append(k)
         else:
             diff.append({"field": k, "a": A[k], "b": B[k], "kind": "mismatch"})
@@ -779,6 +791,17 @@ def merge_from(final, who, diffs):
     other, mine = ("b", "a") if who == "A" else ("a", "b")
     out = []
     s = lambda v: re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
+    # a labelled field or total line that only the other model found is added whole (label + value)
+    for d in diffs:
+        mm = re.fullmatch(r"(fields|totals)\.(\d+)\.label", d["field"])
+        if not mm or s(d.get(mine)) != "" or s(d.get(other)) == "":
+            continue
+        arr = final.get(mm[1])
+        if not isinstance(arr, list) or any(s((f or {}).get("label")).lower() == s(d[other]).lower() for f in arr if isinstance(f, dict)):
+            continue
+        v = next((x.get(other) for x in diffs if x["field"] == f"{mm[1]}.{mm[2]}.value"), None)
+        arr.append({"label": d[other], "value": v})
+        out.append({"path": f"{mm[1]}.{len(arr) - 1}", "from": other.upper(), "v": f"{d[other]}: {v if v is not None else '—'}"})
     # a value is only taken when both models put it under the same label
     relabeled = {d["field"][:-len(".label")] for d in diffs if d["field"].endswith(".label")}
     for d in diffs:
@@ -854,7 +877,11 @@ def normalize_result(r):
     for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
         for k in ("registration_no", "tax_id"):
             if isinstance(p, dict) and isinstance(p.get(k), str):
-                p[k] = re.sub(r"^\((.*)\)$", r"\1", p[k].strip()).strip()
+                p[k] = re.sub(r"^[A-Za-z][A-Za-z .]{1,15}?\s*:\s*(?=\S*\d)", "", re.sub(r"^\((.*)\)$", r"\1", p[k].strip()).strip())
+    for k in ("fields", "totals"):  # "Payment Terms :" -> "Payment Terms", so labels match across models
+        for f in r.get(k) or []:
+            if isinstance(f, dict) and isinstance(f.get("label"), str):
+                f["label"] = re.sub(r"\s*[:：]\s*$", "", f["label"])
     for t in r.get("tables") or []:
         if not isinstance(t.get("columns"), list) or not any(isinstance(c, str) for c in t["columns"]):
             continue
@@ -918,12 +945,15 @@ async def process_segment(client, seg: Segment, o: Options):
         ra, rb = _local_table_result(seg), {"status": "skipped"}
     else:
         run = lambda c: safe(call_model(client, c, text, imgs)) if c.enabled else asyncio.sleep(0, {"status": "skipped"})
+        # A reads with temperature 0; B too, unless it is the very same model (then it stays an independent second read)
+        twin = o.a.model == o.b.model and o.a.type == o.b.type and clean_base(o.a.base) == clean_base(o.b.base)
+        ca, cb = replace(o.a, temperature=0), (o.b if twin else replace(o.b, temperature=0))
         same = o.a.enabled and o.b.enabled and o.a.type == o.b.type and clean_base(o.a.base) == clean_base(o.b.base)
         if same:  # same relay: call B after A so its concurrency limit doesn't reject B
-            ra = await run(o.a)
-            rb = await run(o.b)
+            ra = await run(ca)
+            rb = await run(cb)
         else:
-            ra, rb = await asyncio.gather(run(o.a), run(o.b))
+            ra, rb = await asyncio.gather(run(ca), run(cb))
         # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows)
         rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
         if rd and seg.b64 and not seg.text_only and not seg.straightened:
