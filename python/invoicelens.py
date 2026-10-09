@@ -877,7 +877,11 @@ def normalize_result(r):
     for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
         for k in ("registration_no", "tax_id"):
             if isinstance(p, dict) and isinstance(p.get(k), str):
-                p[k] = re.sub(r"^\((.*)\)$", r"\1", p[k].strip()).strip()
+                p[k] = re.sub(r"^[A-Za-z][A-Za-z .]{1,15}?\s*:\s*(?=\S*\d)", "", re.sub(r"^\((.*)\)$", r"\1", p[k].strip()).strip())
+    for k in ("fields", "totals"):  # "Payment Terms :" -> "Payment Terms", so labels match across models
+        for f in r.get(k) or []:
+            if isinstance(f, dict) and isinstance(f.get("label"), str):
+                f["label"] = re.sub(r"\s*[:：]\s*$", "", f["label"])
     for t in r.get("tables") or []:
         if not isinstance(t.get("columns"), list) or not any(isinstance(c, str) for c in t["columns"]):
             continue

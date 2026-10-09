@@ -106,7 +106,7 @@ test("cross-field checks: early handwritten date and one-digit stamp/address mis
   await expect(page.locator("#view")).toContainText("26/4/26 is earlier than the document date");
   await expect(page.locator("#view")).toContainText("Stamp number 2348 vs address number 2346");
   await expect(page.locator("#view")).toContainText("Field “Ref 1” contains handwriting");
-  await expect(page.locator("#view")).toContainText("Tax ID TIN:C685068310 has 9 digits");
+  await expect(page.locator("#view")).toContainText("Tax ID C685068310 has 9 digits");
   await expect(page.locator("#view")).toContainText("misread of “jaring.my”");
   await expect(page.locator("#view")).toContainText("Probably N010");
   await expect(page.locator("#view")).toContainText("Line items were extracted as totals");

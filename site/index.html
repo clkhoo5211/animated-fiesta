@@ -525,7 +525,9 @@ function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;
   if(Array.isArray(r.tables))r.tables=r.tables.filter(t=>t&&Array.isArray(t.columns)&&t.columns.length&&
     !(Array.isArray(t.row_kinds)&&t.row_kinds.length&&t.row_kinds.every(k=>k==="other"))); // the model itself says none of its rows are table rows // "tables" without columns are stray text, not tables
   // IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself so it matches across documents
-  for(const p of r.parties||[])for(const k of ["registration_no","tax_id"])if(typeof p?.[k]==="string")p[k]=p[k].trim().replace(/^\((.*)\)$/,"$1").trim();
+  for(const p of r.parties||[])for(const k of ["registration_no","tax_id"])if(typeof p?.[k]==="string")p[k]=p[k].trim().replace(/^\((.*)\)$/,"$1").trim().replace(/^[A-Za-z][A-Za-z .]{1,15}?\s*:\s*(?=\S*\d)/,"");
+  // "TIN:C123…" -> "C123…" (the printed label is not part of the ID); "Payment Terms :" -> "Payment Terms" so labels match across models
+  for(const k of ["fields","totals"])for(const f of r[k]||[])if(typeof f?.label==="string")f.label=f.label.replace(/\s*[:：]\s*$/,"");
   for(const t of r.tables||[]){if(!Array.isArray(t.columns)||!t.columns.some(c=>typeof c==="string"))continue;
     const rows=(t.rows||[]).filter(Array.isArray),cell=(row,i)=>String(row[i]??"").trim();
     const cols=t.columns.map((c,i)=>{if(c&&typeof c==="object")return c;const vals=rows.map(r=>cell(r,i)).filter(Boolean);
