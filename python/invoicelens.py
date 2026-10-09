@@ -456,6 +456,8 @@ def verify(r) -> dict | None:
     totals_checks(r, add)
     date_order(r, add)
     tax_reg_check(r, add)
+    guessed_names(r, add)
+    phone_lengths(r, add)
     for ti, t in enumerate(r.get("tables") or []):
         balance_check(t, ti, add)
     cross_checks(r, add)
@@ -560,6 +562,60 @@ def date_order(r, add):
     elif dd and not dmy and re.search(r"\bUSD\b|US\$|^\s*\$", f"{r.get('currency') or ''} {r.get('grand_total') or ''}", re.I) and int(dd.group(1)) <= 12 and int(dd.group(2)) <= 12 and dd.group(1) != dd.group(2):
         a, b = int(dd.group(1)), int(dd.group(2))
         add(False, "dateamb", warn=True, v=r.get("document_date"), a=f"{a}/{b}", b=f"{b}/{a}")
+
+
+def _lbl(l):
+    return re.sub(r"[\W_]+", "", str(l or "").lower())
+
+
+def align_by_label(a, b):
+    """Put B's fields / totals in A's order (matched by label) so A/B comparison shows real differences, not ordering."""
+    if not isinstance(a, dict) or not isinstance(b, dict) or a.get("error") or b.get("error"):
+        return
+    for k in ("fields", "totals"):
+        A, B = a.get(k), b.get(k)
+        if not isinstance(A, list) or not isinstance(B, list):
+            continue
+        pool, out = list(B), []
+        for x in A:
+            i = next((j for j, y in enumerate(pool) if isinstance(y, dict) and isinstance(x, dict) and _lbl(y.get("label")) == _lbl(x.get("label"))), -1)
+            out.append(pool.pop(i) if i >= 0 else None)
+        while out and out[-1] is None:
+            out.pop()
+        b[k] = [x if x is not None else {"label": None, "value": None} for x in out] + pool
+
+
+NAME_RX = re.compile(r"^[A-Z][A-Za-z'’.-]+(\s+(bin|binti|bt|b\.|a/l|a/p|al|ap|van|de|[A-Z][A-Za-z'’.-]+)){1,5}$")
+
+
+def guessed_names(r, add):
+    """A full personal name in handwriting that the model itself was unsure about is most likely invented."""
+    low = " ".join(str(x) for x in r.get("low_confidence_fields") or [])
+    for i, x in enumerate(r.get("handwritten_notes") or []):
+        v = str(x.get("text") if isinstance(x, dict) else x or "").strip()
+        if NAME_RX.match(v) and not v.startswith("[") and (re.search(rf"handwritten_notes\W*{i}\b", low) or v in low):
+            add(False, "guessname", v=v)
+
+
+def phone_lengths(r, add):
+    """Phone / fax numbers with the same area code should have the same number of digits."""
+    txt = json.dumps([r.get("parties"), r.get("fields")], ensure_ascii=False)
+    by = {}
+    for m in re.finditer(r"(?<![\d-])(\+?\d{1,4})[-\s](\d{3,5})[\s-]?(\d{3,5})(?![\d-])", txt):
+        n = len(m.group(2) + m.group(3))
+        if 6 <= n <= 10:
+            by.setdefault(m.group(1), []).append((m.group(0), n))
+    for pre, lst in by.items():
+        cnt = lambda n: sum(1 for _, k in lst if k == n)
+        ns = sorted({n for _, n in lst}, key=cnt, reverse=True)
+        if len(ns) < 2:
+            continue
+        if cnt(ns[0]) > cnt(ns[1]):  # a clear majority length: flag the odd ones
+            for v, n in lst:
+                if n != ns[0]:
+                    add(False, "phonelen", warn=True, v=v, p=pre, n=n, c=ns[0])
+        else:  # no majority: show them side by side
+            add(False, "phonemix", warn=True, p=pre, v=" · ".join(f"{v} ({n})" for v, n in lst))
 
 
 def tax_reg_check(r, add):
@@ -776,6 +832,7 @@ async def process_segment(client, seg: Segment, o: Options):
             return res
     ra = normalize_result(ra if isinstance(ra, dict) else {"error": "invalid model output"})
     rb = normalize_result(rb if isinstance(rb, dict) else {"error": "invalid model output"})
+    align_by_label(ra, rb)
     usage = {"model_a": ra.pop("__usage", None), "model_b": rb.pop("__usage", None)}
     res = {"segment_identifier": seg.id, "source_kind": seg.kind, "usage": usage,
            "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,

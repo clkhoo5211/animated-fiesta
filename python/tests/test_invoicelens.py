@@ -387,3 +387,19 @@ def test_string_headers_get_roles_and_the_better_checked_model_wins():
 def test_bracketed_ids_are_unwrapped():
     r = il.normalize_result({"parties": [{"name": "Iota", "registration_no": " (1340607-U) ", "tax_id": "C123"}], "tables": []})
     assert r["parties"][0]["registration_no"] == "1340607-U" and r["parties"][0]["tax_id"] == "C123"
+
+
+def test_guessed_names_phone_lengths_and_label_alignment():
+    r = {"tables": [], "handwritten_notes": [{"text": "143"}, {"text": "Johnson David Raju"}], "low_confidence_fields": ["handwritten_notes[1].text"],
+         "parties": [{"role": "supplier", "contact": "Phone: 03-563339805 Fax: 03-56343748"}, {"role": "bill_to", "contact": "Tel: 03-33626863"}]}
+    bad = {c["code"]: c for c in il.verify(r)["checks"] if not c["ok"]}
+    assert bad["guessname"]["v"] == "Johnson David Raju" and not bad["guessname"].get("warn")
+    assert bad["phonelen"]["v"] == "03-563339805" and bad["phonelen"]["n"] == 9  # two 8-digit numbers make the majority
+    mix = [c for c in il.verify({"tables": [], "parties": [{"contact": "Phone: 03-563339805 Fax: 03-56343748"}]})["checks"] if c["code"] == "phonemix"]
+    assert mix and "03-563339805 (9)" in mix[0]["v"] and "03-56343748 (8)" in mix[0]["v"]
+    a = {"fields": [{"label": "Customer Account", "value": "N010"}, {"label": "Payment Terms :", "value": "14 DAYS"}]}
+    b = {"fields": [{"label": "Payment Terms", "value": "14 DAYS"}, {"label": "Ref 1", "value": None}, {"label": "Customer Account", "value": "N01O"}]}
+    il.align_by_label(a, b)
+    assert [f["label"] for f in b["fields"]] == ["Customer Account", "Payment Terms", "Ref 1"]
+    cv = il.compare(a, b)
+    assert [d["field"] for d in cv["discrepancies"] if d["kind"] == "mismatch"] == ["fields.0.value"]

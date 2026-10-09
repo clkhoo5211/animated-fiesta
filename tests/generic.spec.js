@@ -113,3 +113,26 @@ test("string table headers get roles, so a column shift is caught and the better
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("Model A · Register · column “CTN-1” total");
 });
+
+test("guessed handwritten names cost the model the pick; phone lengths; labels aligned; e-invoice QR shown", async ({ page, context }) => {
+  const base = { document_type: "invoice", document_number: "A260907007", document_date: "23/9/2026", grand_total: "384.00", tables: [] };
+  const a = { ...base, parties: [{ role: "supplier", name: "FRIZZ", contact: "Phone: 03-563339805 Fax: 03-56343748" }],
+    fields: [{ label: "Customer Account", value: "N010" }, { label: "Payment Terms :", value: "14 DAYS" }], handwritten_notes: [{ text: "26/4/26" }] };
+  const b = { ...base, parties: [{ role: "supplier", name: "FRIZZ", contact: "Phone: 03-563339805 Fax: 03-56343740" }],
+    fields: [{ label: "Payment Terms", value: "14 DAYS" }, { label: "Customer Account", value: "N010" }],
+    handwritten_notes: [{ text: "26/9/26" }, { text: "Johnson David Raju" }], low_confidence_fields: ["handwritten_notes[1].text"] };
+  await serve(context, { model: ({ model }) => ({ json: model === "model-a" ? a : b }) });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("small-qr.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await expect(page.locator("#view")).toContainText("Source: model A");
+  await page.click(".tab[data-tab=checks]");
+  const v = page.locator("#view");
+  await expect(v).toContainText("Handwritten name “Johnson David Raju” is probably guessed");
+  await expect(v).toContainText("Numbers with area code 03 have different lengths");
+  await expect(v).toContainText("03-563339805 (9)");
+  await expect(v).toContainText("LHDN MyInvois e-invoice link found");
+  await expect(v).not.toContainText("A/B mismatch · fields.0.label"); // same labels in a different order are not differences
+});
