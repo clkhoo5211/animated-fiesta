@@ -738,6 +738,41 @@ def check_score(c):
     return sum(1 if x["ok"] else (-0.5 if x.get("warn") else -3) for x in c["checks"]) if c else float("-inf")
 
 
+MERGE_SKIP = re.compile(r"(^|\.)(role|label|row_kinds|columns|name|low_confidence_fields|rotation_degrees|document_type)(\.|$)")
+
+
+def _get(o, path):
+    for k in path.split(".") if path else []:
+        if isinstance(o, list) and k.isdigit() and int(k) < len(o): o = o[int(k)]
+        elif isinstance(o, dict): o = o.get(k)
+        else: return None
+    return o
+
+
+def merge_from(final, who, diffs):
+    """Keep the chosen model's result, but take the other model's value where the chosen one is empty or a truncated version of it."""
+    if not isinstance(final, dict) or not diffs:
+        return []
+    other, mine = ("b", "a") if who == "A" else ("a", "b")
+    out = []
+    s = lambda v: re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
+    for d in diffs:
+        f, o, m = d["field"], d.get(other), d.get(mine)
+        if MERGE_SKIP.search(f) or re.fullmatch(r"tables\.\d+\.name", f) or o is None or isinstance(o, (dict, list)) or s(o) == "":
+            continue
+        trunc = len(s(o)) > len(s(m)) and s(o).lower().startswith(re.sub(r"[\W_]+$", "", s(m).lower())) and num(m) is None
+        parent = _get(final, ".".join(f.split(".")[:-1]))
+        if (s(m) == "" or trunc) and isinstance(parent, (dict, list)):
+            k = f.split(".")[-1]
+            if isinstance(parent, list):
+                if not k.isdigit() or int(k) >= len(parent): continue
+                parent[int(k)] = o
+            else:
+                parent[k] = o
+            out.append({"path": f, "from": other.upper(), "v": o})
+    return out
+
+
 def pick_model(seg_result):
     a, b = seg_result["provider_responses"]["model_a"], seg_result["provider_responses"]["model_b"]
     ok = lambda r: isinstance(r, dict) and not r.get("error") and not r.get("status")
@@ -753,6 +788,8 @@ def normalize_result(r):
     """Models sometimes return table headers as plain strings: give them roles from the data so every check can run."""
     if not isinstance(r, dict) or r.get("error"):
         return r
+    if isinstance(r.get("tables"), list):  # "tables" without columns are stray text, not tables
+        r["tables"] = [t for t in r["tables"] if isinstance(t, dict) and isinstance(t.get("columns"), list) and t["columns"]]
     for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
         for k in ("registration_no", "tax_id"):
             if isinstance(p, dict) and isinstance(p.get(k), str):
@@ -848,6 +885,7 @@ async def process_segment(client, seg: Segment, o: Options):
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
     who, final = pick_model(res)
     res["final_source"], res["final_result"], res["manual_edits"], res["accepted"] = who, final, [], []
+    res["merged"] = merge_from(final, who, (res.get("cross_verification") or {}).get("discrepancies")) if final is not None else []
     if seg.text and seg.b64:  # PDF page with a real text layer: a third, deterministic check of the model's values
         res["grounding"] = grounding(norm_text(seg.text), final)
     return res

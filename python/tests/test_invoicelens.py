@@ -410,3 +410,17 @@ def test_tie_goes_to_the_fuller_table():
     a, b = mk("Tuntukan Bayaran Bagi:"), mk("Tuntukan Bayaran Bagi: PERKHIDMATAN PENYELENGGARAAN SISTEM MYWALET BLOCKCHAIN • 3 Bulan")
     seg = {"provider_responses": {"model_a": a, "model_b": b}, "checks": {"model_a": il.verify(a), "model_b": il.verify(b)}}
     assert il.pick_model(seg)[0] == "B"
+
+
+def test_field_level_merge_and_columnless_tables():
+    r = il.normalize_result({"tables": [{"columns": [{"name": "D", "role": "text"}], "rows": [["x"]]}, {"columns": [], "rows": [["7 Orders"]]}]})
+    assert len(r["tables"]) == 1
+    final = {"fields": [{"label": "Ref", "value": None}, {"label": "Fax", "value": "03-56343748"}],
+             "tables": [{"columns": [{"name": "Description", "role": "text"}], "rows": [["Tuntukan Bayaran Bagi:"]]}]}
+    diffs = [{"field": "fields.0.value", "a": None, "b": "PO-77", "kind": "missing"},
+             {"field": "fields.1.value", "a": "03-56343748", "b": "03-56343740", "kind": "mismatch"},
+             {"field": "tables.0.rows.0.0", "a": "Tuntukan Bayaran Bagi:", "b": "Tuntukan Bayaran Bagi: PERKHIDMATAN ... • 3 Bulan", "kind": "mismatch"},
+             {"field": "tables.0.columns.0.role", "a": "text", "b": "id", "kind": "mismatch"}]
+    merged = il.merge_from(final, "A", diffs)
+    assert [m["path"] for m in merged] == ["fields.0.value", "tables.0.rows.0.0"]
+    assert final["fields"][1]["value"] == "03-56343748" and final["tables"][0]["rows"][0][0].endswith("3 Bulan")

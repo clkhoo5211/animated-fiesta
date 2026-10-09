@@ -136,3 +136,23 @@ test("guessed handwritten names cost the model the pick; phone lengths; labels a
   await expect(v).toContainText("LHDN MyInvois e-invoice link found");
   await expect(v).not.toContainText("A/B mismatch · fields.0.label"); // same labels in a different order are not differences
 });
+
+test("field-level merge fills empty and truncated values from the other model; column-less tables dropped", async ({ page, context }) => {
+  const mk = (desc, ref, extra) => ({ document_type: "invoice", document_number: "#IN2100113", grand_total: "RM22,113.00",
+    fields: [{ label: "Ref", value: ref }], totals: [{ label: "Subtotal", value: "RM20,475.00" }, { label: "SST 8%", value: "RM1,638.00" }],
+    tables: [{ name: "Items", columns: [{ name: "Description", role: "text" }, { name: "Quantity", role: "qty" }, { name: "Price", role: "amount" }], rows: [[desc, "3", "RM20,475.00"]] }, ...extra] });
+  await serve(context, { model: ({ model }) => ({ json: model === "model-a"
+    ? mk("Tuntukan Bayaran Bagi:", null, [{ columns: [], rows: [["7 Orders"]] }])
+    : mk("Tuntukan Bayaran Bagi: PERKHIDMATAN PENYELENGGARAAN SISTEM • 3 Bulan", "Q-2026-17", []) }) });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=items]");
+  await expect(page.locator("#view")).toContainText("PERKHIDMATAN PENYELENGGARAAN SISTEM");
+  await expect(page.locator("#view")).not.toContainText("7 Orders");
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("tables.0.rows.0.0");
+  await expect(page.locator("#view")).toContainText("Q-2026-17");
+});
