@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|aging_report|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"row_kinds\":[\"line|group_header|subtotal|other per row, same length as rows\"]|null,\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Grouped reports (a group/customer header row, its lines, then a subtotal row such as \"Total for X\"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|aging_report|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"row_kinds\":[\"line|group_header|subtotal|other per row, same length as rows\"]|null,\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Grouped reports (a group/customer header row, its lines, then a subtotal row such as \"Total for X\"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. If handwriting or a signature cannot be read with confidence, write \"[illegible]\" or \"[signature]\" - never guess names or words. Printed stamp text that overlaps handwriting belongs to stamps_and_chops. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- A party's name is the name only: a registration or tax number printed next to it goes in registration_no / tax_id, not in name.\n- registration_no is only a company registration number printed as such (e.g. \"(279018-W)\", \"Co. No.\", \"Reg. No.\", \"SSM\"). Branch, store, outlet or customer codes are not registration numbers: put them in fields.\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -207,6 +207,9 @@ def prep_images(b64: str, do_enhance: bool, tiles: bool) -> list[str]:
     return out
 
 
+QR_REGIONS = [(0, .5, .55, .5), (.45, .5, .55, .5), (0, 0, .55, .5), (.45, 0, .55, .5), (0, .25, .55, .5), (.45, .25, .55, .5)]
+
+
 def local_codes(seg: Segment) -> dict:
     if not seg.b64:
         return {"qr_and_barcodes": [], "native_extracted_text": f"({seg.source}, {len(seg.text)} chars{', truncated' if seg.truncated else ''})", "not_applicable": True}
@@ -219,6 +222,14 @@ def local_codes(seg: Segment) -> dict:
                 break
             big = ImageOps.autocontrast(ImageOps.grayscale(img)).resize((img.width * scale, img.height * scale), Image.NEAREST)
             found = zxingcpp.read_barcodes(big)
+        # small codes in a corner of a low-resolution photo: scan overlapping regions, enlarged
+        for rx, ry, rw, rh in QR_REGIONS:
+            if found:
+                break
+            box = (int(img.width * rx), int(img.height * ry), int(img.width * (rx + rw)), int(img.height * (ry + rh)))
+            crop = ImageOps.autocontrast(ImageOps.grayscale(img.crop(box)))
+            for k, rs, us in ((3, Image.BICUBIC, (2, 300, 1)), (4, Image.LANCZOS, (4, 200, 2))):  # smooth enlarge + sharpen
+                found = found or zxingcpp.read_barcodes(crop.resize((crop.width * k, crop.height * k), rs).filter(ImageFilter.UnsharpMask(*us)))
         return {"qr_and_barcodes": [{"type": str(r.format).split(".")[-1], "data": r.text} for r in found], "native_extracted_text": seg.text}
     except Exception as e:  # pragma: no cover - local decoding is best effort
         return {"qr_and_barcodes": [], "native_extracted_text": seg.text, "error": str(e)}
@@ -444,6 +455,7 @@ def verify(r) -> dict | None:
             add(abs(amts[0] + tax - disc - gt) < 0.011, "grand", lines=f"{amts[0]:.2f}", tax=tax, disc=disc, total=r.get("grand_total"))
     totals_checks(r, add)
     date_order(r, add)
+    tax_reg_check(r, add)
     for ti, t in enumerate(r.get("tables") or []):
         balance_check(t, ti, add)
     cross_checks(r, add)
@@ -496,7 +508,7 @@ def cross_checks(r, add):
             add(False, "hwfield", warn=True, l=f.get("label"), v=f.get("value"))
     for p in r.get("parties") or []:
         m = re.match(r"^(?:TIN:?)?C(\d+)$", re.sub(r"\s", "", str((p or {}).get("tax_id") or "")), re.I)
-        if m and len(m.group(1)) != 11:
+        if m and len(m.group(1)) not in (10, 11):
             add(False, "tin", warn=True, v=p.get("tax_id"), n=len(m.group(1)), who=p.get("name") or p.get("role"))
     blob = json.dumps([r.get("parties"), r.get("fields")], ensure_ascii=False)
     for em in sorted(set(re.findall(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", blob))):
@@ -548,6 +560,21 @@ def date_order(r, add):
     elif dd and not dmy and re.search(r"\bUSD\b|US\$|^\s*\$", f"{r.get('currency') or ''} {r.get('grand_total') or ''}", re.I) and int(dd.group(1)) <= 12 and int(dd.group(2)) <= 12 and dd.group(1) != dd.group(2):
         a, b = int(dd.group(1)), int(dd.group(2))
         add(False, "dateamb", warn=True, v=r.get("document_date"), a=f"{a}/{b}", b=f"{b}/{a}")
+
+
+def tax_reg_check(r, add):
+    """Tax charged but no tax registration printed; a registration number repeated inside a party name."""
+    tax = [x for x in r.get("totals") or [] if isinstance(x, dict) and re.search(r"tax|sst|gst|vat|cukai|税", x.get("label") or "", re.I) and (num(x.get("value")) or 0) > 0]
+    parties = [p for p in r.get("parties") or [] if isinstance(p, dict)]
+    sellers = [p for p in parties if re.search(r"supplier|issuer", p.get("role") or "")]
+    has_no = any(p.get("tax_id") for p in (sellers or parties))
+    field_no = any(re.search(r"(sst|gst|vat|tax|tin|cukai|税)", f.get("label") or "", re.I) and re.search(r"(reg|no\b|no\.|number|id\b|tin|登记|号)", f.get("label") or "", re.I)
+                   and re.search(r"\d", str(f.get("value") or "")) for f in r.get("fields") or [] if isinstance(f, dict))
+    if tax and not has_no and not field_no:
+        add(False, "taxnoreg", warn=True, l=tax[0].get("label"), v=tax[0].get("value"))
+    for p in parties:
+        if p.get("name") and p.get("registration_no") and str(p["registration_no"]) in str(p["name"]):
+            add(False, "namereg", warn=True, n=p["name"], r=p["registration_no"])
 
 
 def totals_checks(r, add):
@@ -645,13 +672,48 @@ def compare(a, b):
     return {"agreement_rate": round(len(agree) / len(keys), 3) if keys else None, "agreed_fields": len(agree), "discrepancies": diff}
 
 
+def check_score(c):
+    """Passed checks count, failures cost more; a result that ran no checks does not win by default."""
+    return sum(1 if x["ok"] else (-0.5 if x.get("warn") else -3) for x in c["checks"]) if c else float("-inf")
+
+
 def pick_model(seg_result):
     a, b = seg_result["provider_responses"]["model_a"], seg_result["provider_responses"]["model_b"]
     ok = lambda r: isinstance(r, dict) and not r.get("error") and not r.get("status")
-    ca, cb = seg_result["checks"]["model_a"], seg_result["checks"]["model_b"]
-    if ok(a) and ok(b) and cb and cb["passed"] and not (ca and ca["passed"]):
-        return "B", b
+    if ok(a) and ok(b):
+        return ("B", b) if check_score(seg_result["checks"]["model_b"]) > check_score(seg_result["checks"]["model_a"]) else ("A", a)
     return ("A", a) if ok(a) else (("B", b) if ok(b) else (None, None))
+
+
+def normalize_result(r):
+    """Models sometimes return table headers as plain strings: give them roles from the data so every check can run."""
+    if not isinstance(r, dict) or r.get("error"):
+        return r
+    for t in r.get("tables") or []:
+        if not isinstance(t.get("columns"), list) or not any(isinstance(c, str) for c in t["columns"]):
+            continue
+        rows = [x for x in t.get("rows") or [] if isinstance(x, list)]
+        cell = lambda row, i: str(row[i] if i < len(row) and row[i] is not None else "").strip()
+        cols = []
+        for i, c in enumerate(t["columns"]):
+            if isinstance(c, dict):
+                cols.append(c); continue
+            vals = [v for v in (cell(row, i) for row in rows) if v]
+            if not vals: role = "text"
+            elif len(vals) == len(rows) and all(v == str(k + 1) for k, v in enumerate(vals)): role = "id"
+            elif all(num(v) is not None and re.fullmatch(r"[\s(\-]*[A-Z$€£¥]{0,3}\s*[\d,.]+\s*\)?\s*(CR|DR|-)?", v, re.I) for v in vals):
+                role = "id" if all(re.fullmatch(r"\d{6,}", v) for v in vals) else "number"
+            elif all(norm_date(v) for v in vals): role = "date"
+            elif re.search(r"\d", "".join(vals)) and all(re.fullmatch(r"[\w\-/.#]+", v) for v in vals): role = "id"
+            else: role = "text"
+            cols.append({"name": str(c if c is not None else ""), "role": role})
+        nums = [i for i, c in enumerate(cols) if c["role"] == "number"]
+        for i in nums:  # a numeric column equal to the sum of the others on every row is the row total
+            others = [j for j in nums if j != i]
+            if others and rows and all(num(cell(row, i)) is None or abs(num(cell(row, i)) - sum(num(cell(row, j)) or 0 for j in others)) < 0.011 for row in rows):
+                cols[i]["role"] = "row_total"; break
+        t["columns"] = cols
+    return r
 
 
 # ----------------------------------------------------------------- pipeline
@@ -708,8 +770,8 @@ async def process_segment(client, seg: Segment, o: Options):
                     res["usage"][k] = {"in": (cur.get("in") or 0) + (u.get("in") or 0), "out": (cur.get("out") or 0) + (u.get("out") or 0)}
             res["straightened"] = rd
             return res
-    ra = ra if isinstance(ra, dict) else {"error": "invalid model output"}
-    rb = rb if isinstance(rb, dict) else {"error": "invalid model output"}
+    ra = normalize_result(ra if isinstance(ra, dict) else {"error": "invalid model output"})
+    rb = normalize_result(rb if isinstance(rb, dict) else {"error": "invalid model output"})
     usage = {"model_a": ra.pop("__usage", None), "model_b": rb.pop("__usage", None)}
     res = {"segment_identifier": seg.id, "source_kind": seg.kind, "usage": usage,
            "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,

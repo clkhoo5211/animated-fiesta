@@ -215,11 +215,11 @@ def test_cross_checks_and_unrelated_register():
 
 def test_format_checks():
     r = {"document_date": "23/9/2026", "handwritten_notes": [{"text": "2uc 6m) 2c 26/4/26 1:50pm"}], "tables": [],
-         "parties": [{"name": "FRIZZ", "tax_id": "TIN:C6850683100", "contact": "email: frizz@po.jarving.my"}, {"name": "OK", "tax_id": "TIN:C68506831100"}],
+         "parties": [{"name": "FRIZZ", "tax_id": "TIN:C685068310", "contact": "email: frizz@po.jarving.my"}, {"name": "OK", "tax_id": "TIN:C68506831100"}, {"name": "OK10", "tax_id": "TIN:C6850683100"}],
          "fields": [{"label": "Ref 1", "value": "2uc 6m) 2c 26/4/26 1:50pm"}, {"label": "Customer Account", "value": "NO10"}]}
     bad = {c["code"]: c for c in il.verify(r)["checks"] if not c["ok"]}
     assert {"hwfield", "tin", "email", "o0", "notedate"} <= set(bad)
-    assert bad["email"]["k"] == "jaring.my" and bad["o0"]["s"] == "N010" and bad["tin"]["n"] == 10
+    assert bad["email"]["k"] == "jaring.my" and bad["o0"]["s"] == "N010" and bad["tin"]["n"] == 9
 
 
 def test_items_extracted_as_totals():
@@ -341,3 +341,44 @@ def test_grouped_report_and_grounding():
     layer = "TAX INVOICE  No: INV-0042   Date: 02/07/2026   Grand Total RM 1,234.50"
     g = il.grounding(layer, {"document_number": "INV-0042", "document_date": "02/07/2026", "grand_total": "1234.50", "fields": [{"label": "Ref", "value": "PO-9981"}]})
     assert g["checked"] == 4 and [m["field"] for m in g["missing"]] == ["fields.0.value"]
+
+
+def test_small_corner_qr_found_by_region_scan():
+    seg = il.ingest(FIX / "small-qr.jpg")[0]
+    codes = il.local_codes(seg)["qr_and_barcodes"]
+    assert codes and codes[0]["data"].startswith("https://myinvois.hasil.gov.my/")
+
+
+def test_tax_without_registration_and_name_with_reg_no():
+    r = {"tables": [], "parties": [{"role": "issuer", "name": "Iota Technologies Sdn Bhd (1340607-U)", "registration_no": "1340607-U"}],
+         "totals": [{"label": "Subtotal", "value": "RM20,475.00"}, {"label": "SST 8%", "value": "RM1,638.00"}], "grand_total": "RM22,113.00"}
+    codes = {c["code"] for c in il.verify(r)["checks"] if not c["ok"]}
+    assert {"taxnoreg", "namereg"} <= codes
+    r["fields"] = [{"label": "SST Reg No", "value": "W10-1808-31000123"}]
+    r["parties"][0]["name"] = "Iota Technologies Sdn Bhd"
+    codes = {c["code"] for c in il.verify(r)["checks"] if not c["ok"]}
+    assert not {"taxnoreg", "namereg"} & codes
+
+
+DELFI_COLS = ["No.", "Delivery No.", "Ship-To", "Name", "Invoice Date", "Invoice No.", "CTN-1", "CTN-2", "CTN-3", "CTN-4", "Total"]
+DELFI_TOTAL = [None] * 6 + ["39", "17", "0", "0", "56"]
+
+
+def _delfi(ctn):
+    names = ["WATSONS-GATEWAY", "WATSONS-MITSUI", "ALL DAY PHARMACY", "DC UNIT", "KLINIK I-CARE", "REZEKI", "SSD HEALTHCARE"]
+    return [[str(i + 1), f"15315{i:05d}", f"10{i:05d}", n, "21/09/2026", f"15614{i:05d}", *c] for i, (n, c) in enumerate(zip(names, ctn))]
+
+
+def test_string_headers_get_roles_and_the_better_checked_model_wins():
+    good = [[None, "1", None, None, "1"], [None, "1", None, None, "1"], ["22", "6", None, None, "28"], ["4", "1", None, None, "5"],
+            ["3", None, None, None, "3"], ["5", "8", None, None, "13"], ["5", None, None, None, "5"]]
+    shifted = [[None, "1", None, None, "1"], [None, "1", None, None, "1"], ["22", "6", None, None, "28"], [None, "4", "1", None, "5"],
+               [None, "3", None, None, "3"], [None, "5", "8", None, "13"], [None, "5", None, None, "5"]]
+    a = il.normalize_result({"document_type": "invoice_register", "tables": [{"columns": list(DELFI_COLS), "rows": _delfi(shifted), "total_row": DELFI_TOTAL}]})
+    roles = {c["name"]: c["role"] for c in a["tables"][0]["columns"]}
+    assert roles["No."] == "id" and roles["Delivery No."] == "id" and roles["CTN-1"] == "number" and roles["Total"] == "row_total" and roles["Invoice Date"] == "date"
+    ca = il.verify(a)
+    assert [c for c in ca["checks"] if c["code"] == "colsum" and not c["ok"]]  # the column shift is now caught
+    b = {"document_type": "invoice_register", "tables": [{"columns": [{"name": n, "role": r} for n, r in roles.items()], "rows": _delfi(good), "total_row": DELFI_TOTAL}]}
+    seg = {"provider_responses": {"model_a": a, "model_b": b}, "checks": {"model_a": ca, "model_b": il.verify(b)}}
+    assert il.pick_model(seg)[0] == "B"

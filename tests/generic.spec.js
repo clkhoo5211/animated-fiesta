@@ -25,6 +25,7 @@ test("generic checks: totals block, tax rate, statement balance; tables CSV has 
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("Totals add up");
   await expect(page.locator("#view")).toContainText("SST 8% matches the rate");
+  await expect(page.locator("#view")).toContainText("SST 8% charged, but no tax registration number on the document");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#csv")]);
   const csv = fs.readFileSync(await dl.path(), "utf8").replace(/^﻿/, "").split("\n");
   expect(csv[0]).toBe('"file","page","document_number","table","row","Description","Quantity","Price"');
@@ -89,4 +90,25 @@ test("grouped report: subtotals checked from the model's row kinds (any wording)
   await page.locator(".job", { hasText: "text-invoice.pdf" }).click();
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("Not in the PDF text layer: document_number");
+});
+
+test("string table headers get roles, so a column shift is caught and the better-checked model is chosen", async ({ page, context }) => {
+  const names = ["WATSONS-GATEWAY", "WATSONS-MITSUI", "ALL DAY", "DC UNIT", "KLINIK", "REZEKI", "SSD"];
+  const rows = (ctn) => ctn.map((c, i) => [String(i + 1), `15315${String(i).padStart(5, "0")}`, `10${String(i).padStart(5, "0")}`, names[i], "21/09/2026", `15614${String(i).padStart(5, "0")}`, ...c]);
+  const good = [[null, "1", null, null, "1"], [null, "1", null, null, "1"], ["22", "6", null, null, "28"], ["4", "1", null, null, "5"], ["3", null, null, null, "3"], ["5", "8", null, null, "13"], ["5", null, null, null, "5"]];
+  const shifted = [[null, "1", null, null, "1"], [null, "1", null, null, "1"], ["22", "6", null, null, "28"], [null, "4", "1", null, "5"], [null, "3", null, null, "3"], [null, "5", "8", null, "13"], [null, "5", null, null, "5"]];
+  const cols = ["No.", "Delivery No.", "Ship-To", "Name", "Invoice Date", "Invoice No.", "CTN-1", "CTN-2", "CTN-3", "CTN-4", "Total"];
+  const total = [null, null, null, null, null, null, "39", "17", "0", "0", "56"];
+  const roles = ["id", "id", "id", "text", "date", "id", "number", "number", "number", "number", "row_total"];
+  await serve(context, { model: ({ model }) => ({ json: model === "model-a"
+    ? { document_type: "invoice_register", document_number: "1000849237", tables: [{ name: "Register", columns: cols, rows: rows(shifted), total_row: total }] }
+    : { document_type: "invoice_register", document_number: "1000849237", tables: [{ name: "Register", columns: cols.map((n, i) => ({ name: n, role: roles[i] })), rows: rows(good), total_row: total }] } }) });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await expect(page.locator("#view")).toContainText("Source: model B");
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("Model A · Register · column “CTN-1” total");
 });

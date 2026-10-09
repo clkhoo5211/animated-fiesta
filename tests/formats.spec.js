@@ -35,3 +35,14 @@ test("CSV is parsed locally when no model is configured", async ({ page, context
   await page.click(".tab[data-tab=items]");
   await expect(page.locator("#view tbody tr")).toHaveCount(2);
 });
+
+test("a small blurred QR in a corner of a WhatsApp-sized photo is found by the region scan", async ({ page, context }) => {
+  await serve(context, { model: () => ({ json: invoice() }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("small-qr.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("https://myinvois.hasil.gov.my/TEST-UUID-0001/share/ABC123");
+});
