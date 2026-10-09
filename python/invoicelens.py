@@ -9,7 +9,7 @@ Gemini, OpenRouter, Qwen, relays…) or Anthropic over plain HTTPS.
     python python/invoicelens.py invoices/*.jpg register.pdf \
         --a-base https://api.openai.com/v1 --a-model gpt-4o --out out/
 
-Outputs in --out: results.json, summary.csv, tables.csv, reconcile.csv
+Outputs in --out: results.json, summary.csv, fields.csv (every value), tables.csv, reconcile.csv
 """
 from __future__ import annotations
 
@@ -770,11 +770,47 @@ def reconcile(results):
 
 
 # ----------------------------------------------------------------- outputs / CLI
+def flat_rows(file, page, r):
+    """Every extracted value as rows: file, page, section, item, label, value."""
+    out = []
+    def put(sec, item, label, v):
+        if v not in (None, ""):
+            out.append([file, page, sec, item, label, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v])
+    for k in ("document_type", "title", "document_number", "document_date", "currency", "grand_total", "amount_in_words"):
+        put("document", "", k, r.get(k))
+    for i, p in enumerate(x for x in r.get("parties") or [] if isinstance(x, dict)):
+        for k in ("name", "registration_no", "tax_id", "address", "contact"):
+            put("party", f"{p.get('role') or 'party'} {i + 1}", k, p.get(k))
+    for i, x in enumerate(r.get("fields") or []):
+        put("field", i + 1, (x or {}).get("label"), (x or {}).get("value"))
+    for i, x in enumerate(r.get("totals") or []):
+        put("total", i + 1, (x or {}).get("label"), (x or {}).get("value"))
+    for ti, t in enumerate(r.get("tables") or []):
+        cols, tn = [c.get("name") for c in t.get("columns") or []], t.get("name") or f"Table {ti + 1}"
+        col = lambda ci: cols[ci] if ci < len(cols) and cols[ci] else f"col {ci + 1}"
+        for ri, row in enumerate(t.get("rows") or []):
+            for ci, v in enumerate(row or []):
+                put(f"table: {tn}", ri + 1, col(ci), v)
+        if isinstance(t.get("total_row"), list):
+            for ci, v in enumerate(t["total_row"]):
+                put(f"table: {tn}", "TOTAL", col(ci), v)
+    for sec, key in (("stamp", "stamps_and_chops"), ("handwriting", "handwritten_notes")):
+        for i, x in enumerate(r.get(key) or []):
+            put(sec, i + 1, (x.get("position") or "") if isinstance(x, dict) else "", x.get("text") if isinstance(x, dict) else x)
+    return out
+
+
 def write_outputs(results, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     rc = reconcile([r for r in results if r.get("segments")])
     (out / "results.json").write_text(json.dumps({"exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "documents": results, "reconciliation": rc}, ensure_ascii=False, indent=2), encoding="utf-8")
     dup_of = {f: ", ".join(x for x in d["files"] if x != f) for d in rc["duplicates"] for f in d["files"]}
+    with open(out / "fields.csv", "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f); w.writerow(["file", "page", "section", "item", "label", "value"])
+        for r in results:
+            for sg in r.get("segments", []):
+                if sg.get("final_result"):
+                    w.writerows(flat_rows(r["source_document"], sg["segment_identifier"], sg["final_result"]))
     with open(out / "summary.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f); w.writerow(["file", "status", "duplicate_of", "tokens_in", "tokens_out", "document_type", "document_number", "document_date", "currency", "grand_total", "table_rows", "note"])
         for r in results:

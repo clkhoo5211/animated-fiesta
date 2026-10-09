@@ -132,7 +132,7 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
     <button class="tab" data-tab="items" data-i18n="tab_items"></button>
     <button class="tab" data-tab="checks"><span data-i18n="tab_checks"></span> <span id="check-count"></span></button>
     <button class="tab" data-tab="json" data-i18n="tab_json"></button>
-    <div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div>
+    <div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csvall" disabled data-i18n="csv_all"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div>
   </div>
   <div class="pad" id="view"></div>
 </section>
@@ -197,7 +197,7 @@ en:{
  drop_title:"Drop, click or paste files (multiple allowed)",drop_sub:"Images (incl. iPhone HEIC) / PDF / Excel / CSV / Word / Video",
  start:"Start extraction",start_n:"Start extraction ({n} files)",running:"Extracting…",privacy:"Everything runs in your browser. Files are only sent to the providers you configure in “Model settings”.",
  tab_summary:"Summary",tab_overview:"Overview",tab_items:"Tables",tab_checks:"Checks",tab_json:"Raw JSON",
- copy_json:"Copy JSON",dl_json:"Download all JSON",csv_tables:"Export tables CSV",csv_summary:"Export summary CSV",
+ copy_json:"Copy JSON",dl_json:"Download all JSON",csv_all:"Export all fields CSV",csv_tables:"Export tables CSV",csv_summary:"Export summary CSV",
  close:"Close",model_a:"Model A (primary)",model_b:"Model B (optional, for cross-check)",type:"Type",compat:"OpenAI-compatible",
  model_name_img:"Model name (must support images)",model_name:"Model name",show:"Show",hide:"Hide",json_mode:"Use JSON mode (turn off if the provider errors)",json_mode_s:"Use JSON mode",
  test_conn:"Test connection",same_as_a:"Can be the same address as model A",key_b:"API Key (leave empty to disable)",advanced:"Advanced",
@@ -267,7 +267,7 @@ zh:{
  drop_title:"拖入、点击或粘贴文件（可多选）",drop_sub:"图片（含 iPhone HEIC）/ PDF / Excel / CSV / Word / 视频",
  start:"开始识别",start_n:"开始识别（{n} 个文件）",running:"识别中…",privacy:"所有处理在你的浏览器内完成；文件只会发送给你在“模型设置”中配置的服务商。",
  tab_summary:"汇总",tab_overview:"概览",tab_items:"表格",tab_checks:"校验",tab_json:"原始 JSON",
- copy_json:"复制 JSON",dl_json:"下载全部 JSON",csv_tables:"导出表格 CSV",csv_summary:"导出汇总 CSV",
+ copy_json:"复制 JSON",dl_json:"下载全部 JSON",csv_all:"导出全部字段 CSV",csv_tables:"导出表格 CSV",csv_summary:"导出汇总 CSV",
  close:"关闭",model_a:"模型 A（主）",model_b:"模型 B（可选，用于交叉核验）",type:"类型",compat:"OpenAI 兼容",
  model_name_img:"模型名（需支持图片）",model_name:"模型名",show:"显示",hide:"隐藏",json_mode:"使用 JSON 模式（服务商报错时关闭）",json_mode_s:"使用 JSON 模式",
  test_conn:"测试连接",same_as_a:"同模型 A 可填相同地址",key_b:"API Key（留空则不启用）",advanced:"高级",
@@ -337,7 +337,7 @@ ms:{
  drop_title:"Seret, klik atau tampal fail (boleh pilih beberapa fail)",drop_sub:"Imej (termasuk iPhone HEIC) / PDF / Excel / CSV / Word / Video",
  start:"Mulakan pengekstrakan",start_n:"Mulakan pengekstrakan ({n} fail)",running:"Sedang mengekstrak…",privacy:"Semua pemprosesan berlaku dalam pelayar anda. Fail hanya dihantar kepada penyedia yang anda tetapkan dalam “Tetapan model”.",
  tab_summary:"Ringkasan",tab_overview:"Gambaran keseluruhan",tab_items:"Jadual",tab_checks:"Semakan",tab_json:"JSON mentah",
- copy_json:"Salin JSON",dl_json:"Muat turun semua JSON",csv_tables:"Eksport CSV jadual",csv_summary:"Eksport CSV ringkasan",
+ copy_json:"Salin JSON",dl_json:"Muat turun semua JSON",csv_all:"Eksport semua medan CSV",csv_tables:"Eksport CSV jadual",csv_summary:"Eksport CSV ringkasan",
  close:"Tutup",model_a:"Model A (utama)",model_b:"Model B (pilihan, untuk semakan silang)",type:"Jenis",compat:"Serasi OpenAI",
  model_name_img:"Nama model (mesti menyokong imej)",model_name:"Nama model",show:"Papar",hide:"Sembunyi",json_mode:"Guna mod JSON (matikan jika penyedia memaparkan ralat)",json_mode_s:"Guna mod JSON",
  test_conn:"Uji sambungan",same_as_a:"Boleh guna alamat yang sama dengan model A",key_b:"API Key (biarkan kosong jika tidak digunakan)",advanced:"Lanjutan",
@@ -761,7 +761,7 @@ function drawQueue(){scheduleSave();const q=$("#queue");
   $("#qsum").textContent=n?`${done}/${n}`:"";$("#clearq").hidden=!n||running;
   $("#go").disabled=running||!JOBS.some(j=>j.status==="wait");$("#go").textContent=running?t("running"):JOBS.filter(j=>j.status==="wait").length>1?t("start_n",{n:JOBS.filter(j=>j.status==="wait").length}):t("start");
   const hasRes=JOBS.some(j=>j.result);$("#tab-summary").hidden=JOBS.filter(j=>j.result||j.error).length<2;$("#tab-recon").hidden=JOBS.filter(j=>j.result).length<2;{const rc=reconcile();const n=rc.issues;$("#recon-count").innerHTML=rc.registers.length||rc.dups.length?(n?`<span class="badge warn">${n}</span>`:`<span class="badge ok">✓</span>`):""}
-  ["copy","dl","csv","csvsum"].forEach(id=>$("#"+id).disabled=!hasRes);
+  ["copy","dl","csvall","csv","csvsum"].forEach(id=>$("#"+id).disabled=!hasRes);
   const bad=JOBS.filter(j=>["bad","err"].includes(j.status)).length;$("#sum-count").innerHTML=bad?`<span class="badge bad">${bad}</span>`:"";
   q.querySelectorAll(".job").forEach(el=>{const j=JOBS.find(x=>x.id==el.dataset.id);
     el.onclick=e=>{const a=e.target.closest("[data-act]")?.dataset.act;
@@ -1039,6 +1039,19 @@ $("#csv").onclick=()=>{const lines=[];
     lines.push(["file","page","document_number","table","row",...(t.columns||[]).map(c=>c.name)].map(q).join(","));
     (t.rows||[]).forEach((row,ri)=>lines.push([...pre(ri+1),...row].map(q).join(",")));if(Array.isArray(t.total_row))lines.push([...pre("TOTAL"),...t.total_row].map(q).join(","));lines.push("")})}));
   dlBlob(`invoicelens_tables_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv")};
+/* every extracted value in one long CSV: file, page, section, item, label, value */
+function flatRows(file,page,r){const out=[],P=(sec,item,label,v)=>{if(v!=null&&v!=="")out.push([file,page,sec,item,label,typeof v==="object"?JSON.stringify(v):v])};
+  for(const k of ["document_type","title","document_number","document_date","currency","grand_total","amount_in_words"])P("document","",k,r[k]);
+  (r.parties||[]).forEach((p,i)=>{for(const k of ["name","registration_no","tax_id","address","contact"])P("party",`${p.role||"party"} ${i+1}`,k,p[k])});
+  (r.fields||[]).forEach((f,i)=>P("field",i+1,f.label,f.value));(r.totals||[]).forEach((x,i)=>P("total",i+1,x.label,x.value));
+  (r.tables||[]).forEach((tb,ti)=>{const cols=(tb.columns||[]).map(c=>c.name);const tn=tb.name||`Table ${ti+1}`;
+    (tb.rows||[]).forEach((row,ri)=>(row||[]).forEach((v,ci)=>P(`table: ${tn}`,ri+1,cols[ci]||`col ${ci+1}`,v)));
+    if(Array.isArray(tb.total_row))tb.total_row.forEach((v,ci)=>P(`table: ${tn}`,"TOTAL",cols[ci]||`col ${ci+1}`,v))});
+  (r.stamps_and_chops||[]).forEach((x,i)=>P("stamp",i+1,x?.position||"",x?.text??x));(r.handwritten_notes||[]).forEach((x,i)=>P("handwriting",i+1,x?.position||"",x?.text??x));
+  return out}
+$("#csvall").onclick=()=>{const L=[["file","page","section","item","label","value"].map(q).join(",")];
+  allResults().forEach(res=>res.segments.forEach(s=>{const [,r]=best(s);if(r)flatRows(res.source_document,s.segment_identifier,r).forEach(x=>L.push(x.map(q).join(",")))}));
+  dlBlob(`invoicelens_all_fields_${stamp()}.csv`,"\ufeff"+L.join("\n"),"text/csv")};
 $("#csvsum").onclick=()=>{const cols=["file","status","duplicate_of","tokens_in","tokens_out","est_cost","manual_edits","document_type","document_number","document_date","counterparty","currency","grand_total","table_rows","issues"];
   const lines=[cols.join(",")];JOBS.filter(j=>j.result||j.error).forEach(j=>{const sg=j.result?.segments[0],r=sg&&best(sg)[1];const party=r?.parties?.find(p=>p.role!=="issuer"&&p.role!=="supplier")||r?.parties?.[0];
     const iss=j.result?j.result.segments.flatMap(x=>issues(x).filter(i=>i[0]==="bad"||i[0]==="warn").map(i=>`${i[1]}: ${i[2]}`)).join(" | "):j.error;

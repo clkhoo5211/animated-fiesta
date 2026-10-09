@@ -303,3 +303,13 @@ def test_tables_csv_one_header_per_table(tmp_path):
     rows = list(csv.reader(open(tmp_path / "tables.csv", encoding="utf-8-sig")))
     assert rows[0][:5] == ["file", "page", "document_number", "table", "row"]
     assert rows[1][0] == "invoice.jpg" and rows[1][4] == "1"
+
+
+def test_fields_csv_has_everything(tmp_path):
+    llm = FakeLLM(lambda c: invoice(parties=[{"role": "bill_to", "name": "SAMPLE STORE", "address": "LOT 1, JALAN ANGSA, 41150 KLANG"}],
+                                    stamps_and_chops=[{"text": "RECEIVED", "position": "bottom"}], handwritten_notes=["143"]))
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=llm.transport)
+    rows = list(csv.reader(open(tmp_path / "fields.csv", encoding="utf-8-sig")))
+    assert rows[0] == ["file", "page", "section", "item", "label", "value"]
+    assert ["party", "bill_to 1", "address", "LOT 1, JALAN ANGSA, 41150 KLANG"] in [r[2:] for r in rows]
+    assert any(r[2] == "handwriting" and r[5] == "143" for r in rows) and any(r[2].startswith("table:") for r in rows)
