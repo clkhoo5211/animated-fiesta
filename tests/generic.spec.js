@@ -172,3 +172,18 @@ test("merge never copies the other model's numbers into empty cells of a correct
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).not.toContainText("Filled from model B");
 });
+
+test("a cell read one column off is moved back when the printed totals single it out", async ({ page, context }) => {
+  const cols = [{ name: "Name", role: "text" }, { name: "CTN-1", role: "number" }, { name: "CTN-2", role: "number" }, { name: "CTN-3", role: "number" }, { name: "Total", role: "row_total" }];
+  const reg = { document_type: "invoice_register", tables: [{ name: "Register", columns: cols,
+    rows: [["A", null, "1", null, "1"], ["B", "22", "6", null, "28"], ["C", null, "3", null, "3"], ["D", "5", "8", null, "13"]], total_row: [null, "30", "15", "0", "45"] }] };
+  await serve(context, { model: () => ({ json: reg }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("Row 3: moved 3 from CTN-2 to CTN-1");
+  await expect(page.locator("#view")).toContainText("Rows add up to 30; printed total 30");
+});

@@ -779,8 +779,12 @@ def merge_from(final, who, diffs):
     other, mine = ("b", "a") if who == "A" else ("a", "b")
     out = []
     s = lambda v: re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
+    # a value is only taken when both models put it under the same label
+    relabeled = {d["field"][:-len(".label")] for d in diffs if d["field"].endswith(".label")}
     for d in diffs:
         f, o, m = d["field"], d.get(other), d.get(mine)
+        if re.sub(r"\.value$", "", f) in relabeled and f.endswith(".value"):
+            continue
         if MERGE_SKIP.search(f) or re.fullmatch(r"tables\.\d+\.name", f) or o is None or isinstance(o, (dict, list)) or s(o) == "":
             continue
         trunc = s(m) != "" and len(s(o)) > len(s(m)) and s(o).lower().startswith(re.sub(r"[\W_]+$", "", s(m).lower())) and num(m) is None
@@ -794,6 +798,38 @@ def merge_from(final, who, diffs):
             else:
                 parent[k] = o
             out.append({"path": f, "from": other.upper(), "v": o})
+    return out
+
+
+def repair_shift(r):
+    """A column total short by v while another is over by v, and exactly one row holds v in the over column with the short one
+    empty: that cell was read one column off — move it. The printed totals decide; several candidates -> nothing changes."""
+    out = []
+    empty = lambda v: v is None or str(v).strip() == ""
+    for ti, t in enumerate((r or {}).get("tables") or []):
+        if not isinstance(t.get("total_row"), list):
+            continue
+        cols, rows = t.get("columns") or [], [x for x in t.get("rows") or [] if isinstance(x, list)]
+        kinds = t.get("row_kinds") if isinstance(t.get("row_kinds"), list) else None
+        sub = [(kinds[i] == "subtotal") if kinds and i < len(kinds) else (not kinds and any(isinstance(c, str) and SUBROW.search(c) for c in row)) for i, row in enumerate(rows)]
+        lines = [row for i, row in enumerate(rows) if not sub[i]]
+        cell = lambda row, i: num(row[i]) if i < len(row) else None
+        delta = {}
+        for ci, c in enumerate(cols):
+            if isinstance(c, dict) and c.get("role") in ("qty", "amount", "number") and ci < len(t["total_row"]):
+                p = num(t["total_row"][ci])
+                if p is not None:
+                    delta[ci] = round(p - sum(cell(x, ci) or 0 for x in lines), 2)
+        off = [k for k, v in delta.items() if abs(v) > 0.005]
+        if len(off) != 2 or abs(delta[off[0]] + delta[off[1]]) > 0.005:
+            continue
+        to, frm = off if delta[off[0]] > 0 else (off[1], off[0])
+        cand = [x for x in lines if max(to, frm) < len(x) and empty(x[to]) and cell(x, frm) is not None and abs(cell(x, frm) - delta[to]) < 0.005]
+        if len(cand) != 1:
+            continue
+        x = cand[0]
+        x[to], x[frm] = x[frm], None
+        out.append({"ti": ti, "row": rows.index(x) + 1, "from": cols[frm].get("name"), "to": cols[to].get("name"), "v": x[to]})
     return out
 
 
@@ -935,6 +971,13 @@ async def process_segment(client, seg: Segment, o: Options):
             res["final_result"] = before
         else:
             res["merged"] = merged
+        final = res["final_result"]
+        before, base = json.loads(json.dumps(final)), fails(verify(final))
+        rs = repair_shift(final)
+        if rs and fails(verify(final)) < base:
+            res["repaired"] = rs
+        else:
+            res["final_result"] = final = before
     if seg.text and seg.b64:  # PDF page with a real text layer: a third, deterministic check of the model's values
         res["grounding"] = grounding(norm_text(seg.text), final)
     return res
