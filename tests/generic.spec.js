@@ -210,3 +210,13 @@ test("same model as A and B: B reads close-ups, B keeps its own temperature; pri
   await expect(page.locator("#view")).toContainText("Printed notes");
   await expect(page.locator("#view")).toContainText("* Private & Confidential");
 });
+
+test("same model name through a different relay still counts as the same model", async ({ page, context }) => {
+  const calls = await serve(context, { model: () => ({ json: { document_type: "invoice", document_number: "INV-1", tables: [] } }) });
+  await preset(page, { b: { model: "Model-A ", base: "https://relay.test/v1/" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls.map((c) => c.images).sort()).toEqual([1, 3]);
+});

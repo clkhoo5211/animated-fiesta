@@ -501,3 +501,17 @@ def test_twin_model_b_gets_closeups(tmp_path):
     il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--a-model", "m", "--b-type", "openai", "--b-model", "m", "--b-base", "https://relay.test/v1", "--b-key", "k", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
     assert sorted(seen) == [1, 3]
     assert "note" in (tmp_path / "all_fields.csv").read_text() if (tmp_path / "all_fields.csv").exists() else True
+
+
+def test_wrong_quarter_turn_tries_other_way(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(1)
+        # first read: "turn 90"; after 90 the page reads upside down (180); after 270 it is upright
+        rot = {1: "90", 2: "180"}.get(len(seen), "0")
+        doc = {"document_type": "invoice", "document_number": "INV-1", "rotation_degrees": rot, "tables": []}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    res = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
+    assert len(seen) == 3 and res["straightened"] == 270 and res["usage"]["model_a"] == {"in": 30, "out": 15}
