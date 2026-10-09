@@ -63,3 +63,30 @@ test("accounting negatives in a credit note, and month-first dates are flagged",
   await expect(page.locator("#view")).not.toContainText("row 1 amount");
   await expect(page.locator("#view")).toContainText("qty × unit price = amount");
 });
+
+test("grouped report: subtotals checked from the model's row kinds (any wording); PDF values grounded in the text layer", async ({ page, context }) => {
+  const report = {
+    document_type: "aging_report", document_number: "AR-1", document_date: "30/09/2026",
+    tables: [{ name: "Aging", columns: [{ name: "Customer", role: "text" }, { name: "Current", role: "number" }, { name: "1-30", role: "number" }, { name: "Balance", role: "row_total" }],
+      rows: [["ALPHA", "", "", ""], ["INV-1", "100", "", "100"], ["INV-2", "", "50", "50"], ["Jumlah ALPHA", "100", "50", "150"], ["BETA", "", "", ""], ["INV-3", "20", "", "20"], ["Jumlah BETA", "20", "", "25"]],
+      row_kinds: ["group_header", "line", "line", "subtotal", "group_header", "line", "subtotal"], total_row: [null, "120", "50", "170"] }],
+  };
+  const queue = [report, { document_type: "invoice", document_number: "ZZ-99999", document_date: "01/10/2026", tables: [] }];
+  await serve(context, { model: () => ({ json: queue.shift() }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("Aging: subtotal on row 7 (Balance) does not match");
+  await expect(page.locator("#view")).toContainText("Rows add up to 170"); // subtotal rows are not double-counted (would be 345)
+  await expect(page.locator("#view")).not.toContainText("PDF text layer"); // photos skip grounding
+
+  await page.setInputFiles("#f", FIX("text-invoice.pdf"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.locator(".job", { hasText: "text-invoice.pdf" }).click();
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("Not in the PDF text layer: document_number");
+});
