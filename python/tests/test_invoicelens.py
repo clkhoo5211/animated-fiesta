@@ -313,3 +313,16 @@ def test_fields_csv_has_everything(tmp_path):
     assert rows[0] == ["file", "page", "section", "item", "label", "value"]
     assert ["party", "bill_to 1", "address", "LOT 1, JALAN ANGSA, 41150 KLANG"] in [r[2:] for r in rows]
     assert any(r[2] == "handwriting" and r[5] == "143" for r in rows) and any(r[2].startswith("table:") for r in rows)
+
+
+def test_accounting_numbers_text_cleanup_and_date_order():
+    assert il.num("(1,234.56)") == -1234.56 and il.num("1,234.56-") == -1234.56 and il.num("1,234.56 CR") == -1234.56
+    assert il.num("-RM5.00") == -5 and il.num("RM1,638.00") == 1638 and il.num("1,000.00 DR") == 1000 and il.num("-") is None
+    assert il.norm_text("INV\u00ad-00\u200b12\u2013A\u00a0B\x00") == "INV-0012-A B "
+    amb = {"document_date": "03/04/2026", "currency": "USD", "tables": []}
+    assert [c for c in il.verify(amb)["checks"] if c["code"] == "dateamb"]
+    assert not [c for c in il.verify({"document_date": "03/04/2026", "currency": "RM", "tables": []})["checks"] if c["code"] == "dateamb"]
+    settled = {"document_date": "03/04/2026", "currency": "USD", "fields": [{"label": "Due", "value": "18/04/2026"}], "tables": []}
+    assert not [c for c in il.verify(settled)["checks"] if c["code"] in ("dateamb", "datemdy")]
+    us = {"document_date": "04/18/2026", "tables": []}
+    assert [c for c in il.verify(us)["checks"] if c["code"] == "datemdy"]

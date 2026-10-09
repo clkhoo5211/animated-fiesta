@@ -43,3 +43,23 @@ test("generic checks: totals block, tax rate, statement balance; tables CSV has 
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("Transactions: balance on row 4 does not follow");
 });
+
+test("accounting negatives in a credit note, and month-first dates are flagged", async ({ page, context }) => {
+  const cn = {
+    document_type: "credit_note", document_number: "CN-7", document_date: "04/18/2026", currency: "USD", grand_total: "(108.00)",
+    tables: [{ name: "Items", columns: [{ name: "Item", role: "text" }, { name: "Qty", role: "qty" }, { name: "Price", role: "unit_price" }, { name: "Amount", role: "amount" }],
+      rows: [["Return A", "2", "50.00", "(100.00)"]] }],
+    totals: [{ label: "Subtotal", value: "100.00-" }, { label: "Tax 8%", value: "8.00 CR" }],
+  };
+  await serve(context, { model: () => ({ json: cn }) });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=checks]");
+  await expect(page.locator("#view")).toContainText("Totals add up");
+  await expect(page.locator("#view")).toContainText("Dates look month-first");
+  await expect(page.locator("#view")).not.toContainText("row 1 amount");
+  await expect(page.locator("#view")).toContainText("qty × unit price = amount");
+});

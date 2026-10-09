@@ -32,10 +32,22 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
 
 # ----------------------------------------------------------------- helpers
 def num(v):
+    """Amounts incl. accounting negatives: '(1,234.56)', '1,234.56-', '1,234.56 CR', '-RM5'."""
+    s = str(v if v is not None else "").strip()
     try:
-        return float(re.sub(r"[^0-9.\-]", "", str(v if v is not None else "")))
+        n = float(re.sub(r"[^0-9.]", "", s))
     except ValueError:
         return None
+    neg = bool(re.match(r"^[^0-9]*-", s) or re.fullmatch(r"\s*\(.*\)\s*", s) or re.search(r"\d\s*-\s*$", s) or re.search(r"\bCR\.?\s*$", s, re.I))
+    return -n if neg else n
+
+
+def norm_text(s):
+    """Invisible / look-alike characters from PDF text layers and spreadsheets that break IDs."""
+    s = re.sub(r"[\u00AD\u200B-\u200D\u2060\uFEFF]", "", str(s or "")).replace("\x00", " ")
+    s = re.sub(r"[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]", "-", s)
+    s = re.sub(r"[\u00A0\u2007\u202F\u3000]", " ", s)
+    return re.sub(r"[\u201C\u201D\u201F]", '"', re.sub(r"[\u2018\u2019\u201B]", "'", s))
 
 
 def parse_json(text: str):
@@ -354,7 +366,7 @@ def verify(r) -> dict | None:
                 a, b, c = (num(row[i]) if i < len(row) else None for i in (q, pz, am))
                 if None in (a, b, c):
                     continue
-                if abs(a * b - c) > 0.011:
+                if abs(abs(a * b) - abs(c)) > 0.011:  # credit notes print negative amounts
                     bad += 1
                     add(False, "amount", ti=ti, tn=tn, row=ri, expr=f"{row[q]} × {row[pz]} = {a*b:.2f} ≠ {row[am]}")
             if not bad:
@@ -379,6 +391,7 @@ def verify(r) -> dict | None:
             disc = sum(num(x.get("value")) or 0 for x in tot if re.search(r"disc|diskaun|折", x.get("label") or "", re.I))
             add(abs(amts[0] + tax - disc - gt) < 0.011, "grand", lines=f"{amts[0]:.2f}", tax=tax, disc=disc, total=r.get("grand_total"))
     totals_checks(r, add)
+    date_order(r, add)
     for ti, t in enumerate(r.get("tables") or []):
         balance_check(t, ti, add)
     cross_checks(r, add)
@@ -462,6 +475,27 @@ def items_as_totals(r, add):
     s = sum(num(x["value"]) for x in cand)
     if rep or (not has_amt and gt is not None and len(cand) >= 3 and abs(s - gt) < 0.011):
         add(False, "itemstot", l=rep[0] if rep else "", n=rep[1] if rep else len(cand), sum=round(s, 2))
+
+
+def date_order(r, add):
+    """03/04/2026 is 3 April or 4 March: other dates on the page settle it (a part > 12); otherwise warn."""
+    vals = [r.get("document_date")] + [(f or {}).get("value") for f in r.get("fields") or []]
+    for t in r.get("tables") or []:
+        di = [i for i, c in enumerate(t.get("columns") or []) if (c or {}).get("role") == "date"]
+        vals += [row[i] for row in t.get("rows") or [] if isinstance(row, list) for i in di if i < len(row)]
+    rx = r"\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\b"
+    dmy = mdy = 0
+    for v in vals:
+        for a, b, _ in re.findall(rx, str(v or "")):
+            a, b = int(a), int(b)
+            if a > 12 >= b: dmy += 1
+            elif b > 12 >= a: mdy += 1
+    dd = re.search(rx, str(r.get("document_date") or ""))
+    if mdy and not dmy:
+        add(False, "datemdy", warn=True, n=mdy)
+    elif dd and not dmy and re.search(r"\bUSD\b|US\$|^\s*\$", f"{r.get('currency') or ''} {r.get('grand_total') or ''}", re.I) and int(dd.group(1)) <= 12 and int(dd.group(2)) <= 12 and dd.group(1) != dd.group(2):
+        a, b = int(dd.group(1)), int(dd.group(2))
+        add(False, "dateamb", warn=True, v=r.get("document_date"), a=f"{a}/{b}", b=f"{b}/{a}")
 
 
 def totals_checks(r, add):
@@ -594,9 +628,9 @@ async def process_segment(client, seg: Segment, o: Options):
     hint = ""
     if seg.kind == "text":
         hint = (f"\n\nThere is NO image. The document content below was extracted from a {seg.source} (cells separated by \" | \", one row per line"
-                f"{'; content truncated' if seg.truncated else ''}). Apply the same rules to this text; rotation_degrees = \"0\".\n<<<DOCUMENT\n{seg.text}\nDOCUMENT>>>")
+                f"{'; content truncated' if seg.truncated else ''}). Apply the same rules to this text; rotation_degrees = \"0\".\n<<<DOCUMENT\n{norm_text(seg.text)}\nDOCUMENT>>>")
     elif seg.text:
-        hint = f"\n\nPDF text layer for reference:\n{seg.text[:6000]}"
+        hint = f"\n\nPDF text layer for reference:\n{norm_text(seg.text)[:6000]}"
     imgs = prep_images(seg.b64, o.enhance, o.tiles) if seg.b64 and not seg.text_only else None
     text = PROMPT + hint + (MULTI_NOTE.format(n=len(imgs)) if imgs and len(imgs) > 1 else "")
     local = local_codes(seg)
