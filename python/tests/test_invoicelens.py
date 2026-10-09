@@ -347,3 +347,14 @@ def test_small_corner_qr_found_by_region_scan():
     seg = il.ingest(FIX / "small-qr.jpg")[0]
     codes = il.local_codes(seg)["qr_and_barcodes"]
     assert codes and codes[0]["data"].startswith("https://myinvois.hasil.gov.my/")
+
+
+def test_tax_without_registration_and_name_with_reg_no():
+    r = {"tables": [], "parties": [{"role": "issuer", "name": "Iota Technologies Sdn Bhd (1340607-U)", "registration_no": "1340607-U"}],
+         "totals": [{"label": "Subtotal", "value": "RM20,475.00"}, {"label": "SST 8%", "value": "RM1,638.00"}], "grand_total": "RM22,113.00"}
+    codes = {c["code"] for c in il.verify(r)["checks"] if not c["ok"]}
+    assert {"taxnoreg", "namereg"} <= codes
+    r["fields"] = [{"label": "SST Reg No", "value": "W10-1808-31000123"}]
+    r["parties"][0]["name"] = "Iota Technologies Sdn Bhd"
+    codes = {c["code"] for c in il.verify(r)["checks"] if not c["ok"]}
+    assert not {"taxnoreg", "namereg"} & codes
