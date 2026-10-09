@@ -266,6 +266,20 @@ def test_auto_straighten(tmp_path):
     assert len(seen) == 2 and res["straightened"] == 90 and res["usage"]["model_a"] == {"in": 20, "out": 10}
 
 
+def test_broken_sums_retry_rotated(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(1)
+        rows = [["A", "2"], ["B", "3"]] if len(seen) == 1 else [["A", "4"], ["B", "5"]]
+        doc = {"document_type": "invoice_register", "rotation_degrees": "0", "tables": [{"name": "R", "columns": [{"name": "Name", "role": "text"}, {"name": "CTN", "role": "number"}], "rows": rows, "total_row": [None, "9"]}]}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    res = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
+    assert len(seen) == 2 and res["straightened"] == 90 and res["final_result"]["tables"][0]["rows"][0] == ["A", "4"]
+    assert res["usage"]["model_a"] == {"in": 20, "out": 10}
+
+
 def test_same_relay_sequential(tmp_path):
     order, live = [], [0, 0]
 

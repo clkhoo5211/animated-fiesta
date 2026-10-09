@@ -73,8 +73,9 @@ test("grouped report: subtotals checked from the model's row kinds (any wording)
       rows: [["ALPHA", "", "", ""], ["INV-1", "100", "", "100"], ["INV-2", "", "50", "50"], ["Jumlah ALPHA", "100", "50", "150"], ["BETA", "", "", ""], ["INV-3", "20", "", "20"], ["Jumlah BETA", "20", "", "25"]],
       row_kinds: ["group_header", "line", "line", "subtotal", "group_header", "line", "subtotal"], total_row: [null, "120", "50", "170"] }],
   };
-  const queue = [report, { document_type: "invoice", document_number: "ZZ-99999", document_date: "01/10/2026", tables: [] }];
-  await serve(context, { model: () => ({ json: queue.shift() }) });
+  // the broken subtotal also triggers the turned re-reads (90° and 270°), which read the same table: 3 calls for the photo
+  let n = 0;
+  await serve(context, { model: () => ({ json: ++n <= 3 ? report : { document_type: "invoice", document_number: "ZZ-99999", document_date: "01/10/2026", tables: [] } }) });
   await preset(page);
   await page.goto("/");
   await page.setInputFiles("#f", FIX("invoice.jpg"));
