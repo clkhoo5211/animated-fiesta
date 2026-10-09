@@ -760,9 +760,10 @@ def merge_from(final, who, diffs):
         f, o, m = d["field"], d.get(other), d.get(mine)
         if MERGE_SKIP.search(f) or re.fullmatch(r"tables\.\d+\.name", f) or o is None or isinstance(o, (dict, list)) or s(o) == "":
             continue
-        trunc = len(s(o)) > len(s(m)) and s(o).lower().startswith(re.sub(r"[\W_]+$", "", s(m).lower())) and num(m) is None
+        trunc = s(m) != "" and len(s(o)) > len(s(m)) and s(o).lower().startswith(re.sub(r"[\W_]+$", "", s(m).lower())) and num(m) is None
         parent = _get(final, ".".join(f.split(".")[:-1]))
-        if (s(m) == "" or trunc) and isinstance(parent, (dict, list)):
+        cell = bool(re.match(r"tables\.\d+\.rows\.", f))  # empty table cells mean "nothing printed": never filled
+        if ((s(m) == "" and not cell) or trunc) and isinstance(parent, (dict, list)):
             k = f.split(".")[-1]
             if isinstance(parent, list):
                 if not k.isdigit() or int(k) >= len(parent): continue
@@ -789,7 +790,8 @@ def normalize_result(r):
     if not isinstance(r, dict) or r.get("error"):
         return r
     if isinstance(r.get("tables"), list):  # "tables" without columns are stray text, not tables
-        r["tables"] = [t for t in r["tables"] if isinstance(t, dict) and isinstance(t.get("columns"), list) and t["columns"]]
+        r["tables"] = [t for t in r["tables"] if isinstance(t, dict) and isinstance(t.get("columns"), list) and t["columns"]
+                       and not (isinstance(t.get("row_kinds"), list) and t["row_kinds"] and all(k == "other" for k in t["row_kinds"]))]
     for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
         for k in ("registration_no", "tax_id"):
             if isinstance(p, dict) and isinstance(p.get(k), str):
@@ -885,7 +887,15 @@ async def process_segment(client, seg: Segment, o: Options):
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
     who, final = pick_model(res)
     res["final_source"], res["final_result"], res["manual_edits"], res["accepted"] = who, final, [], []
-    res["merged"] = merge_from(final, who, (res.get("cross_verification") or {}).get("discrepancies")) if final is not None else []
+    res["merged"] = []
+    if final is not None:
+        fails = lambda c: sum(1 for x in (c or {}).get("checks", []) if not x["ok"] and not x.get("warn"))
+        before, base = json.loads(json.dumps(final)), fails(verify(final))
+        merged = merge_from(final, who, (res.get("cross_verification") or {}).get("discrepancies"))
+        if merged and fails(verify(final)) > base:  # a fill-in that makes any check fail is undone
+            res["final_result"] = before
+        else:
+            res["merged"] = merged
     if seg.text and seg.b64:  # PDF page with a real text layer: a third, deterministic check of the model's values
         res["grounding"] = grounding(norm_text(seg.text), final)
     return res

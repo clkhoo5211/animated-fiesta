@@ -424,3 +424,12 @@ def test_field_level_merge_and_columnless_tables():
     merged = il.merge_from(final, "A", diffs)
     assert [m["path"] for m in merged] == ["fields.0.value", "tables.0.rows.0.0"]
     assert final["fields"][1]["value"] == "03-56343748" and final["tables"][0]["rows"][0][0].endswith("3 Bulan")
+
+
+def test_merge_never_fills_empty_table_cells_and_is_undone_if_checks_break():
+    cols = [{"name": "Name", "role": "text"}, {"name": "CTN-1", "role": "number"}, {"name": "CTN-2", "role": "number"}, {"name": "Total", "role": "row_total"}]
+    good = {"tables": [{"columns": cols, "rows": [["A", "4", "1", "5"], ["B", "3", "", "3"]], "total_row": [None, "7", "1", "8"]}]}
+    final = json.loads(json.dumps(good))
+    diffs = [{"field": "tables.0.rows.1.2", "a": "", "b": "3", "kind": "missing"}]
+    assert il.merge_from(final, "A", diffs) == [] and final == good
+    assert not il.normalize_result({"tables": [{"columns": [{"name": "Header", "role": "text"}], "rows": [["7 Orders"]], "row_kinds": ["other"]}]})["tables"]
