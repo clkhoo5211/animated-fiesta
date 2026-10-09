@@ -759,6 +759,10 @@ def tables_fixed(res):
     return not tables_broken(res) and any(x["ok"] and x["code"] in TABLE_CK for c in res["checks"].values() if c for x in c["checks"])
 
 
+def still_turned(res):
+    return any(_int((r or {}).get("rotation_degrees")) in (90, 180, 270) for r in res["provider_responses"].values() if isinstance(r, dict))
+
+
 def seg_score(res):
     return max(check_score(c) for c in res["checks"].values())
 
@@ -946,7 +950,7 @@ async def process_segment(client, seg: Segment, o: Options):
     else:
         run = lambda c, tx=text, im=imgs: safe(call_model(client, c, tx, im)) if c.enabled else asyncio.sleep(0, {"status": "skipped"})
         # A reads with temperature 0; B too, unless it is the very same model (then it stays an independent second read)
-        twin = o.a.model == o.b.model and o.a.type == o.b.type and clean_base(o.a.base) == clean_base(o.b.base)
+        twin = (o.a.model or "").strip().lower() == (o.b.model or "").strip().lower()  # same model, any relay
         ca, cb = replace(o.a, temperature=0), (o.b if twin else replace(o.b, temperature=0))
         # the same model twice tends to repeat a mistake: B gets a different view (full page + enlarged halves)
         text_b, imgs_b = text, imgs
@@ -962,14 +966,23 @@ async def process_segment(client, seg: Segment, o: Options):
         # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows)
         rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
         if rd and seg.b64 and not seg.text_only and not seg.straightened:
-            seg.b64, seg.straightened = jpeg_b64(b64_image(seg.b64).rotate(-rd, expand=True)), rd
+            orig = seg.b64
+            seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-rd, expand=True)), rd
             first = {"model_a": ra.get("__usage") if isinstance(ra, dict) else None, "model_b": rb.get("__usage") if isinstance(rb, dict) else None}
             res = await process_segment(client, seg, o)
-            for k, u in first.items():
-                if u:
-                    cur = res["usage"].get(k) or {"in": 0, "out": 0}
-                    res["usage"][k] = {"in": (cur.get("in") or 0) + (u.get("in") or 0), "out": (cur.get("out") or 0) + (u.get("out") or 0)}
+            res["usage"] = sum_usage(res["usage"], first)
             res["straightened"] = rd
+            # models often get a quarter turn's direction wrong: if it still reads as turned (or its tables fail), try the other way
+            if rd in (90, 270) and (still_turned(res) or tables_broken(res)):
+                turned, alt = seg.b64, 360 - rd
+                seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-alt, expand=True)), alt
+                other = await process_segment(client, seg, o)
+                other["usage"] = sum_usage(other["usage"], res["usage"])
+                rank = lambda r: (0 if still_turned(r) else 1, seg_score(r))
+                if rank(other) > rank(res):
+                    other["straightened"] = alt
+                    return other
+                res["usage"], seg.b64, seg.straightened = other["usage"], turned, rd
             return res
     ra = normalize_result(ra if isinstance(ra, dict) else {"error": "invalid model output"})
     rb = normalize_result(rb if isinstance(rb, dict) else {"error": "invalid model output"})

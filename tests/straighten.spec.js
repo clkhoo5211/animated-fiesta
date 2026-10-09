@@ -20,9 +20,9 @@ test("sideways page is straightened and re-read; relay capacity errors are retri
   await page.setInputFiles("#f", FIX("rotated.jpg"));
   await page.click("#go");
   await waitIdle(page);
-  expect(calls.length).toBe(3); // capacity error, sideways read, straightened read
+  expect(calls.length).toBe(4); // capacity error, sideways read, straightened read, other direction (its sums fail)
   await expect(page.locator("#view")).toContainText("Page straightened 90° and re-read");
-  await expect(page.locator("#view")).toContainText("A 200 / 100");
+  await expect(page.locator("#view")).toContainText("A 300 / 150");
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("row 4 looks like the printed totals line");
   await expect(page.locator("#view")).not.toContainText("3.9.16 is earlier");
@@ -45,4 +45,16 @@ test("page reported upright but every table fails its sums: re-read turned 90° 
   await expect(page.locator("#view")).toContainText("Page straightened 90° and re-read");
   await page.click(".tab[data-tab=checks]");
   await expect(page.locator("#view")).toContainText("Rows add up to 9; printed total 9");
+});
+
+test("a quarter turn in the wrong direction (page now reads upside down) is retried the other way", async ({ page, context }) => {
+  let n = 0;
+  const calls = await serve(context, { model: () => { n++; return { json: { document_type: "invoice", document_number: "INV-1", tables: [], rotation_degrees: n === 1 ? "90" : n === 2 ? "180" : "0" } }; } });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("rotated.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls.length).toBe(3);
+  await expect(page.locator("#view")).toContainText("Page straightened 270° and re-read");
 });

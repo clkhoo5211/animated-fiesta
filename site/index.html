@@ -829,7 +829,8 @@ async function processSeg(seg,cfg,onStep){
   onStep("start",same);
   // A and B on the same relay/endpoint: call B after A so the relay's concurrency limit doesn't reject B
   // A reads deterministically (temperature 0); B too, unless it is the very same model — then it keeps its default so it stays an independent second read
-  const twin=cfg.a.model===cfg.b.model&&cfg.a.type===cfg.b.type&&(cfg.a.proxy||cfg.a.base)===(cfg.b.proxy||cfg.b.base);
+  // the same model name counts as a twin even through a different relay or base URL (it is still the same eyes)
+  const twin=String(cfg.a.model||"").trim().toLowerCase()===String(cfg.b.model||"").trim().toLowerCase();
   const ca={...cfg.a,temperature:0},cb=twin?cfg.b:{...cfg.b,temperature:0};
   // the same model twice tends to make the same mistake: give B a different view of the page (full page + enlarged halves) so its read is independent
   let msgB=msg,imgsB=imgs;if(twin&&cfg.b.key&&imgs&&!cfg.tiles){imgsB=await prepImages(seg.b64,{...cfg,tiles:true});
@@ -839,9 +840,14 @@ async function processSeg(seg,cfg,onStep){
   if(same){rb=seg._b;delete seg._b}
   // the model says the page is turned: straighten it locally and read it once more (sideways tables shift columns and rows)
   const rd=[ra,rb].map(r=>parseInt(r?.rotation_degrees)).find(d=>[90,180,270].includes(d));
-  if(rd&&seg.b64&&!seg.textOnly&&!seg.straightened&&cfg.straighten!==false){seg.b64=await rotateB64(seg.b64,rd);seg.straightened=rd;onStep("straighten",rd);
-    const again=await processSeg(seg,cfg,onStep);const add=(x,y)=>x||y?{in:(x?.in||0)+(y?.in||0),out:(x?.out||0)+(y?.out||0)}:null;
-    again.usage={model_a:add(again.usage.model_a,ra?.__usage),model_b:add(again.usage.model_b,rb?.__usage)};again.straightened=rd;return again}
+  if(rd&&seg.b64&&!seg.textOnly&&!seg.straightened&&cfg.straighten!==false){const orig=seg.b64;seg.b64=await rotateB64(orig,rd);seg.straightened=rd;onStep("straighten",rd);
+    let again=await processSeg(seg,cfg,onStep);again.usage=sumUsage(again.usage,{model_a:ra?.__usage,model_b:rb?.__usage});again.straightened=rd;
+    // models often get the direction of a quarter turn wrong: if the turned page still reads as turned (or its tables fail), try the other way and keep the better read
+    if((rd===90||rd===270)&&(stillTurned(again)||tablesBroken(again))){const first=seg.b64,alt=360-rd;seg.b64=await rotateB64(orig,alt);seg.straightened=alt;onStep("straighten",alt);
+      const other=await processSeg(seg,cfg,onStep);other.usage=sumUsage(other.usage,again.usage);
+      const rank=r=>[stillTurned(r)?0:1,segScore(r)],[a0,a1]=rank(again),[o0,o1]=rank(other);
+      if(o0>a0||(o0===a0&&o1>a1)){other.straightened=alt;again=other}else{again.usage=other.usage;seg.b64=first;seg.straightened=rd}}
+    return again}
   ra=normalizeResult(ra);rb=normalizeResult(rb);alignByLabel(ra,rb);
   const im=seg.b64&&!seg.textOnly?await createImageBitmap(b64ToBlob(seg.b64)):null;
   const res={segment_identifier:seg.id,text_layer:seg.text&&seg.b64?normText(seg.text).slice(0,40000):null,usage:{model_a:ra?.__usage||null,model_b:rb?.__usage||null},source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
@@ -859,6 +865,7 @@ const TABLE_CK=["colsum","rowsum","qtyprice","groupsum","balance"];
 function tablesBroken(res){const cs=[res.checks.model_a,res.checks.model_b].filter(Boolean);return cs.length>0&&cs.every(c=>c.checks.some(x=>!x.ok&&!x.warn&&TABLE_CK.includes(x.code)))}
 // a turned read only wins when its tables actually add up (an empty read scores 0 and would beat a failed sum otherwise)
 function tablesFixed(res){return !tablesBroken(res)&&[res.checks.model_a,res.checks.model_b].some(c=>c&&c.checks.some(x=>x.ok&&TABLE_CK.includes(x.code)))}
+function stillTurned(res){return [res.provider_responses.model_a,res.provider_responses.model_b].some(r=>[90,180,270].includes(parseInt(r?.rotation_degrees)))}
 function segScore(res){return Math.max(...[res.checks.model_a,res.checks.model_b].map(c=>c?checkScore(c):-Infinity))}
 function sumUsage(u,v){const add=(x,y)=>x||y?{in:(x?.in||0)+(y?.in||0),out:(x?.out||0)+(y?.out||0)}:null;return {model_a:add(u?.model_a,v?.model_a),model_b:add(u?.model_b,v?.model_b)}}
 
