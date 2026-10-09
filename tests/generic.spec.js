@@ -187,3 +187,14 @@ test("a cell read one column off is moved back when the printed totals single it
   await expect(page.locator("#view")).toContainText("Row 3: moved 3 from CTN-2 to CTN-1");
   await expect(page.locator("#view")).toContainText("Rows add up to 30; printed total 30");
 });
+
+test("model A reads with temperature 0; a relay that refuses it is asked again without", async ({ page, context }) => {
+  const calls = await serve(context, { model: (c) => c.temperature === 0 ? { status: 400, error: "Unsupported parameter: temperature" } : { json: { document_type: "invoice", document_number: "INV-1", tables: [] } } });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls.map((c) => c.temperature)).toEqual([0, undefined]);
+  await expect(page.locator("#view")).toContainText("INV-1");
+});

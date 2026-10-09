@@ -460,3 +460,25 @@ def test_repair_shift_and_label_guarded_merge():
     final = {"fields": [{"label": "Collected By", "value": None}]}
     diffs = [{"field": "fields.0.label", "a": "Time", "b": "Collected By"}, {"field": "fields.0.value", "a": "07:08:04", "b": None}]
     assert il.merge_from(final, "B", diffs) == [] and final["fields"][0]["value"] is None
+
+
+def test_merge_adds_missing_field_and_role_synonyms():
+    final = {"fields": [{"label": "Page", "value": "1 of 1"}]}
+    diffs = [{"field": "fields.1.label", "a": None, "b": "Time"}, {"field": "fields.1.value", "a": None, "b": "07:08:04"}]
+    assert il.merge_from(final, "A", diffs)[0]["v"] == "Time: 07:08:04" and final["fields"][1] == {"label": "Time", "value": "07:08:04"}
+    c = il.compare({"parties": [{"role": "supplier"}]}, {"parties": [{"role": "issuer"}]})
+    assert c["discrepancies"] == []
+
+
+def test_temperature_zero_with_fallback(tmp_path):
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(body.get("temperature"))
+        if "temperature" in body:
+            return httpx.Response(400, json={"error": {"message": "temperature is not supported with this model"}})
+        doc = {"document_type": "invoice", "document_number": "INV-1", "rotation_degrees": "0", "tables": []}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}]})
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    assert seen == [0, None]

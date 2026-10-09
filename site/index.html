@@ -437,6 +437,7 @@ Rules:
 - Only output text that is actually on the page. Never invent company names, numbers or rows.
 - Put EVERY labelled value on the page into "fields" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.
 - Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> "?" and list the field in low_confidence_fields.
+- Payment details (bank name, account name, account number) and footer lines printed as "Label: value" are fields too.
 - Table column headers are not field labels: never repeat table cells in fields.
 - Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).
 - Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.
@@ -709,9 +710,9 @@ async function local(seg){
   catch(e){return {qr_and_barcodes:[],native_extracted_text:seg.text,error:String(e)}}
 }
 function withUsage(r,u){if(r&&typeof r==="object"&&u)Object.defineProperty(r,"__usage",{value:{in:u.prompt_tokens??u.input_tokens??0,out:u.completion_tokens??u.output_tokens??0},enumerable:false});return r}
-async function anthropic(key,model,content,maxTok,signal){
+async function anthropic(key,model,content,maxTok,signal,temperature){
   const r=await fetch("https://api.anthropic.com/v1/messages",{signal,method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model,max_tokens:maxTok,messages:[{role:"user",content}]})});
+    body:JSON.stringify({model,max_tokens:maxTok,...(temperature!=null?{temperature}:{}),messages:[{role:"user",content}]})});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);const txt=j.content?.find(b=>b.type==="text")?.text||"";if(!txt.trim()&&j.stop_reason==="max_tokens")throw new Error(t("out_of_tokens",{n:maxTok}));return withUsage(parseJSON(txt),j.usage);
 }
 const safe=p=>p.catch(e=>({error:String(e.message||e)}));
@@ -781,13 +782,16 @@ async function callModel(c,content,img,maxTok=c.maxTok||32000){
       if(!(RETRY_CODES.includes(e.status)||TEMP_MSG.test(e.message||""))||i>=RETRY_MS.length||Date.now()-t0+RETRY_MS[i]>RETRY_BUDGET)throw e;
       c.onRetry?.(i+1,e);try{await sleep(RETRY_MS[i],c.signal)}catch(x){throw abortMsg(x,c)||x}}}}
 const httpErr=(msg,status)=>Object.assign(new Error(msg),{status});
-async function callModelInner(c,content,img,maxTok,signal){
+// temperature 0 = the same page reads the same way every run; a model/relay that refuses the parameter is asked again without it
+async function callModelInner(c,content,img,maxTok,signal){try{return await callModelRaw(c,content,img,maxTok,signal)}
+  catch(e){if(c.temperature!=null&&e.status>=400&&e.status<500&&/temperature/i.test(e.message||""))return callModelRaw({...c,temperature:null},content,img,maxTok,signal);throw e}}
+async function callModelRaw(c,content,img,maxTok,signal){
   const imgs=img?(Array.isArray(img)?img:[img]):[];
-  if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts,maxTok,signal)}
+  if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts,maxTok,signal,c.temperature)}
   const parts=[...content,...imgs.map(d=>({type:"image_url",image_url:{url:`data:image/jpeg;base64,${d}`,detail:"high"}}))];
   const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
   const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{signal,method:"POST",headers:h,
-    body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,messages:[{role:"user",content:parts}]})})
+    body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,...(c.temperature!=null?{temperature:c.temperature}:{}),messages:[{role:"user",content:parts}]})})
     .catch(e=>{if(e?.name==="AbortError"||e?.name==="TimeoutError")throw e;throw new Error(t("cant_connect",{b:c.base,x:c.proxy?t("via_proxy"):t("maybe_cors")}))});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);
   const ch=j.choices?.[0]||{},txt=ch.message?.content||"";if(!txt.trim()&&ch.finish_reason==="length")throw new Error(t("out_of_tokens",{n:maxTok}));
@@ -800,7 +804,8 @@ function flatten(o,p="",out={}){if(o&&typeof o==="object"){for(const [k,v] of Ob
 function compare(a,b){if(!a||!b||a.error||b.error||a.status||b.status)return null;
   const A=flatten(a),B=flatten(b),keys=[...new Set([...Object.keys(A),...Object.keys(B)])].filter(k=>!/^(stamps_and_chops|handwritten_notes)/.test(k));
   const agree=[],diff=[];for(const k of keys){if(!(k in A)||!(k in B)){diff.push({field:k,a:A[k]??null,b:B[k]??null,kind:"missing"});continue}
-    const x=norm(A[k]),y=norm(B[k]);const nx=num(A[k]),ny=num(B[k]);
+    // the same party seen from two sides: supplier = issuer, customer = bill_to
+    const syn=v=>/\.role$/.test(k)?({issuer:"supplier",customer:"billto"})[norm(v)]||norm(v):norm(v);const x=syn(A[k]),y=syn(B[k]);const nx=num(A[k]),ny=num(B[k]);
     if(x===y||(nx!=null&&ny!=null&&/^[\d.,\s-]+$/.test(String(A[k]))&&Math.abs(nx-ny)<0.005))agree.push(k);else diff.push({field:k,a:A[k],b:B[k],kind:"mismatch"})}
   return {agreement_rate:keys.length?+(agree.length/keys.length).toFixed(3):null,agreed_fields:agree.length,discrepancies:diff}}
 
@@ -819,7 +824,10 @@ async function processSeg(seg,cfg,onStep){
   const same=cfg.a.key&&cfg.b.key&&cfg.a.type===cfg.b.type&&(cfg.a.proxy||cfg.a.base)===(cfg.b.proxy||cfg.b.base);
   onStep("start",same);
   // A and B on the same relay/endpoint: call B after A so the relay's concurrency limit doesn't reject B
-  const runA=()=>run(cfg.a).then(r=>(onStep("a",r),r)),runB=()=>(same&&onStep("startb"),run(cfg.b)).then(r=>(onStep("b",r),r));
+  // A reads deterministically (temperature 0); B too, unless it is the very same model — then it keeps its default so it stays an independent second read
+  const twin=cfg.a.model===cfg.b.model&&cfg.a.type===cfg.b.type&&(cfg.a.proxy||cfg.a.base)===(cfg.b.proxy||cfg.b.base);
+  const ca={...cfg.a,temperature:0},cb=twin?cfg.b:{...cfg.b,temperature:0};
+  const runA=()=>run(ca).then(r=>(onStep("a",r),r)),runB=()=>(same&&onStep("startb"),run(cb)).then(r=>(onStep("b",r),r));
   let [loc,ra,rb]=await Promise.all([local(seg).then(r=>(onStep("local",r),r)),...(same?[runA().then(async a=>(seg._b=await runB(),a))]:[runA(),runB()])]);
   if(same){rb=seg._b;delete seg._b}
   // the model says the page is turned: straighten it locally and read it once more (sideways tables shift columns and rows)
@@ -1055,6 +1063,11 @@ function pickModel(seg){const a=seg.provider_responses.model_a,b=seg.provider_re
 const MERGE_SKIP=/(^|\.)(role|label|row_kinds|columns|name|low_confidence_fields|rotation_degrees|document_type)(\.|$)/;
 function mergeFrom(final,w,diffs){const out=[],other=w==="A"?"b":"a",mine=w==="A"?"a":"b",s=v=>String(v??"").replace(/\s+/g," ").trim();
   // a value is only taken when both models put it under the same label (A's "Time" value must not land under B's "Collected By")
+  // a labelled field or total line that only the other model found is added whole (label + value)
+  for(const d of diffs||[]){const mm=/^(fields|totals)\.(\d+)\.label$/.exec(d.field);if(!mm||s(d[mine])!==""||s(d[other])==="")continue;
+    const arr=final[mm[1]];if(!Array.isArray(arr)||arr.some(f=>s(f?.label).toLowerCase()===s(d[other]).toLowerCase()))continue;
+    const v=(diffs.find(x=>x.field===`${mm[1]}.${mm[2]}.value`)||{})[other]??null;arr.push({label:d[other],value:v});
+    out.push({path:`${mm[1]}.${arr.length-1}`,from:other.toUpperCase(),v:`${d[other]}: ${v??"—"}`})}
   const relabeled=new Set((diffs||[]).filter(d=>/\.label$/.test(d.field)).map(d=>d.field.replace(/\.label$/,"")));
   for(const d of diffs||[]){if(MERGE_SKIP.test(d.field)||/^tables\.\d+\.name$/.test(d.field)||relabeled.has(d.field.replace(/\.value$/,"")))continue;const o=d[other],m=d[mine];if(o==null||s(o)==="")continue;
     if(typeof o==="object")continue;const cell=/^tables\.\d+\.rows\./.test(d.field);
