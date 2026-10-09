@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageFilter, ImageOps
 
-PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
+PROMPT = "You are a document data extractor for ANY business document (invoice, receipt, delivery order, invoice register / shipment manifest, purchase order, statement, form...). The page may be rotated or photographed at an angle: read it in its correct orientation.\nReturn ONE JSON object with this shape (null when absent; all values as strings exactly as printed):\n{\"document_type\":\"invoice|receipt|delivery_order|invoice_register|purchase_order|statement|quotation|credit_note|debit_note|packing_list|aging_report|other\",\n \"title\":\"heading as printed\",\"document_number\",\"document_date\",\"currency\",\n \"parties\":[{\"role\":\"supplier|customer|bill_to|ship_to|transporter|issuer|other\",\"name\",\"registration_no\",\"tax_id\",\"address\",\"contact\"}],\n \"fields\":[{\"label\":\"label exactly as printed\",\"value\":\"value as printed\"}],\n \"tables\":[{\"name\",\"columns\":[{\"name\":\"header as printed\",\"role\":\"text|id|date|qty|unit_price|amount|number|row_total|debit|credit|balance\"}],\n   \"rows\":[[\"cell\", \"...\"]],\"row_kinds\":[\"line|group_header|subtotal|other per row, same length as rows\"]|null,\"total_row\":[\"cell or null per column\"]|null,\"printed_row_count\":\"e.g. 7 from '7 Orders'\"|null}],\n \"totals\":[{\"label\",\"value\"}],\"grand_total\",\"amount_in_words\",\n \"stamps_and_chops\":[{\"text\",\"position\"}],\"handwritten_notes\":[{\"text\",\"position\"}],\n \"rotation_degrees\":\"0|90|180|270 = clockwise turn needed to make the text upright\",\n \"low_confidence_fields\":[\"path or label of anything you are unsure about\"]}\nRules:\n- Only output text that is actually on the page. Never invent company names, numbers or rows.\n- Put EVERY labelled value on the page into \"fields\" (one entry per label), even if also used elsewhere. A label with a blank value gets value null.\n- Copy IDs, phone numbers, tax IDs and amounts character by character. Unreadable character -> \"?\" and list the field in low_confidence_fields.\n- Line items (products/services with qty, price or amount) ALWAYS go in tables, even when the table has no ruled lines; never put per-item amounts in totals. totals is only for summary lines printed once (subtotal, discount, tax, rounding, total payable).\n- Tables: one row per printed row, cells in column order; put the printed totals line in total_row, not in rows. Column role: qty = quantity, unit_price = price per unit, amount = qty x unit_price, row_total = sum of the other numeric cells in that row, debit / credit = money out / in on a statement, balance = running balance, number = other numbers. A column headed Price/Total that already holds the line total (quantity x it would not give the subtotal) is amount, not unit_price.\n- Grouped reports (a group/customer header row, its lines, then a subtotal row such as \"Total for X\"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.\n- Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.\n- Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).\n- Parties come only from printed letterheads / address blocks (e.g. \"Billing Address\", \"Delivery Address\", \"Bill To\"). A rubber stamp, company chop or \"Received by\" stamp is NOT a party: put it only in stamps_and_chops.\n- Labels: read each small label carefully and copy it exactly; never rename it. Digits that belong to a label (e.g. the \"1\" in \"Ref 1:\") are not its value. If the space after a label is empty, its value is null.\nRaw JSON only, no markdown."
 
 MULTI_NOTE = ("\n\nYou receive {n} images of the SAME page: image 1 is the full page, the others are enlarged overlapping "
               "sections (top/bottom or left/right halves) for reading small text. Use the close-ups to read characters; "
@@ -326,6 +326,54 @@ async def safe(coro):
 
 
 # ----------------------------------------------------------------- checks (same rules as the web app)
+# grouped reports: the model marks rows in row_kinds; the label pattern is only a fallback
+SUBROW = re.compile(r"^\s*(sub.?total|total\s+for\b|total\s*[-–:]|customer\s+total|group\s+total|jumlah\s+kecil|小计)", re.I)
+
+
+def group_sums(rows, numeric, cols, ti, tn, add, is_sub):
+    """Each subtotal row must equal the sum of the lines since the previous subtotal."""
+    if not any(is_sub):
+        return
+    acc, start, bad, n = [0.0] * len(numeric), 0, 0, 0
+    for ri, row in enumerate(rows):
+        if is_sub[ri]:
+            n += 1
+            for k, ci in enumerate(numeric):
+                v = num(row[ci]) if ci < len(row) else None
+                if v is not None and abs(v - acc[k]) > 0.011:
+                    bad += 1
+                    add(False, "groupsum", ti=ti, tn=tn, row=ri, col=cols[ci].get("name"), sum=round(acc[k], 2), printed=row[ci], **{"from": start + 1})
+            acc, start = [0.0] * len(numeric), ri + 1
+        else:
+            for k, ci in enumerate(numeric):
+                acc[k] += (num(row[ci]) or 0) if ci < len(row) else 0
+    if not bad:
+        add(True, "groupsum_all", ti=ti, tn=tn, n=n)
+
+
+def grounding(layer, r):
+    """Values the model read that should be printed verbatim (IDs, dates, amounts) must appear in the PDF text layer."""
+    if not layer or not isinstance(r, dict):
+        return None
+    vals = []
+    def put(path, v):
+        v = str(v if v is not None else "").strip()
+        if re.search(r"\d", v) and len(re.sub(r"\D", "", v)) >= 3:
+            vals.append((path, v))
+    for k in ("document_number", "document_date", "grand_total"):
+        put(k, r.get(k))
+    for i, p in enumerate(x for x in r.get("parties") or [] if isinstance(x, dict)):
+        put(f"parties.{i}.registration_no", p.get("registration_no")); put(f"parties.{i}.tax_id", p.get("tax_id"))
+    for key in ("fields", "totals"):
+        for i, f in enumerate(r.get(key) or []):
+            put(f"{key}.{i}.value", (f or {}).get("value"))
+    flat = re.sub(r"\s+", "", layer).upper()
+    nums = {num(x) for x in re.findall(r"\d[\d,]*\.\d+", layer)}
+    miss = [{"field": p, "value": v} for p, v in vals
+            if not (re.sub(r"\s+", "", v).upper() in flat or (re.search(r"\d\.\d{2}\b", v) and num(v) is not None and abs(num(v)) in nums))]
+    return {"checked": len(vals), "missing": miss}
+
+
 def verify(r) -> dict | None:
     if not isinstance(r, dict) or r.get("error") or r.get("status"):
         return None
@@ -337,13 +385,17 @@ def verify(r) -> dict | None:
         tn = t.get("name")
         idx = lambda role: [i for i, c in enumerate(cols) if (c or {}).get("role") == role]
         numeric = [i for i, c in enumerate(cols) if (c or {}).get("role") in ("qty", "amount", "number", "row_total")]
+        kinds = t.get("row_kinds") if isinstance(t.get("row_kinds"), list) else None
+        is_sub = [(kinds[i] == "subtotal") if kinds and i < len(kinds) else (not kinds and any(isinstance(c, str) and SUBROW.search(c) for c in row))
+                  for i, row in enumerate(rows)]
+        group_sums(rows, numeric, cols, ti, tn, add, is_sub)
         tot = t.get("total_row")
         if isinstance(tot, list):
             for ci in numeric:
                 tv = num(tot[ci]) if ci < len(tot) else None
                 if tv is None:
                     continue
-                s = sum(num(row[ci]) or 0 for row in rows if ci < len(row))
+                s = sum(num(row[ci]) or 0 for i, row in enumerate(rows) if ci < len(row) and not is_sub[i])
                 add(abs(s - tv) < 0.011, "colsum", ti=ti, tn=tn, col=cols[ci].get("name"), sum=round(s, 2), printed=tot[ci])
         rt = idx("row_total")
         parts = [i for i in numeric if i not in rt and cols[i].get("role") != "amount"]
@@ -665,6 +717,8 @@ async def process_segment(client, seg: Segment, o: Options):
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
     who, final = pick_model(res)
     res["final_source"], res["final_result"], res["manual_edits"], res["accepted"] = who, final, [], []
+    if seg.text and seg.b64:  # PDF page with a real text layer: a third, deterministic check of the model's values
+        res["grounding"] = grounding(norm_text(seg.text), final)
     return res
 
 

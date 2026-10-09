@@ -326,3 +326,18 @@ def test_accounting_numbers_text_cleanup_and_date_order():
     assert not [c for c in il.verify(settled)["checks"] if c["code"] in ("dateamb", "datemdy")]
     us = {"document_date": "04/18/2026", "tables": []}
     assert [c for c in il.verify(us)["checks"] if c["code"] == "datemdy"]
+
+
+def test_grouped_report_and_grounding():
+    rep = {"tables": [{"columns": [{"name": "Customer", "role": "text"}, {"name": "Current", "role": "number"}, {"name": "1-30", "role": "number"}, {"name": "Balance", "role": "row_total"}],
+                       "rows": [["ALPHA", "", "", ""], ["INV-1", "100", "", "100"], ["INV-2", "", "50", "50"], ["Jumlah ALPHA", "100", "50", "150"],
+                                ["BETA", "", "", ""], ["INV-3", "20", "", "20"], ["Jumlah BETA", "20", "", "25"]],
+                       "row_kinds": ["group_header", "line", "line", "subtotal", "group_header", "line", "subtotal"],
+                       "total_row": [None, "120", "50", "170"]}]}
+    checks = il.verify(rep)["checks"]
+    bad = [c for c in checks if c["code"] == "groupsum"]
+    assert len(bad) == 1 and bad[0]["row"] == 6 and bad[0]["sum"] == 20
+    assert all(c["ok"] for c in checks if c["code"] == "colsum")  # subtotal rows are not double-counted
+    layer = "TAX INVOICE  No: INV-0042   Date: 02/07/2026   Grand Total RM 1,234.50"
+    g = il.grounding(layer, {"document_number": "INV-0042", "document_date": "02/07/2026", "grand_total": "1234.50", "fields": [{"label": "Ref", "value": "PO-9981"}]})
+    assert g["checked"] == 4 and [m["field"] for m in g["missing"]] == ["fields.0.value"]
