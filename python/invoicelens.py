@@ -672,13 +672,48 @@ def compare(a, b):
     return {"agreement_rate": round(len(agree) / len(keys), 3) if keys else None, "agreed_fields": len(agree), "discrepancies": diff}
 
 
+def check_score(c):
+    """Passed checks count, failures cost more; a result that ran no checks does not win by default."""
+    return sum(1 if x["ok"] else (-0.5 if x.get("warn") else -3) for x in c["checks"]) if c else float("-inf")
+
+
 def pick_model(seg_result):
     a, b = seg_result["provider_responses"]["model_a"], seg_result["provider_responses"]["model_b"]
     ok = lambda r: isinstance(r, dict) and not r.get("error") and not r.get("status")
-    ca, cb = seg_result["checks"]["model_a"], seg_result["checks"]["model_b"]
-    if ok(a) and ok(b) and cb and cb["passed"] and not (ca and ca["passed"]):
-        return "B", b
+    if ok(a) and ok(b):
+        return ("B", b) if check_score(seg_result["checks"]["model_b"]) > check_score(seg_result["checks"]["model_a"]) else ("A", a)
     return ("A", a) if ok(a) else (("B", b) if ok(b) else (None, None))
+
+
+def normalize_result(r):
+    """Models sometimes return table headers as plain strings: give them roles from the data so every check can run."""
+    if not isinstance(r, dict) or r.get("error"):
+        return r
+    for t in r.get("tables") or []:
+        if not isinstance(t.get("columns"), list) or not any(isinstance(c, str) for c in t["columns"]):
+            continue
+        rows = [x for x in t.get("rows") or [] if isinstance(x, list)]
+        cell = lambda row, i: str(row[i] if i < len(row) and row[i] is not None else "").strip()
+        cols = []
+        for i, c in enumerate(t["columns"]):
+            if isinstance(c, dict):
+                cols.append(c); continue
+            vals = [v for v in (cell(row, i) for row in rows) if v]
+            if not vals: role = "text"
+            elif len(vals) == len(rows) and all(v == str(k + 1) for k, v in enumerate(vals)): role = "id"
+            elif all(num(v) is not None and re.fullmatch(r"[\s(\-]*[A-Z$€£¥]{0,3}\s*[\d,.]+\s*\)?\s*(CR|DR|-)?", v, re.I) for v in vals):
+                role = "id" if all(re.fullmatch(r"\d{6,}", v) for v in vals) else "number"
+            elif all(norm_date(v) for v in vals): role = "date"
+            elif re.search(r"\d", "".join(vals)) and all(re.fullmatch(r"[\w\-/.#]+", v) for v in vals): role = "id"
+            else: role = "text"
+            cols.append({"name": str(c if c is not None else ""), "role": role})
+        nums = [i for i, c in enumerate(cols) if c["role"] == "number"]
+        for i in nums:  # a numeric column equal to the sum of the others on every row is the row total
+            others = [j for j in nums if j != i]
+            if others and rows and all(num(cell(row, i)) is None or abs(num(cell(row, i)) - sum(num(cell(row, j)) or 0 for j in others)) < 0.011 for row in rows):
+                cols[i]["role"] = "row_total"; break
+        t["columns"] = cols
+    return r
 
 
 # ----------------------------------------------------------------- pipeline
@@ -735,8 +770,8 @@ async def process_segment(client, seg: Segment, o: Options):
                     res["usage"][k] = {"in": (cur.get("in") or 0) + (u.get("in") or 0), "out": (cur.get("out") or 0) + (u.get("out") or 0)}
             res["straightened"] = rd
             return res
-    ra = ra if isinstance(ra, dict) else {"error": "invalid model output"}
-    rb = rb if isinstance(rb, dict) else {"error": "invalid model output"}
+    ra = normalize_result(ra if isinstance(ra, dict) else {"error": "invalid model output"})
+    rb = normalize_result(rb if isinstance(rb, dict) else {"error": "invalid model output"})
     usage = {"model_a": ra.pop("__usage", None), "model_b": rb.pop("__usage", None)}
     res = {"segment_identifier": seg.id, "source_kind": seg.kind, "usage": usage,
            "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,

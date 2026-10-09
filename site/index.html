@@ -518,6 +518,19 @@ function grounding(layer,r){if(!layer||!r)return null;const flat=layer.replace(/
   const miss=[],vals=groundingVals(r);for(const [path,v] of vals){const n=num(v),isAmt=/\d\.\d{2}\b/.test(v)&&n!=null;
     if(!(flat.includes(v.replace(/\s+/g,"").toUpperCase())||(isAmt&&nums.has(Math.abs(n)))))miss.push([path,v])}
   return {n:vals.length,miss}}
+/* models sometimes return table headers as plain strings: give them roles from the data so every check can run */
+function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;
+  for(const t of r.tables||[]){if(!Array.isArray(t.columns)||!t.columns.some(c=>typeof c==="string"))continue;
+    const rows=(t.rows||[]).filter(Array.isArray),cell=(row,i)=>String(row[i]??"").trim();
+    const cols=t.columns.map((c,i)=>{if(c&&typeof c==="object")return c;const vals=rows.map(r=>cell(r,i)).filter(Boolean);
+      const role=!vals.length?"text":vals.every(v=>num(v)!=null&&/^[\s(\-]*[A-Z$€£¥]{0,3}\s*[\d,.]+\s*\)?\s*(CR|DR|-)?$/i.test(v))?(vals.every(v=>/^\d{6,}$/.test(v))?"id":"number"):vals.every(v=>normDate(v))?"date":/\d/.test(vals.join(""))&&vals.every(v=>/^[\w\-\/.#]+$/.test(v))?"id":"text";
+      const seq=vals.length===rows.length&&vals.every((v,k)=>v===String(k+1)); // 1,2,3… row numbers
+      return {name:String(c??""),role:seq?"id":role}});
+    // a numeric column that equals the sum of the other numeric columns on every row is the row total
+    const nums=cols.map((c,i)=>c.role==="number"?i:-1).filter(i=>i>=0);
+    for(const i of nums){const others=nums.filter(j=>j!==i);if(others.length&&rows.length&&rows.every(row=>{const v=num(row[i]);return v==null||Math.abs(v-others.reduce((a,j)=>a+(num(row[j])||0),0))<0.011})){cols[i].role="row_total";break}}
+    t.columns=cols}
+  return r}
 function verify(r){
   if(!r||r.error||r.status)return null;
   const checks=[],add=(ok,code,p={})=>checks.push({ok,code,...p});
@@ -789,6 +802,7 @@ async function processSeg(seg,cfg,onStep){
   if(rd&&seg.b64&&!seg.textOnly&&!seg.straightened&&cfg.straighten!==false){seg.b64=await rotateB64(seg.b64,rd);seg.straightened=rd;onStep("straighten",rd);
     const again=await processSeg(seg,cfg,onStep);const add=(x,y)=>x||y?{in:(x?.in||0)+(y?.in||0),out:(x?.out||0)+(y?.out||0)}:null;
     again.usage={model_a:add(again.usage.model_a,ra?.__usage),model_b:add(again.usage.model_b,rb?.__usage)};again.straightened=rd;return again}
+  ra=normalizeResult(ra);rb=normalizeResult(rb);
   const im=seg.b64&&!seg.textOnly?await createImageBitmap(b64ToBlob(seg.b64)):null;
   return {segment_identifier:seg.id,text_layer:seg.text&&seg.b64?normText(seg.text).slice(0,40000):null,usage:{model_a:ra?.__usage||null,model_b:rb?.__usage||null},source_kind:seg.kind||"image",image_size:im?[im.width,im.height]:null,local_extraction:loc,provider_responses:{model_a:{model:cfg.a.model,...ra},model_b:{model:cfg.b.model,...rb}},
     checks:{model_a:verify(ra),model_b:verify(rb)},cross_verification:compare(ra,rb)};
@@ -990,9 +1004,10 @@ function renderSummary(){const v=$("#view");const done=JOBS.filter(j=>j.result||
   </tbody></table></div><p class="sub">${t("click_row")}</p>`;
   v.querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>select(JOBS.find(j=>j.id==tr.dataset.id)))}
 
+/* pick the model whose result held up under more checks: passed checks count, failures cost more; a result that ran no checks does not win by default */
+const checkScore=c=>c?(c.checks||[]).reduce((s,x)=>s+(x.ok?1:x.warn?-0.5:-3),0):-Infinity;
 function pickModel(seg){const a=seg.provider_responses.model_a,b=seg.provider_responses.model_b;const ok=r=>r&&!r.error&&!r.status;
-  const ca=seg.checks.model_a,cb=seg.checks.model_b;
-  if(ok(a)&&ok(b)&&cb?.passed&&!ca?.passed)return ["B",b];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
+  if(ok(a)&&ok(b))return checkScore(seg.checks.model_b)>checkScore(seg.checks.model_a)?["B",b]:["A",a];return ok(a)?["A",a]:ok(b)?["B",b]:[null,null]}
 /* final (editable) result per segment: starts as a copy of the chosen model output */
 function best(seg){if(!seg.final_result){const [w,r]=pickModel(seg);seg.final_source=w;seg.final_result=r?JSON.parse(JSON.stringify(r)):null;seg.manual_edits=[];seg.accepted=[]}
   return [seg.final_source,seg.final_result]}

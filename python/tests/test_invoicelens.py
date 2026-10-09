@@ -358,3 +358,27 @@ def test_tax_without_registration_and_name_with_reg_no():
     r["parties"][0]["name"] = "Iota Technologies Sdn Bhd"
     codes = {c["code"] for c in il.verify(r)["checks"] if not c["ok"]}
     assert not {"taxnoreg", "namereg"} & codes
+
+
+DELFI_COLS = ["No.", "Delivery No.", "Ship-To", "Name", "Invoice Date", "Invoice No.", "CTN-1", "CTN-2", "CTN-3", "CTN-4", "Total"]
+DELFI_TOTAL = [None] * 6 + ["39", "17", "0", "0", "56"]
+
+
+def _delfi(ctn):
+    names = ["WATSONS-GATEWAY", "WATSONS-MITSUI", "ALL DAY PHARMACY", "DC UNIT", "KLINIK I-CARE", "REZEKI", "SSD HEALTHCARE"]
+    return [[str(i + 1), f"15315{i:05d}", f"10{i:05d}", n, "21/09/2026", f"15614{i:05d}", *c] for i, (n, c) in enumerate(zip(names, ctn))]
+
+
+def test_string_headers_get_roles_and_the_better_checked_model_wins():
+    good = [[None, "1", None, None, "1"], [None, "1", None, None, "1"], ["22", "6", None, None, "28"], ["4", "1", None, None, "5"],
+            ["3", None, None, None, "3"], ["5", "8", None, None, "13"], ["5", None, None, None, "5"]]
+    shifted = [[None, "1", None, None, "1"], [None, "1", None, None, "1"], ["22", "6", None, None, "28"], [None, "4", "1", None, "5"],
+               [None, "3", None, None, "3"], [None, "5", "8", None, "13"], [None, "5", None, None, "5"]]
+    a = il.normalize_result({"document_type": "invoice_register", "tables": [{"columns": list(DELFI_COLS), "rows": _delfi(shifted), "total_row": DELFI_TOTAL}]})
+    roles = {c["name"]: c["role"] for c in a["tables"][0]["columns"]}
+    assert roles["No."] == "id" and roles["Delivery No."] == "id" and roles["CTN-1"] == "number" and roles["Total"] == "row_total" and roles["Invoice Date"] == "date"
+    ca = il.verify(a)
+    assert [c for c in ca["checks"] if c["code"] == "colsum" and not c["ok"]]  # the column shift is now caught
+    b = {"document_type": "invoice_register", "tables": [{"columns": [{"name": n, "role": r} for n, r in roles.items()], "rows": _delfi(good), "total_row": DELFI_TOTAL}]}
+    seg = {"provider_responses": {"model_a": a, "model_b": b}, "checks": {"model_a": ca, "model_b": il.verify(b)}}
+    assert il.pick_model(seg)[0] == "B"
