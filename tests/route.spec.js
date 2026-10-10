@@ -72,3 +72,25 @@ test("route optimiser: 2-opt untangles a crossing tour; maps links split long ro
   expect(r.q).toContain("41150 Klang, Selangor");
   expect(r.ll).toEqual({ lat: 3.139, lng: 101.6869 });
 });
+
+test("an address the map cannot find is tidied by the model and searched again; coordinates still come from the map", async ({ page, context }) => {
+  const prompts = [];
+  await serve(context, {
+    model: (c) => {
+      if (c.text.includes("Rewrite this delivery address")) { prompts.push(c.text); return { json: { queries: ["14 Jalan Keindahan 1, Taman Skudai Indah, 81300 Skudai, Johor"] } } }
+      return { json: { document_type: "delivery_order", document_number: "A260907007", parties: [{ role: "ship_to", address: "JH TMN SKUDAI INDAH ( DA ) NO 14 & 16 (GF), JLN KEINDAHAN 1 TMN SKUDAI INDAH 81300 SKUDAI, JOHOR." }], tables: [] } };
+    },
+    geo: (url) => { const q = decodeURIComponent(url.split("&q=")[1] || ""); return q.includes("Jalan Keindahan") ? [{ lat: "1.535", lon: "103.657" }] : [] },
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await page.click("#rt-locate");
+  await expect(page.locator("#view")).toContainText("Located (address tidied by AI)", { timeout: 20000 });
+  expect(prompts.length).toBe(1);
+  expect(prompts[0]).toContain("JLN KEINDAHAN 1");
+  expect(await page.locator("a:has-text('view on map')").getAttribute("href")).toContain("1.535,103.657");
+});
