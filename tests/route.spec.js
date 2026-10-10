@@ -34,6 +34,7 @@ test("delivery route: stops from scanned ship-to addresses, geocoded, ordered by
   await expect(page.locator("#view")).not.toContainText("Supplier Road"); // the supplier's own address is not a stop
   await page.fill("#rt-start", "3.0, 101.5");
   await page.locator("#rt-start").dispatchEvent("change");
+  await expect(page.locator("#view")).toContainText("Start located at"); // the start is located as soon as it is entered
   await page.uncheck("#rt-back"); // one-way: the short western leg first, then east (B, A, C) beats A, C, then back west to B
   await page.click("#rt-plan");
   await expect(page.locator("#view")).toContainText("1 route(s)");
@@ -73,11 +74,11 @@ test("route optimiser: 2-opt untangles a crossing tour; maps links split long ro
   expect(r.ll).toEqual({ lat: 3.139, lng: 101.6869 });
 });
 
-test("an address the map cannot find is tidied by the model and searched again; coordinates still come from the map", async ({ page, context }) => {
+test("as soon as the stops appear, model A reads the addresses and the map locates them (no click); coordinates come from the map", async ({ page, context }) => {
   const prompts = [];
   await serve(context, {
     model: (c) => {
-      if (c.text.includes("Rewrite this delivery address")) { prompts.push(c.text); return { json: { queries: ["14 Jalan Keindahan 1, Taman Skudai Indah, 81300 Skudai, Johor"] } } }
+      if (c.text.includes("Rewrite each numbered delivery address")) { prompts.push(c.text); return { json: { results: [{ n: 1, queries: ["14 Jalan Keindahan 1, Taman Skudai Indah, 81300 Skudai, Johor"] }] } } }
       return { json: { document_type: "delivery_order", document_number: "A260907007", parties: [{ role: "ship_to", address: "JH TMN SKUDAI INDAH ( DA ) NO 14 & 16 (GF), JLN KEINDAHAN 1 TMN SKUDAI INDAH 81300 SKUDAI, JOHOR." }], tables: [] } };
     },
     geo: (url) => { const q = decodeURIComponent(url.split("&q=")[1] || ""); return q.includes("Jalan Keindahan") ? [{ lat: "1.535", lon: "103.657" }] : [] },
@@ -87,8 +88,7 @@ test("an address the map cannot find is tidied by the model and searched again; 
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
   await waitIdle(page);
-  await page.click(".tab[data-tab=route]");
-  await page.click("#rt-locate");
+  await page.click(".tab[data-tab=route]"); // no button: locating starts by itself
   await expect(page.locator("#view")).toContainText("Located (address tidied by AI)", { timeout: 20000 });
   expect(prompts.length).toBe(1);
   expect(prompts[0]).toContain("JLN KEINDAHAN 1");
