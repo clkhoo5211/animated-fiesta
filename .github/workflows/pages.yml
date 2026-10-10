@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {ref: "${{ github.event.workflow_run.head_sha || github.sha }}"}
+      - name: Version the module URL (a cached old route.js must never pair with a new index.html)
+        run: sed -i "s#from \"./route.js\"#from \"./route.js?v=${GITHUB_SHA_SHORT}\"#" site/index.html && grep -q "route.js?v=" site/index.html
+        env: {GITHUB_SHA_SHORT: "${{ github.event.workflow_run.head_sha || github.sha }}"}
       - uses: actions/configure-pages@v5
         with: {enablement: true}
       - uses: actions/upload-pages-artifact@v3
