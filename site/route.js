@@ -168,15 +168,29 @@ export function geoQueries(addr) {
   const parts = a.split(",").map(s => s.trim()).filter(Boolean); if (parts.length > 2) qs.push(parts.slice(-2).join(", "));
   return [...new Set(qs)];
 }
-export async function geocode(addr, cc) {
+// rewrite (optional): the language model turns a messy printed address into clean search queries
+// (abbreviations expanded, unit / floor / branch codes dropped). The coordinates always come from the map service, never from the model.
+export async function geocode(addr, cc, rewrite) {
   const cache = load(GEO, {}), k = normAddr(addr) + "|" + (cc || "");
-  if (cache[k]) return cache[k];
-  let hit = null, approx = false;
+  if (cache[k] && !(rewrite && cache[k].approx)) return cache[k];
+  let hit = null, approx = false, query = null;
   for (const [i, q] of geoQueries(addr).entries()) { hit = await nominatim(q, cc); if (hit) { approx = i > 0; break } }
-  const res = hit ? { lat: hit.lat, lng: hit.lng, approx } : { fail: true };
+  if ((!hit || approx) && rewrite) {
+    const qs = await rewrite(addr).catch(() => []);
+    for (const q of (Array.isArray(qs) ? qs : []).filter(x => typeof x === "string" && x.trim()).slice(0, 3)) {
+      const h = await nominatim(q, cc); if (h) { hit = h; approx = false; query = q; break }
+    }
+  }
+  const res = hit ? { lat: hit.lat, lng: hit.lng, approx, ...(query ? { ai: query } : {}) } : { fail: true };
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
+export const ADDRESS_PROMPT = `Rewrite this delivery address into search queries for a map geocoder (OpenStreetMap).
+Expand abbreviations (e.g. JLN -> Jalan, TMN -> Taman, LRG -> Lorong, KG -> Kampung, BDR -> Bandar, PJU -> keep), drop unit, floor, lot-in-building, branch / store codes and notes in brackets such as (GF) or (DA), keep street number, street, area, postcode, city and state.
+Give up to 3 queries, most specific first (the last one may be just "area, postcode city"). Do not invent anything that is not in the address.
+Answer as ONE JSON object: {"queries":["...","..."]}. Raw JSON only.
+ADDRESS:
+`;
 export async function roadMatrix(pts) {
   if (pts.length > 100) return estimateMatrix(pts);   // the public OSRM server answers up to ~100 points per table
   try {
@@ -191,7 +205,7 @@ export async function roadMatrix(pts) {
 
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
-  const { t, esc, docs, askModel, dl } = api;
+  const { t, esc, docs, askModel, rewriteAddr, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const stops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
@@ -200,7 +214,7 @@ export function renderRoute(view, api) {
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
   let editing = null;
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
-  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok">✓ ${t("rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
+  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
     const S = stops(), on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
@@ -264,10 +278,11 @@ export function renderRoute(view, api) {
   const locateAll = async S => {
     let i = 0;
     for (const s of S) {
-      i++; if (s.lat != null || s.fail) continue;
+      i++; if ((s.lat != null && !(rewriteAddr && s.approx && !s.aiTried)) || (s.fail && !(rewriteAddr && !s.aiTried))) continue;
       msg = t("rt_geo_prog", { i, n: S.length }); const m = view.querySelector("#rt-msg"); if (m) m.textContent = msg;
-      const g = parseLatLng(s.address) || await geocode(s.address, st.cc).catch(() => ({ fail: true }));
-      st.over[s.key] = { ...(st.over[s.key] || {}), ...g }; Object.assign(s, g); persist();
+      const g = parseLatLng(s.address) || await geocode(s.address, st.cc, rewriteAddr).catch(() => ({ fail: true }));
+      const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
+      st.over[s.key] = { ...o, ...g, ...(rewriteAddr ? { aiTried: true } : {}) }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
     }
   };
   const planSummary = () => ({
@@ -277,7 +292,7 @@ export function renderRoute(view, api) {
   });
   const run = async () => {
     const S = stops().filter(s => !s.skip);
-    if (!st.startLL) { msg = t("rt_geo_start"); draw(); const g = parseLatLng(st.start) || await geocode(st.start, st.cc); if (g.fail) throw new Error(t("rt_start_fail")); st.startLL = { lat: g.lat, lng: g.lng }; persist() }
+    if (!st.startLL) { msg = t("rt_geo_start"); draw(); const g = parseLatLng(st.start) || await geocode(st.start, st.cc, rewriteAddr); if (g.fail) throw new Error(t("rt_start_fail")); st.startLL = { lat: g.lat, lng: g.lng }; persist() }
     await locateAll(S);
     const ok = S.filter(s => s.lat != null && !s.fail), unplaced = S.filter(s => s.lat == null || s.fail);
     if (!ok.length) throw new Error(t("rt_no_coords"));
