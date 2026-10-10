@@ -26,7 +26,11 @@ test("delivery route: stops from scanned ship-to addresses, geocoded, ordered by
   await page.click("#go");
   await waitIdle(page);
   await page.click(".tab[data-tab=route]");
-  await expect(page.locator("#view")).toContainText("Stops: 3 selected of 3");
+  await expect(page.locator("#view")).toContainText("Delivery stops — 3 of 3 selected");
+  await expect(page.locator("#rt-plan")).toBeDisabled(); // nothing to plan from until the start is entered
+  await expect(page.locator("#view")).toContainText("Enter the driver start first");
+  await page.click("#rt-locate"); // look the stops up before planning: each gets a status
+  await expect(page.locator(".badge.ok")).toHaveCount(3);
   await expect(page.locator("#view")).not.toContainText("Supplier Road"); // the supplier's own address is not a stop
   await page.fill("#rt-start", "3.0, 101.5");
   await page.locator("#rt-start").dispatchEvent("change");
