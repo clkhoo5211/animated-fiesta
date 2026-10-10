@@ -7,11 +7,19 @@ const FIX = (n) => path.join(__dirname, "fixtures", n);
 const TYPES = { js: "text/javascript", mjs: "text/javascript", wasm: "application/wasm", map: "application/json" };
 
 /** @param {import('@playwright/test').BrowserContext} ctx */
-async function serve(ctx, { model } = {}) {
+async function serve(ctx, { model, geo } = {}) {
   const calls = [];
   await ctx.route("**/*", async (route) => {
     const url = route.request().url();
-    if (url.startsWith("http://app.test/")) return route.fulfill({ path: path.join(ROOT, "site/index.html"), contentType: "text/html" });
+    if (url.startsWith("http://app.test/")) {
+      const f = new URL(url).pathname.replace(/^\/+/, "") || "index.html";
+      const file = path.join(ROOT, "site", /^[\w.-]+$/.test(f) && fs.existsSync(path.join(ROOT, "site", f)) ? f : "index.html");
+      return route.fulfill({ path: file, contentType: file.endsWith(".js") ? "text/javascript" : "text/html" });
+    }
+    if (geo && (url.startsWith("https://nominatim.openstreetmap.org/") || url.startsWith("https://router.project-osrm.org/"))) {
+      const body = await geo(url);
+      return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(body) });
+    }
     const cdn = url.match(/(?:cdn|fastly)\.jsdelivr\.net\/npm\/((?:@[^/]+\/)?[^@/]+)@[^/]+\/(.*)$/);
     if (cdn) {
       const file = path.join(ROOT, "node_modules", cdn[1], cdn[2]);
