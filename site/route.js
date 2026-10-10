@@ -198,42 +198,56 @@ export function renderRoute(view, api) {
     .map(s => ({ ...s, ...(st.over[s.key] || {}) }));
   let plan = null, msg = "", review = null;
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
+  let editing = null;
+  const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok">✓ ${t("rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
+    : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
-    const S = stops(), on = S.filter(s => !s.skip);
-    let h = `<div class="sec"><h3>${t("rt_title")}</h3><p class="sub" style="margin:0 0 10px">${t("rt_intro")}</p>
-      <div class="grid2" style="gap:10px">
-        <label>${t("rt_start")}<input id="rt-start" value="${esc(st.start)}" placeholder="${esc(t("rt_start_ph"))}"></label>
-        <label>${t("rt_lorries")}<input id="rt-lorries" type="number" min="1" max="50" value="${st.lorries}"></label>
-        <label>${t("rt_time")}<input id="rt-time" type="time" value="${esc(st.time)}"></label>
-        <label>${t("rt_service")}<input id="rt-service" type="number" min="0" max="240" value="${st.service}"></label>
-        <label>${t("rt_maxstops")}<input id="rt-max" type="number" min="0" value="${st.maxStops}"></label>
-        <label>${t("rt_cc")}<input id="rt-cc" value="${esc(st.cc)}" maxlength="20"></label>
-      </div>
-      <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="rt-back" ${st.back ? "checked" : ""}> ${t("rt_back")}</label>
-      <p class="sub" style="margin:8px 0 0">${t("rt_privacy")}</p></div>`;
-    h += `<div class="sec"><h3>${t("rt_stops", { n: on.length, m: S.length })}</h3>`;
-    if (!S.length) h += `<p class="sub">${t("rt_none")}</p>`;
-    else h += `<div style="overflow:auto"><table class="tbl"><thead><tr><th></th><th>${t("rt_addr")}</th><th>${t("rt_name")}</th><th>${t("rt_refs")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => `<tr${s.skip ? ' style="opacity:.5"' : ""}>
-      <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"}></td><td>${esc(s.address)}</td><td>${esc(s.name)}</td><td>${esc(s.refs.join(", "))}</td>
-      <td><input data-ll="${i}" style="width:15em" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}">${s.fail ? ` <span class="badge warn">${t("rt_geo_fail")}</span>` : s.approx ? ` <span class="badge warn">${t("rt_geo_approx")}</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
-    h += `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input id="rt-new" style="flex:1;min-width:14em" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add">${t("rt_add")}</button></div></div>`;
-    h += `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="rt-plan" ${on.length && st.start ? "" : "disabled"}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg)}</span></div>`;
+    const S = stops(), on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
+    const fld = (id, label, attrs) => `<div class="f"><label for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
+    let h = `<p class="sub" style="margin:0 0 4px">${t("rt_intro")}</p>
+      <div class="sec"><h3>${t("rt_step1")}</h3><div class="box">
+        <div class="f"><label for="rt-start">${t("rt_start")}</label><div style="display:flex;gap:8px"><input id="rt-start" style="flex:1" value="${esc(st.start)}" placeholder="${esc(t("rt_start_ph"))}"><button class="btn sm" id="rt-here" type="button">${t("rt_here")}</button></div></div>
+        ${st.startLL ? `<p class="sub" style="margin:6px 0 0">${t("rt_start_ok")} <a target="_blank" rel="noopener" href="${esc(mapLink(st.startLL))}">${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}</a></p>` : ""}
+        <div class="row">${fld("rt-time", t("rt_time"), `type="time" value="${esc(st.time)}"`)}<div class="f"><label>&nbsp;</label><label class="chk" style="margin:0"><input type="checkbox" id="rt-back" ${st.back ? "checked" : ""}> ${t("rt_back")}</label></div></div>
+      </div></div>
+      <div class="sec"><h3>${t("rt_step2")}</h3><div class="box">
+        <div class="row">${fld("rt-lorries", t("rt_lorries"), `type="number" min="1" max="50" value="${st.lorries}"`)}${fld("rt-service", t("rt_service"), `type="number" min="0" max="240" value="${st.service}"`)}</div>
+        <div class="row">${fld("rt-max", t("rt_maxstops"), `type="number" min="0" value="${st.maxStops}"`)}${fld("rt-cc", t("rt_cc"), `value="${esc(st.cc)}" maxlength="20"`)}</div>
+      </div></div>
+      <div class="sec"><h3>${t("rt_step3", { n: on.length, m: S.length })}</h3>
+        <p class="sub" style="margin:0 0 8px">${t("rt_how")}</p>`;
+    if (!S.length) h += `<div class="box"><p class="sub" style="margin:0">${t("rt_none")}</p></div>`;
+    else h += `<div style="overflow:auto"><table><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_refs")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => `<tr${s.skip ? ' style="opacity:.5"' : ""}>
+      <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
+      <td>${s.name ? `<b>${esc(s.name)}</b><br>` : ""}<span class="sub">${esc(s.address)}</span></td><td class="sub">${esc(s.refs.join(", ")) || "—"}</td>
+      <td style="min-width:200px">${status(s)} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button>
+        ${editing === s.key ? `<div class="f" style="margin-top:6px"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+    h += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" class="f"><input id="rt-new" style="flex:1;min-width:14em;width:auto" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}</div></div>`;
+    h += `<div class="sec"><h3>${t("rt_step4")}</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg || need)}</span></div></div>`;
     if (plan) {
-      h += `<div class="sec"><h3>${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? " · " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
+      h += `<div class="sec"><h3>${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub" style="margin:0 0 8px">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? " · " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
       plan.routes.forEach((r, i) => {
-        h += `<div class="box" style="margin:8px 0"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4><ol style="margin:4px 0 6px 18px;padding:0">${r.stops.map((s, k) => `<li>${fmtT(r.eta[k])} · ${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol>${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a> `).join("")}</div>`;
+        h += `<div class="box" style="margin:8px 0"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4><ol style="margin:4px 0 8px 18px;padding:0">${r.stops.map((s, k) => `<li><b>${fmtT(r.eta[k])}</b> · ${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol>${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a> `).join("")}</div>`;
       });
       if (plan.unplaced.length) h += `<p class="sub">${t("rt_unplaced_d")}: ${plan.unplaced.map(s => esc(s.address)).join(" · ")}</p>`;
       h += `</div>`;
     }
     if (review) h += `<div class="sec"><h3>${t("rt_ai_h")}</h3><div class="box">${review.summary ? `<p>${esc(review.summary)}</p>` : ""}${(review.warnings || []).map(w => `<p>⚠ ${esc(w)}</p>`).join("")}${(review.suggestions || []).map(w => `<p>→ ${esc(w)}</p>`).join("")}<p class="sub">${t("rt_ai_note")}</p></div></div>`;
+    h += `<p class="sub" style="margin-top:16px">${t("rt_privacy")}</p>`;
     view.innerHTML = h;
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
     view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) st.startLL = null, persist(); draw() });
+    view.querySelector("#rt-here").onclick = () => {
+      if (!navigator.geolocation) { msg = t("rt_here_fail"); return draw() }
+      navigator.geolocation.getCurrentPosition(p => { st.startLL = { lat: p.coords.latitude, lng: p.coords.longitude }; st.start = `${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}`; persist(); msg = ""; draw() }, () => { msg = t("rt_here_fail"); draw() }, { timeout: 15000 });
+    };
     view.querySelectorAll("[data-skip]").forEach(el => el.onchange = () => { const s = S[+el.dataset.skip]; st.over[s.key] = { ...(st.over[s.key] || {}), skip: !el.checked }; persist(); draw() });
-    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll); else { delete o.lat; delete o.lng } st.over[s.key] = o; persist(); draw() });
+    view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; draw(); view.querySelector("[data-ll]")?.focus() });
+    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll); else { delete o.lat; delete o.lng } st.over[s.key] = o; editing = null; persist(); draw() });
     view.querySelector("#rt-add").onclick = () => { const v = view.querySelector("#rt-new").value.trim(); if (!v) return; st.manual.push({ address: v }); persist(); draw() };
+    const lb = view.querySelector("#rt-locate"); if (lb) lb.onclick = () => locateAll(stops().filter(s => !s.skip)).then(() => { msg = ""; draw() }).catch(e => { msg = String(e.message || e); draw() });
     const pb = view.querySelector("#rt-plan"); if (pb) pb.onclick = () => run().catch(e => { msg = String(e.message || e); draw() });
     const cb = view.querySelector("#rt-csv"); if (cb) cb.onclick = () => {
       const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, L = [["lorry", "seq", "eta", "name", "address", "documents", "lat", "lng"].join(",")];
@@ -246,6 +260,16 @@ export function renderRoute(view, api) {
       draw();
     };
   };
+  // look up every stop that has no location yet (results are cached, so this is quick the second time)
+  const locateAll = async S => {
+    let i = 0;
+    for (const s of S) {
+      i++; if (s.lat != null || s.fail) continue;
+      msg = t("rt_geo_prog", { i, n: S.length }); const m = view.querySelector("#rt-msg"); if (m) m.textContent = msg;
+      const g = parseLatLng(s.address) || await geocode(s.address, st.cc).catch(() => ({ fail: true }));
+      st.over[s.key] = { ...(st.over[s.key] || {}), ...g }; Object.assign(s, g); persist();
+    }
+  };
   const planSummary = () => ({
     start: st.start, lorries: st.lorries, depart: st.time, service_minutes: st.service, return_to_start: st.back, road_data: plan.source,
     routes: plan.routes.map((r, i) => ({ lorry: i + 1, km: +r.km.toFixed(1), hours: +(r.min / 60).toFixed(2), stops: r.stops.map((s, k) => ({ seq: k + 1, eta: fmtT(r.eta[k]), name: s.name, address: s.address, approx_location: !!s.approx })) })),
@@ -254,13 +278,7 @@ export function renderRoute(view, api) {
   const run = async () => {
     const S = stops().filter(s => !s.skip);
     if (!st.startLL) { msg = t("rt_geo_start"); draw(); const g = parseLatLng(st.start) || await geocode(st.start, st.cc); if (g.fail) throw new Error(t("rt_start_fail")); st.startLL = { lat: g.lat, lng: g.lng }; persist() }
-    let i = 0;
-    for (const s of S) {
-      i++; if (s.lat != null || s.fail) continue;
-      msg = t("rt_geo_prog", { i, n: S.length }); view.querySelector("#rt-msg").textContent = msg;
-      const g = parseLatLng(s.address) || await geocode(s.address, st.cc).catch(() => ({ fail: true }));
-      st.over[s.key] = { ...(st.over[s.key] || {}), ...g }; Object.assign(s, g); persist();
-    }
+    await locateAll(S);
     const ok = S.filter(s => s.lat != null && !s.fail), unplaced = S.filter(s => s.lat == null || s.fail);
     if (!ok.length) throw new Error(t("rt_no_coords"));
     msg = t("rt_matrix"); view.querySelector("#rt-msg").textContent = msg;
