@@ -6,12 +6,14 @@ In-browser document extraction: invoices, receipts, delivery orders, shipment li
 Images (incl. iPhone HEIC), PDF, Excel/CSV, Word and video → OpenAI-compatible or Anthropic models → arithmetic checks, A/B cross-verification, manual review, export. UI in English (default), 中文 and Bahasa Melayu.
 
 - Everything runs in the browser. Files go only to the model providers you configure. API keys are stored in this browser only if you tick “Remember”.
+- **Delivery route** tab: stops come from the scanned delivery / ship-to addresses (or added by hand); enter the driver's start and the number of lorries. Addresses are geocoded with OpenStreetMap Nominatim (cached), road times come from the public OSRM server (straight-line estimate above 100 stops), and routes are computed in the browser (sweep split between lorries, nearest neighbour, 2-opt / or-opt, moves between lorries). Output: stop order with ETAs, Google Maps links, CSV. The model only reviews the finished plan on request. Only addresses and coordinates leave the browser for routing.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `site/index.html` | The whole app (single file, libraries from jsDelivr with pinned versions) |
+| `site/index.html` | The app (libraries from jsDelivr with pinned versions) |
+| `site/route.js` | Delivery route planning (stops, geocoding, road matrix, optimiser) |
 | `tests/` | Playwright end-to-end tests + synthetic fixtures (`tests/fixtures/make_fixtures.py`) |
 | `proxy/` | Optional Cloudflare Worker CORS proxy |
 | `python/invoicelens.py` | Command-line / server version with the same prompt, checks, cross-check and reconciliation as the web app |
