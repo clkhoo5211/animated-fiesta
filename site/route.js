@@ -170,12 +170,16 @@ export function geoQueries(addr) {
 }
 // rewrite (optional): the language model turns a messy printed address into clean search queries
 // (abbreviations expanded, unit / floor / branch codes dropped). The coordinates always come from the map service, never from the model.
-export async function geocode(addr, cc, rewrite) {
+// pre: search queries the language model already wrote for this address (abbreviations expanded, unit / floor / branch codes
+// dropped); tried first, then the address as printed. rewrite (optional): asked only when nothing was found.
+// The coordinates always come from the map service, never from the model.
+export async function geocode(addr, cc, rewrite, pre = []) {
   const cache = load(GEO, {}), k = normAddr(addr) + "|" + (cc || "");
-  if (cache[k] && !(rewrite && cache[k].approx)) return cache[k];
+  if (cache[k] && !((rewrite || pre.length) && cache[k].approx)) return cache[k];
   let hit = null, approx = false, query = null;
-  for (const [i, q] of geoQueries(addr).entries()) { hit = await nominatim(q, cc); if (hit) { approx = i > 0; break } }
-  if ((!hit || approx) && rewrite) {
+  for (const q of pre.filter(x => typeof x === "string" && x.trim()).slice(0, 3)) { hit = await nominatim(q, cc); if (hit) { query = q; break } }
+  if (!hit) for (const [i, q] of geoQueries(addr).entries()) { hit = await nominatim(q, cc); if (hit) { approx = i > 0; break } }
+  if ((!hit || approx) && rewrite && !pre.length) {
     const qs = await rewrite(addr).catch(() => []);
     for (const q of (Array.isArray(qs) ? qs : []).filter(x => typeof x === "string" && x.trim()).slice(0, 3)) {
       const h = await nominatim(q, cc); if (h) { hit = h; approx = false; query = q; break }
@@ -185,6 +189,12 @@ export async function geocode(addr, cc, rewrite) {
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
+export const ADDRESS_BATCH_PROMPT = `Rewrite each numbered delivery address into search queries for a map geocoder (OpenStreetMap).
+Expand abbreviations (e.g. JLN -> Jalan, TMN -> Taman, LRG -> Lorong, KG -> Kampung, BDR -> Bandar), drop unit, floor, lot-in-building, branch / store codes and notes in brackets such as (GF) or (DA), keep street number, street, area, postcode, city and state. A leading company or shop name is not part of the address.
+For each address give up to 3 queries, most specific first (the last may be just "area, postcode city"). Do not invent anything that is not in the address.
+Answer as ONE JSON object: {"results":[{"n":1,"queries":["..."]}]}. Raw JSON only.
+ADDRESSES:
+`;
 export const ADDRESS_PROMPT = `Rewrite this delivery address into search queries for a map geocoder (OpenStreetMap).
 Expand abbreviations (e.g. JLN -> Jalan, TMN -> Taman, LRG -> Lorong, KG -> Kampung, BDR -> Bandar, PJU -> keep), drop unit, floor, lot-in-building, branch / store codes and notes in brackets such as (GF) or (DA), keep street number, street, area, postcode, city and state.
 Give up to 3 queries, most specific first (the last one may be just "area, postcode city"). Do not invent anything that is not in the address.
@@ -205,7 +215,7 @@ export async function roadMatrix(pts) {
 
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
-  const { t, esc, docs, askModel, rewriteAddr, dl } = api;
+  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const stops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
@@ -252,7 +262,7 @@ export function renderRoute(view, api) {
     view.innerHTML = h;
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
-    view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) st.startLL = null, persist(); draw() });
+    view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) { st.startLL = null; persist(); locateStart() } draw() });
     view.querySelector("#rt-here").onclick = () => {
       if (!navigator.geolocation) { msg = t("rt_here_fail"); return draw() }
       navigator.geolocation.getCurrentPosition(p => { st.startLL = { lat: p.coords.latitude, lng: p.coords.longitude }; st.start = `${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}`; persist(); msg = ""; draw() }, () => { msg = t("rt_here_fail"); draw() }, { timeout: 15000 });
@@ -261,7 +271,8 @@ export function renderRoute(view, api) {
     view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; draw(); view.querySelector("[data-ll]")?.focus() });
     view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll); else { delete o.lat; delete o.lng } st.over[s.key] = o; editing = null; persist(); draw() });
     view.querySelector("#rt-add").onclick = () => { const v = view.querySelector("#rt-new").value.trim(); if (!v) return; st.manual.push({ address: v }); persist(); draw() };
-    const lb = view.querySelector("#rt-locate"); if (lb) lb.onclick = () => locateAll(stops().filter(s => !s.skip)).then(() => { msg = ""; draw() }).catch(e => { msg = String(e.message || e); draw() });
+    const lb = view.querySelector("#rt-locate"); if (lb) lb.onclick = () => locate();
+    if (!locating && S.some(needs)) setTimeout(locate, 0);
     const pb = view.querySelector("#rt-plan"); if (pb) pb.onclick = () => run().catch(e => { msg = String(e.message || e); draw() });
     const cb = view.querySelector("#rt-csv"); if (cb) cb.onclick = () => {
       const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, L = [["lorry", "seq", "eta", "name", "address", "documents", "lat", "lng"].join(",")];
@@ -275,15 +286,36 @@ export function renderRoute(view, api) {
     };
   };
   // look up every stop that has no location yet (results are cached, so this is quick the second time)
+  // every stop without a location is looked up as soon as it appears. With a model configured, model A first rewrites all
+  // pending addresses in one call into clean search text; the map service then finds the coordinates.
+  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)));
+  let locating = null;
+  const locate = () => locating || (locating = locateAll(stops().filter(needs)).catch(e => { msg = String(e.message || e) }).finally(() => { locating = null; draw() }));
   const locateAll = async S => {
+    if (!S.length) return;
+    const show = m => { msg = m; const el = view.querySelector("#rt-msg"); if (el) el.textContent = m };
+    const pre = new Map();
+    if (rewriteMany) {
+      show(t("rt_ai_addr"));
+      for (let i = 0; i < S.length; i += 25) {
+        const chunk = S.slice(i, i + 25), r = await rewriteMany(chunk.map(s => s.address)).catch(() => []);
+        chunk.forEach((s, k) => pre.set(s.key, Array.isArray(r[k]) ? r[k] : []));
+      }
+    }
     let i = 0;
     for (const s of S) {
-      i++; if ((s.lat != null && !(rewriteAddr && s.approx && !s.aiTried)) || (s.fail && !(rewriteAddr && !s.aiTried))) continue;
-      msg = t("rt_geo_prog", { i, n: S.length }); const m = view.querySelector("#rt-msg"); if (m) m.textContent = msg;
-      const g = parseLatLng(s.address) || await geocode(s.address, st.cc, rewriteAddr).catch(() => ({ fail: true }));
+      show(t("rt_geo_prog", { i: ++i, n: S.length }));
+      const g = parseLatLng(s.address) || await geocode(s.address, st.cc, null, pre.get(s.key) || []).catch(() => ({ fail: true }));
       const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
-      st.over[s.key] = { ...o, ...g, ...(rewriteAddr ? { aiTried: true } : {}) }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
+      st.over[s.key] = { ...o, ...g, ...(rewriteMany ? { aiTried: true } : {}) }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
     }
+    msg = "";
+  };
+  const locateStart = async () => {
+    if (!st.start || st.startLL) return;
+    const g = parseLatLng(st.start) || await geocode(st.start, st.cc, rewriteAddr).catch(() => ({ fail: true }));
+    if (g.fail) msg = t("rt_start_fail"); else { st.startLL = { lat: g.lat, lng: g.lng }; persist() }
+    draw();
   };
   const planSummary = () => ({
     start: st.start, lorries: st.lorries, depart: st.time, service_minutes: st.service, return_to_start: st.back, road_data: plan.source,
@@ -293,7 +325,7 @@ export function renderRoute(view, api) {
   const run = async () => {
     const S = stops().filter(s => !s.skip);
     if (!st.startLL) { msg = t("rt_geo_start"); draw(); const g = parseLatLng(st.start) || await geocode(st.start, st.cc, rewriteAddr); if (g.fail) throw new Error(t("rt_start_fail")); st.startLL = { lat: g.lat, lng: g.lng }; persist() }
-    await locateAll(S);
+    await locate();
     const ok = S.filter(s => s.lat != null && !s.fail), unplaced = S.filter(s => s.lat == null || s.fail);
     if (!ok.length) throw new Error(t("rt_no_coords"));
     msg = t("rt_matrix"); view.querySelector("#rt-msg").textContent = msg;
