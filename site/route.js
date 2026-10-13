@@ -218,8 +218,10 @@ export function renderRoute(view, api) {
   const { t, esc, docs, askModel, rewriteAddr, rewriteMany, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
-  const stops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
+  const allStops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
     .map(s => ({ ...s, ...(st.over[s.key] || {}) }));
+  // a removed stop is gone from the list and the plan; one from a document can be brought back ("restore"), a hand-added one is deleted
+  const stops = () => allStops().filter(x => !x.removed);
   let plan = null, msg = "", review = null;
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
   let editing = null;
@@ -227,7 +229,7 @@ export function renderRoute(view, api) {
   const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
-    const S = stops(), on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
+    const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
     const fld = (id, label, attrs) => `<div class="f"><label for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
     let h = `<p class="sub" style="margin:0 0 4px">${t("rt_intro")}</p>
       <div class="sec"><h3>${t("rt_step1")}</h3><div class="box">
@@ -245,9 +247,9 @@ export function renderRoute(view, api) {
     else h += `<div style="overflow:auto"><table><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_refs")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => `<tr${s.skip ? ' style="opacity:.5"' : ""}>
       <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
       <td>${s.name ? `<b>${esc(s.name)}</b><br>` : ""}<span class="sub">${esc(s.address)}</span></td><td class="sub">${esc(s.refs.join(", ")) || "—"}</td>
-      <td style="min-width:200px">${status(s)} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button>
+      <td style="min-width:200px">${status(s)} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button> <button class="btn sm" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">✕</button>
         ${editing === s.key ? `<div class="f" style="margin-top:6px"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
-    h += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" class="f"><input id="rt-new" style="flex:1;min-width:14em;width:auto" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}</div></div>`;
+    h += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" class="f"><input id="rt-new" style="flex:1;min-width:14em;width:auto" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div></div>`;
     h += `<div class="sec"><h3>${t("rt_step4")}</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg || need)}</span></div></div>`;
     if (plan) {
       h += `<div class="sec"><h3>${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub" style="margin:0 0 8px">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? " · " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
@@ -259,7 +261,10 @@ export function renderRoute(view, api) {
     }
     if (review) h += `<div class="sec"><h3>${t("rt_ai_h")}</h3><div class="box">${review.summary ? `<p>${esc(review.summary)}</p>` : ""}${(review.warnings || []).map(w => `<p>⚠ ${esc(w)}</p>`).join("")}${(review.suggestions || []).map(w => `<p>→ ${esc(w)}</p>`).join("")}<p class="sub">${t("rt_ai_note")}</p></div></div>`;
     h += `<p class="sub" style="margin-top:16px">${t("rt_privacy")}</p>`;
+    // background lookups redraw the page: keep what the user is typing (and where) so it is not wiped
+    const act = document.activeElement, keep = [...view.querySelectorAll("input[id]:not([type=checkbox])")].filter(el => el.id === "rt-new" || el === act).map(el => [el.id, el.value, el === act, el.selectionStart]);
     view.innerHTML = h;
+    for (const [id, v, focused, pos] of keep) { const el = view.querySelector("#" + id); if (!el) continue; el.value = v; if (focused) { el.focus(); try { el.setSelectionRange(pos, pos) } catch {} } }
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
     view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) { st.startLL = null; persist(); locateStart() } draw() });
@@ -268,6 +273,14 @@ export function renderRoute(view, api) {
       navigator.geolocation.getCurrentPosition(p => { st.startLL = { lat: p.coords.latitude, lng: p.coords.longitude }; st.start = `${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}`; persist(); msg = ""; draw() }, () => { msg = t("rt_here_fail"); draw() }, { timeout: 15000 });
     };
     view.querySelectorAll("[data-skip]").forEach(el => el.onchange = () => { const s = S[+el.dataset.skip]; st.over[s.key] = { ...(st.over[s.key] || {}), skip: !el.checked }; persist(); draw() });
+    view.querySelectorAll("[data-del]").forEach(el => el.onclick = () => {
+      const s = S[+el.dataset.del];
+      if (s.src === "manual") { st.manual = st.manual.filter(m => normAddr(m.address) !== s.key); delete st.over[s.key] }
+      else st.over[s.key] = { ...(st.over[s.key] || {}), removed: true };
+      if (editing === s.key) editing = null;
+      plan = null; review = null; persist(); draw();
+    });
+    const rs = view.querySelector("#rt-restore"); if (rs) rs.onclick = () => { for (const k in st.over) delete st.over[k].removed; plan = null; persist(); draw() };
     view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; draw(); view.querySelector("[data-ll]")?.focus() });
     view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll); else { delete o.lat; delete o.lng } st.over[s.key] = o; editing = null; persist(); draw() });
     view.querySelector("#rt-add").onclick = () => { const v = view.querySelector("#rt-new").value.trim(); if (!v) return; st.manual.push({ address: v }); persist(); draw() };
