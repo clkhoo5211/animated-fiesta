@@ -261,7 +261,10 @@ export function renderRoute(view, api) {
     }
     if (review) h += `<div class="sec"><h3>${t("rt_ai_h")}</h3><div class="box">${review.summary ? `<p>${esc(review.summary)}</p>` : ""}${(review.warnings || []).map(w => `<p>⚠ ${esc(w)}</p>`).join("")}${(review.suggestions || []).map(w => `<p>→ ${esc(w)}</p>`).join("")}<p class="sub">${t("rt_ai_note")}</p></div></div>`;
     h += `<p class="sub" style="margin-top:16px">${t("rt_privacy")}</p>`;
+    // background lookups redraw the page: keep what the user is typing (and where) so it is not wiped
+    const act = document.activeElement, keep = [...view.querySelectorAll("input[id]:not([type=checkbox])")].filter(el => el.id === "rt-new" || el === act).map(el => [el.id, el.value, el === act, el.selectionStart]);
     view.innerHTML = h;
+    for (const [id, v, focused, pos] of keep) { const el = view.querySelector("#" + id); if (!el) continue; el.value = v; if (focused) { el.focus(); try { el.setSelectionRange(pos, pos) } catch {} } }
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
     view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) { st.startLL = null; persist(); locateStart() } draw() });

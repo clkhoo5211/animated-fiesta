@@ -98,7 +98,8 @@ test("as soon as the stops appear, model A reads the addresses and the map locat
 test("stops can be removed: a hand-added stop is deleted, a document stop is hidden and can be restored", async ({ page, context }) => {
   await serve(context, {
     model: () => ({ json: { document_type: "delivery_order", document_number: "DO-1", parties: [{ role: "ship_to", name: "SHOP A", address: "SHOP A, 10 Jalan A, 41000 Klang" }], tables: [] } }),
-    geo: () => [{ lat: "3.0", lon: "101.6" }],
+    // a slow map reply: the page redraws while the user is typing a new stop
+    geo: async () => { await new Promise((r) => setTimeout(r, 700)); return [{ lat: "3.0", lon: "101.6" }] },
   });
   await preset(page);
   await page.goto("/");
@@ -106,7 +107,7 @@ test("stops can be removed: a hand-added stop is deleted, a document stop is hid
   await page.click("#go");
   await waitIdle(page);
   await page.click(".tab[data-tab=route]");
-  await page.fill("#rt-new", "3.1, 101.7");
+  await page.locator("#rt-new").pressSequentially("3.1, 101.7", { delay: 80 });
   await page.click("#rt-add");
   await expect(page.locator("#view")).toContainText("Delivery stops — 2 of 2 selected");
   await page.locator("[data-del]").nth(1).click(); // the hand-added one: deleted for good
