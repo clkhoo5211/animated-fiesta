@@ -226,8 +226,8 @@ export async function geocode(addr, cc, rewrite, pre = []) {
       const h = await tryQ(q); if (h) { hit = h; approx = false; query = q; break }
     }
   }
-  let res = hit ? { lat: hit.lat, lng: hit.lng, approx, ...(query ? { ai: query } : {}) } : { fail: true };
-  if (!hit && other) res = { lat: other.lat, lng: other.lng, approx: true, pcMismatch: other.pc };
+  let res = hit ? { lat: hit.lat, lng: hit.lng, label: hit.label, approx, ...(query ? { ai: query } : {}) } : { fail: true };
+  if (!hit && other) res = { lat: other.lat, lng: other.lng, label: other.label, approx: true, pcMismatch: other.pc };
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
@@ -275,7 +275,7 @@ export function renderRoute(view, api) {
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
   let editing = null;
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
-  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
+  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
