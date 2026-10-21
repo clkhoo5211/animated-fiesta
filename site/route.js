@@ -37,7 +37,36 @@ export function collectStops(docs) {
       for (const row of t.rows || []) if (Array.isArray(row) && row[ai]) add(row[ai], ni >= 0 ? row[ni] : "", ref, "table");
     }
   }
-  return [...out.values()];
+  return mergeNearDuplicates([...out.values()]);
+}
+// the same address read twice (two copies of one invoice, a slightly different scan) is one stop:
+// same postcode and nearly the same text (character-pair similarity), e.g. "TANAH MERAM … OLN MELUR" vs "TANAH MERAH … JLN MELUR"
+export const postcodeOf = a => (String(a ?? "").match(/\b\d{5}\b/g) || []).pop() || "";
+export function similarity(a, b) {
+  const g = x => { const s = normAddr(x).replace(/[^A-Z0-9]/g, ""), m = new Map(); for (let i = 0; i < s.length - 1; i++) { const k = s.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1) } return [m, Math.max(0, s.length - 1)] };
+  const [ga, na] = g(a), [gb, nb] = g(b); if (!na || !nb) return 0;
+  let both = 0; for (const [k, v] of ga) both += Math.min(v, gb.get(k) || 0);
+  return 2 * both / (na + nb);
+}
+// near-identical text alone is not enough (two shops can differ by one letter): it must also be the same document
+// (equal or OCR-close number), carry the same longer numbers (outlet code, lot / house number), or be practically identical
+const longNums = (a, pc) => [...new Set((normAddr(a).match(/\b\d{3,}\b/g) || []).filter(n => n !== pc))].sort().join(",");
+function sameStop(o, s, pc) {
+  const sim = similarity(o.address, s.address); if (sim < 0.8) return false;
+  if (sim >= 0.93) return true;
+  if (o.refs.some(a => s.refs.some(b => a === b || (a.length > 5 && similarity(a, b) >= 0.8)))) return true;
+  const n = longNums(o.address, pc); return !!n && n === longNums(s.address, pc);
+}
+export function mergeNearDuplicates(list) {
+  const out = [];
+  for (const s of list) {
+    const pc = postcodeOf(s.address), twin = pc && out.find(o => postcodeOf(o.address) === pc && sameStop(o, s, pc));
+    if (!twin) { out.push({ ...s, refs: [...s.refs] }); continue }
+    for (const r of s.refs) if (!twin.refs.includes(r)) twin.refs.push(r);
+    if (!twin.name && s.name) twin.name = s.name;
+    (twin.variants ||= []).push(s.address);
+  }
+  return out;
 }
 
 /* ---------- geometry ---------- */
@@ -143,7 +172,8 @@ export function routeStats(r, M, back, serviceMin, startMin) {
 }
 export function mapsLinks(start, stops, back) {
   // Google Maps takes up to 9 waypoints per link: long routes are split into consecutive legs
-  const ll = p => `${p.lat},${p.lng}`, seq = [start, ...stops, ...(back ? [start] : [])], out = [];
+  // stops at the same spot (two invoices for one shop) are one waypoint
+  const ll = p => `${p.lat},${p.lng}`, seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
   for (let i = 0; i < seq.length - 1; i += 10) {
     const part = seq.slice(i, i + 11); if (part.length < 2) break;
     const w = part.slice(1, -1).map(ll).join("|");
@@ -157,9 +187,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let lastGeo = 0;
 async function nominatim(q, cc) {
   const wait = 1100 - (Date.now() - lastGeo); if (wait > 0) await sleep(wait); lastGeo = Date.now();   // usage policy: max 1 request per second
-  const u = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=0${cc ? "&countrycodes=" + encodeURIComponent(cc) : ""}&q=${encodeURIComponent(q)}`;
+  const u = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1${cc ? "&countrycodes=" + encodeURIComponent(cc) : ""}&q=${encodeURIComponent(q)}`;
   const r = await fetch(u, { headers: { "Accept-Language": "en" } }); if (!r.ok) throw new Error("geocoder HTTP " + r.status);
-  const j = await r.json(); return j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name } : null;
+  const j = await r.json(); return j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name, pc: j[0].address?.postcode || postcodeOf(j[0].display_name) } : null;
 }
 // full address first; then from the postcode onwards (unit / lot numbers often confuse the geocoder)
 export function geoQueries(addr) {
@@ -176,18 +206,29 @@ export function geoQueries(addr) {
 export async function geocode(addr, cc, rewrite, pre = []) {
   const cache = load(GEO, {}), k = normAddr(addr) + "|" + (cc || "");
   if (cache[k] && !((rewrite || pre.length) && cache[k].approx)) return cache[k];
-  let hit = null, approx = false, query = null;
-  for (const q of pre.filter(x => typeof x === "string" && x.trim()).slice(0, 3)) { hit = await nominatim(q, cc); if (hit) { query = q; break } }
-  if (!hit) for (const [i, q] of geoQueries(addr).entries()) { hit = await nominatim(q, cc); if (hit) { approx = i > 0; break } }
+  // a hit in another postcode is a wrong match (a same-named street elsewhere): keep looking, use it only as a last resort
+  const want = postcodeOf(addr), ok = h => h && !(want && h.pc && String(h.pc).replace(/\s/g, "") !== want);
+  let hit = null, approx = false, query = null, other = null;
+  const tryQ = async q => { const h = await nominatim(q, cc); if (ok(h)) return h; if (h && !other) other = h; return null };
+  for (const q of pre.filter(x => typeof x === "string" && x.trim()).slice(0, 3)) { hit = await tryQ(q); if (hit) { query = q; break } }
+  if (!hit) for (const [i, q] of geoQueries(addr).entries()) { hit = await tryQ(q); if (hit) { approx = i > 0; break } }
   if ((!hit || approx) && rewrite && !pre.length) {
     const qs = await rewrite(addr).catch(() => []);
     for (const q of (Array.isArray(qs) ? qs : []).filter(x => typeof x === "string" && x.trim()).slice(0, 3)) {
-      const h = await nominatim(q, cc); if (h) { hit = h; approx = false; query = q; break }
+      const h = await tryQ(q); if (h) { hit = h; approx = false; query = q; break }
     }
   }
-  const res = hit ? { lat: hit.lat, lng: hit.lng, approx, ...(query ? { ai: query } : {}) } : { fail: true };
+  let res = hit ? { lat: hit.lat, lng: hit.lng, approx, ...(query ? { ai: query } : {}) } : { fail: true };
+  if (!hit && other) res = { lat: other.lat, lng: other.lng, approx: true, pcMismatch: other.pc };
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
+}
+// a stop far from every other stop is usually a wrong location or a document that belongs to another trip
+export function farStops(pts) {
+  if (pts.length < 4) return [];
+  const nn = pts.map((p, i) => Math.min(...pts.map((q, j) => i === j ? Infinity : haversineKm(p, q))));
+  const med = [...nn].sort((a, b) => a - b)[Math.floor(nn.length / 2)];
+  return pts.map((p, i) => ({ p, km: nn[i] })).filter(x => x.km > Math.max(30, 6 * med));
 }
 export const ADDRESS_BATCH_PROMPT = `Rewrite each numbered delivery address into search queries for a map geocoder (OpenStreetMap).
 Expand abbreviations (e.g. JLN -> Jalan, TMN -> Taman, LRG -> Lorong, KG -> Kampung, BDR -> Bandar), drop unit, floor, lot-in-building, branch / store codes and notes in brackets such as (GF) or (DA), keep street number, street, area, postcode, city and state. A leading company or shop name is not part of the address.
@@ -246,15 +287,16 @@ export function renderRoute(view, api) {
     if (!S.length) h += `<div class="box"><p class="sub" style="margin:0">${t("rt_none")}</p></div>`;
     else h += `<div style="overflow:auto"><table><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_refs")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => `<tr${s.skip ? ' style="opacity:.5"' : ""}>
       <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
-      <td>${s.name ? `<b>${esc(s.name)}</b><br>` : ""}<span class="sub">${esc(s.address)}</span></td><td class="sub">${esc(s.refs.join(", ")) || "—"}</td>
+      <td>${s.name ? `<b>${esc(s.name)}</b><br>` : ""}<span class="sub">${esc(s.address)}</span>${s.variants ? `<br><span class="badge" style="background:var(--soft);color:var(--mut)" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</td><td class="sub">${esc(s.refs.join(", ")) || "—"}</td>
       <td style="min-width:200px">${status(s)} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button> <button class="btn sm" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">✕</button>
         ${editing === s.key ? `<div class="f" style="margin-top:6px"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
     h += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" class="f"><input id="rt-new" style="flex:1;min-width:14em;width:auto" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div></div>`;
     h += `<div class="sec"><h3>${t("rt_step4")}</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg || need)}</span></div></div>`;
     if (plan) {
       h += `<div class="sec"><h3>${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub" style="margin:0 0 8px">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? " · " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
+      if (plan.far.size) h += `<div class="box" style="border-color:var(--bad);margin:8px 0"><b>⚠ ${t("rt_far_h", { n: plan.far.size })}</b><p class="sub" style="margin:4px 0 0">${t("rt_far_d")}</p><ul style="margin:6px 0 0 18px;padding:0">${[...plan.far].map(([k, km]) => { const s = ok_(k); return `<li>${esc(s ? (s.name ? s.name + " — " : "") + s.address : k)} <span class="sub">(${t("rt_far_km", { km: km.toFixed(0) })}${s?.refs?.length ? " · " + esc(s.refs.join(", ")) : ""})</span></li>` }).join("")}</ul></div>`;
       plan.routes.forEach((r, i) => {
-        h += `<div class="box" style="margin:8px 0"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4><ol style="margin:4px 0 8px 18px;padding:0">${r.stops.map((s, k) => `<li><b>${fmtT(r.eta[k])}</b> · ${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol>${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a> `).join("")}</div>`;
+        h += `<div class="box" style="margin:8px 0"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4><ol style="margin:4px 0 8px 18px;padding:0">${r.min > 10 * 60 ? `<p class="sub" style="margin:0 0 6px;color:var(--warn)">⚠ ${t("rt_long", { h: (r.min / 60).toFixed(1), k: Math.ceil(plan.min / (9 * 60)) })}</p>` : ""}${r.stops.map((s, k) => `<li${plan.far.has(s.key) ? ' style="color:var(--bad)"' : ""}><b>${fmtT(r.eta[k])}</b> · ${plan.far.has(s.key) ? "⚠ " : ""}${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol>${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a> `).join("")}</div>`;
       });
       if (plan.unplaced.length) h += `<p class="sub">${t("rt_unplaced_d")}: ${plan.unplaced.map(s => esc(s.address)).join(" · ")}</p>`;
       h += `</div>`;
@@ -330,9 +372,10 @@ export function renderRoute(view, api) {
     if (g.fail) msg = t("rt_start_fail"); else { st.startLL = { lat: g.lat, lng: g.lng }; persist() }
     draw();
   };
+  const ok_ = k => plan.routes.flatMap(r => r.stops).find(x => x.key === k);
   const planSummary = () => ({
     start: st.start, lorries: st.lorries, depart: st.time, service_minutes: st.service, return_to_start: st.back, road_data: plan.source,
-    routes: plan.routes.map((r, i) => ({ lorry: i + 1, km: +r.km.toFixed(1), hours: +(r.min / 60).toFixed(2), stops: r.stops.map((s, k) => ({ seq: k + 1, eta: fmtT(r.eta[k]), name: s.name, address: s.address, approx_location: !!s.approx })) })),
+    routes: plan.routes.map((r, i) => ({ lorry: i + 1, km: +r.km.toFixed(1), hours: +(r.min / 60).toFixed(2), stops: r.stops.map((s, k) => ({ seq: k + 1, eta: fmtT(r.eta[k]), name: s.name, address: s.address, approx_location: !!s.approx, far_from_other_stops_km: plan.far.has(s.key) ? Math.round(plan.far.get(s.key)) : undefined })) })),
     not_placed: plan.unplaced.map(s => s.address),
   });
   const run = async () => {
@@ -348,7 +391,7 @@ export function renderRoute(view, api) {
       const s = routeStats(r, M, st.back, st.service, t0), stopsR = r.map(x => pts[x]);
       return { stops: stopsR, ...s, links: mapsLinks(st.startLL, stopsR, st.back) };
     });
-    plan = { routes, unplaced, source: M.source, t0, km: routes.reduce((a, r) => a + r.km, 0), min: routes.reduce((a, r) => a + r.min, 0) };
+    plan = { routes, unplaced, source: M.source, t0, km: routes.reduce((a, r) => a + r.km, 0), min: routes.reduce((a, r) => a + r.min, 0), far: new Map(farStops(ok).map(x => [x.p.key, x.km])) };
     review = null; msg = ""; draw();
   };
   draw();
