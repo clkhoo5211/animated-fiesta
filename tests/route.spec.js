@@ -41,7 +41,8 @@ test("delivery route: stops from scanned ship-to addresses, geocoded, ordered by
   const stops = await page.locator("ol li").allInnerTexts();
   expect(stops.map((s) => s.match(/SHOP \w/)[0])).toEqual(["SHOP B", "SHOP A", "SHOP C"]);
   await expect(page.locator("#view")).toContainText("Road distances and times: OSRM");
-  expect(await page.locator("a:has-text('Open in Google Maps')").first().getAttribute("href")).toContain("origin=3,101.5");
+  expect(await page.locator("a:has-text('Open in Google Maps')").first().getAttribute("href")).toContain("origin=3%2C101.5");
+  expect(decodeURIComponent(await page.locator("a:has-text('Open in Google Maps')").first().getAttribute("href"))).toContain("SHOP B, 10 Jalan B, 41000 Klang, Malaysia|SHOP A");
 
   // two lorries returning to the start: one goes west, one east, so both are back sooner; every stop still served once
   await page.check("#rt-back");
@@ -143,7 +144,7 @@ test("two copies of one invoice read slightly differently are one stop; geocoder
   expect(r.n).toBe(4);
   expect(r.merged).toEqual([1, 1, 0, 0]);
   expect(r.far).toEqual(["jb"]);
-  expect(r.links).toContain("destination=2,2&waypoints=1%2C1"); // the repeated spot is one waypoint
+  expect(r.links).toContain("destination=2%2C2&waypoints=1%2C1"); // the repeated spot is one waypoint
 
   // the geocoder's first answer is a same-named street in another postcode: rejected, the next query is used
   await page.evaluate(() => localStorage.clear());
