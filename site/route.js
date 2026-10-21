@@ -170,14 +170,22 @@ export function routeStats(r, M, back, serviceMin, startMin) {
   if (back) { km += M.dist[p][0] / 1000; sec += M.dur[p][0] }
   return { km, min: sec / 60, eta };
 }
+// store codes ("3912", "(DD)"), floor notes and "NS" branch prefixes are internal; Google needs street, area, postcode, state
+export function cleanAddr(a) {
+  let t = String(a).replace(/\s*\n\s*/g, ", ").replace(/\(\s*(?:GF|G|GROUND FLOOR)\s*\)/gi, "").replace(/\(\s*[A-Z]{1,4}\s*\)/g, "")
+    .replace(/^\s*\d{3,4}\b[\s,—-]*/, "").replace(/\b(?:NS|RS)\s+(?=(?:TMN|TAMAN|PUSAT|PST|BDR|BANDAR|PP|MEDAN)\b)/i, "").replace(/\bDARUL KHU?S?\.?$/i, "").replace(/\s+/g, " ").trim();
+  return /malaysia/i.test(t) ? t : t + ", Malaysia";
+}
 export function mapsLinks(start, stops, back) {
   // Google Maps takes up to 9 waypoints per link: long routes are split into consecutive legs
   // stops at the same spot (two invoices for one shop) are one waypoint
-  const ll = p => `${p.lat},${p.lng}`, seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
+  // a stop is sent to Google as its printed address (cleaned): Google's own search knows Malaysian shops and lots far better
+  // than a coordinate from the open map, which can land on a neighbouring business. Coordinates only when there is no address.
+  const ll = p => `${p.lat},${p.lng}`, wp = p => p.address ? cleanAddr(p.address) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
   for (let i = 0; i < seq.length - 1; i += 10) {
     const part = seq.slice(i, i + 11); if (part.length < 2) break;
-    const w = part.slice(1, -1).map(ll).join("|");
-    out.push(`https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${ll(part[0])}&destination=${ll(part.at(-1))}${w ? "&waypoints=" + encodeURIComponent(w) : ""}`);
+    const w = part.slice(1, -1).map(wp).join("|");
+    out.push(`https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(wp(part[0]))}&destination=${encodeURIComponent(wp(part.at(-1)))}${w ? "&waypoints=" + encodeURIComponent(w) : ""}`);
   }
   return out;
 }
@@ -218,8 +226,8 @@ export async function geocode(addr, cc, rewrite, pre = []) {
       const h = await tryQ(q); if (h) { hit = h; approx = false; query = q; break }
     }
   }
-  let res = hit ? { lat: hit.lat, lng: hit.lng, approx, ...(query ? { ai: query } : {}) } : { fail: true };
-  if (!hit && other) res = { lat: other.lat, lng: other.lng, approx: true, pcMismatch: other.pc };
+  let res = hit ? { lat: hit.lat, lng: hit.lng, label: hit.label, approx, ...(query ? { ai: query } : {}) } : { fail: true };
+  if (!hit && other) res = { lat: other.lat, lng: other.lng, label: other.label, approx: true, pcMismatch: other.pc };
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
@@ -267,7 +275,7 @@ export function renderRoute(view, api) {
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
   let editing = null;
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
-  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>`
+  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";

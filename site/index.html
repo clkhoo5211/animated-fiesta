@@ -455,7 +455,22 @@ Rules:
 Raw JSON only, no markdown.`;
 const canvasToJpeg=c=>c.toDataURL("image/jpeg",0.95).split(",")[1];
 const b64ToBlob=b=>new Blob([Uint8Array.from(atob(b),ch=>ch.charCodeAt(0))],{type:"image/jpeg"});
-const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");try{return JSON.parse(t)}catch{const m=t.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{raw:t}}};
+/* models sometimes leave a bare quote inside a string (7.5" pack sizes) or drop a comma between elements;
+   repair walks the text once: a quote that does not end a value is escaped, and a missing comma is inserted */
+function repairJSON(t){let o="",inS=false;for(let i=0;i<t.length;i++){const c=t[i];
+    if(inS){if(c==="\\"){o+=c+(t[++i]??"");continue}
+      if(c==='"'){const nx=t.slice(i+1).match(/^\s*(.)/)?.[1];if(nx&&!",}]:".includes(nx)){o+='\\"';continue}inS=false}o+=c;continue}
+    if(c==='"'&&/["}\]\d]\s*$|\b(?:true|false|null)\s*$/.test(o))o+=",";if(c==='"')inS=true;
+    if((c==="{"||c==="[")&&/[}\]"]\s*$/.test(o))o+=",";o+=c}
+  return o.replace(/,\s*([}\]])/g,"$1")}
+const parseJSON=t=>{t=t.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");const m=t.match(/\{[\s\S]*\}/),b=m?m[0]:t;
+  for(const x of [t,b,repairJSON(b)]){try{return JSON.parse(x)}catch{}}return {raw:t}};
+/* share of the page covered by its largest drawn image (pdf.js operator list; the image fills its unit square under the CTM) */
+async function scanCover(p,pdfjs,vp){try{const ops=await p.getOperatorList(),O=pdfjs.OPS;let ctm=[1,0,0,1,0,0],st=[],best=0;
+  const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+  ops.fnArray.forEach((f,i)=>{if(f===O.save)st.push(ctm);else if(f===O.restore)ctm=st.pop()||ctm;else if(f===O.transform)ctm=mul(ctm,ops.argsArray[i]);
+    else if(f===O.paintImageXObject||f===O.paintJpegXObject||f===O.paintInlineImageXObject)best=Math.max(best,Math.abs(ctm[0]*ctm[3]-ctm[1]*ctm[2]))});
+  return best/(vp.width*vp.height)>=0.5}catch{return false}}
 
 async function ingest(file){
   const n=file.name.toLowerCase(), segs=[], kind=kindOf(file);
@@ -482,10 +497,12 @@ async function ingest(file){
       const p=await pdf.getPage(i),text=(await p.getTextContent()).items.map(x=>x.str).join(" ");
       // a scanned page (no text layer) is rendered near its scan resolution (~200 dpi, longest side ≤ 2600 px):
       // at 144 dpi thin or faded strokes break into dots and the model starts guessing letters
-      const base=p.getViewport({scale:1}),scan=text.replace(/\s/g,"").length<200,vp=p.getViewport({scale:scan?Math.min(200/72,2600/Math.max(base.width,base.height)):2}),c=document.createElement("canvas");
+      const base=p.getViewport({scale:1}),cover=await scanCover(p,pdfjs,base),scan=cover||text.replace(/\s/g,"").length<200,vp=p.getViewport({scale:scan?Math.min(200/72,2600/Math.max(base.width,base.height)):2}),c=document.createElement("canvas");
       c.width=vp.width;c.height=vp.height;await p.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
       // pages with a real text layer are sent as text (exact digits, fewer tokens); the image is kept for preview + local QR
-      const textOnly=S.pdf_text!=="image"&&text.replace(/\s/g,"").length>=200;
+      // a scan carrying an OCR layer (a page-sized image under the text) is still a scan: its OCR text is
+      // often garbled ("1 2 5 . 1 6", "TMN GADONG INDAN"), so it goes to the model as an image, like other scans
+      const textOnly=S.pdf_text!=="image"&&text.replace(/\s/g,"").length>=200&&!cover;
       segs.push({id:`Page_${i}`,b64:canvasToJpeg(c),text:textOnly?text.slice(0,MAX_TEXT):text,...(textOnly?{kind:"text",source:t("pdf_text_src"),textOnly:true}:{})});
     }
   }else if(file.type.startsWith("video/")){
@@ -1142,9 +1159,15 @@ function copyReads(seg){const rs=[seg.provider_responses?.model_a,seg.provider_r
   const get=(r,k)=>{if(!k.includes("."))return r[k];const [role,f]=k.split(".");return (r.parties||[]).find(p=>p?.role===role)?.[f]};
   const keys=["document_number","document_date","grand_total",...COPY_ROLES.flatMap(r=>[r+".name",r+".address"])];
   return Object.fromEntries(keys.map(k=>[k,rs.map(r=>get(r,k)).filter(v=>v!=null&&String(v).trim()!=="")]))}
+function linesSum(r){const tb=(r?.tables||[])[0];const ci=(tb?.columns||[]).findIndex(c=>c?.role==="amount");if(ci<0)return null;
+  const v=(tb.rows||[]).map((row,i)=>(tb.row_kinds?.[i]||"line")==="line"?num(row?.[ci]):null).filter(x=>x!=null);return v.length?Math.round(v.reduce((a,b)=>a+b,0)*100)/100:null}
 function applyCopies(segs){segs.forEach(sg=>{try{best(sg)}catch{}});const ok=segs.filter(sg=>sg.final_result);if(ok.length<2)return;
   const tot=sg=>num(sg.final_result?.grand_total),addr=sg=>(sg.final_result?.parties||[]).find(p=>p?.role==="ship_to")?.address||"";
-  const same=(a,b)=>tot(a)!=null&&tot(a)===tot(b)&&(similarity(a.final_result.document_number||"",b.final_result.document_number||"")>=0.7||similarity(addr(a),addr(b))>=0.8);
+  // a copy whose total one model misread still pairs: any total read by either model (or the line sum) may match
+  const tots=sg=>new Set([tot(sg),...copyReads(sg).grand_total.map(num),linesSum(sg.final_result)].filter(v=>v!=null).map(v=>v.toFixed(2)));
+  const addrs=sg=>[addr(sg),...copyReads(sg)["ship_to.address"]].filter(Boolean);
+  const same=(a,b)=>{const tb=tots(b);if(![...tots(a)].some(v=>tb.has(v)))return false;
+    return similarity(a.final_result.document_number||"",b.final_result.document_number||"")>=0.7||addrs(a).some(x=>addrs(b).some(y=>similarity(x,y)>=0.8))};
   const seen=new Set();
   for(const a of ok){if(seen.has(a))continue;const grp=ok.filter(b=>b===a||(!seen.has(b)&&same(a,b)));if(grp.length<2)continue;grp.forEach(g=>seen.add(g));
     const reads=grp.map(copyReads),pages=grp.map(g=>g.segment_identifier);
