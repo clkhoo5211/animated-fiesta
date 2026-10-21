@@ -119,11 +119,13 @@ def ingest(path: Path, rotate: int = 0, pdf_text: str = "auto") -> list[Segment]
             for i, page in enumerate(doc, 1):
                 text = page.get_text()
                 # scanned page: render near scan resolution (~200 dpi, longest side <= 2600 px) so faded strokes stay legible
-                scan = len(re.sub(r"\s", "", text)) < 200
+                # a page-sized image under an OCR layer is still a scan: its OCR text is often garbled
+                cover = any(page.get_image_rects(x[0]) and max(r.width * r.height for r in page.get_image_rects(x[0])) >= 0.5 * page.rect.width * page.rect.height for x in page.get_images())
+                scan = cover or len(re.sub(r"\s", "", text)) < 200
                 dpi = min(200, int(2600 / max(page.rect.width, page.rect.height) * 72)) if scan else 150
                 pix = page.get_pixmap(dpi=dpi)
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
-                if pdf_text != "image" and len(re.sub(r"\s", "", text)) >= 200:   # real text layer: send text, keep image for QR
+                if pdf_text != "image" and len(re.sub(r"\s", "", text)) >= 200 and not cover:   # real text layer: send text, keep image for QR
                     segs.append(Segment(f"Page_{i}", jpeg_b64(img), text[:MAX_TEXT], "text", "PDF text layer", len(text) > MAX_TEXT, None, True))
                 else:
                     segs.append(Segment(f"Page_{i}", jpeg_b64(img), text=text))
