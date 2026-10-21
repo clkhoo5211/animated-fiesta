@@ -479,9 +479,11 @@ async function ingest(file){
   if(kind==="pdf"){
     const pdfjs=await loadPdf();const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
     for(let i=1;i<=pdf.numPages;i++){
-      const p=await pdf.getPage(i), vp=p.getViewport({scale:2}), c=document.createElement("canvas");
+      const p=await pdf.getPage(i),text=(await p.getTextContent()).items.map(x=>x.str).join(" ");
+      // a scanned page (no text layer) is rendered near its scan resolution (~200 dpi, longest side ≤ 2600 px):
+      // at 144 dpi thin or faded strokes break into dots and the model starts guessing letters
+      const base=p.getViewport({scale:1}),scan=text.replace(/\s/g,"").length<200,vp=p.getViewport({scale:scan?Math.min(200/72,2600/Math.max(base.width,base.height)):2}),c=document.createElement("canvas");
       c.width=vp.width;c.height=vp.height;await p.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
-      const text=(await p.getTextContent()).items.map(x=>x.str).join(" ");
       // pages with a real text layer are sent as text (exact digits, fewer tokens); the image is kept for preview + local QR
       const textOnly=S.pdf_text!=="image"&&text.replace(/\s/g,"").length>=200;
       segs.push({id:`Page_${i}`,b64:canvasToJpeg(c),text:textOnly?text.slice(0,MAX_TEXT):text,...(textOnly?{kind:"text",source:t("pdf_text_src"),textOnly:true}:{})});
@@ -688,7 +690,23 @@ async function enhanceCanvas(bmp,sx=0,sy=0,sw=bmp.width,sh=bmp.height,target=200
   const k=Math.min(3,Math.max(1,target/Math.max(sw,sh))),c=document.createElement("canvas");c.width=Math.round(sw*k);c.height=Math.round(sh*k);
   const x=c.getContext("2d",{willReadFrequently:true});x.imageSmoothingQuality="high";if(enh)x.filter="grayscale(1) contrast(1.35) brightness(1.03)";
   x.drawImage(bmp,sx,sy,sw,sh,0,0,c.width,c.height);if(enh){x.filter="none";sharpen(x,c.width,c.height)}return canvasToJpeg(c)}
+/* faded scans: some blocks of the page (often the address) are light grey while the rest is dark. Detect such regions on
+   the page itself (tiles with ink whose darkest pixel is still light) and darken mid-greys relative to the paper; paper stays white. */
+async function fadeFix(b64){const bmp=await loadImg(b64),W=bmp.width,H=bmp.height,c=document.createElement("canvas");c.width=W;c.height=H;
+  const x=c.getContext("2d",{willReadFrequently:true});x.drawImage(bmp,0,0);const d=x.getImageData(0,0,W,H),px=d.data,n=W*H,lum=new Uint8Array(n),hist=new Uint32Array(256);
+  for(let i=0,j=0;i<n;i++,j+=4){const v=(px[j]*299+px[j+1]*587+px[j+2]*114)/1000|0;lum[i]=v;hist[v]++}
+  let acc=0,paper=255;for(let v=0;v<256;v++){acc+=hist[v];if(acc>=n*0.6){paper=v;break}}
+  if(paper<150)return null;  // dark / photographed background: leave it
+  const T=8,tw=Math.ceil(W/T),th=Math.ceil(H/T);let faint=0;
+  for(let ty=0;ty<T;ty++)for(let tx=0;tx<T;tx++){let ink=0,mn=255,tot=0;
+    for(let y=ty*th;y<Math.min(H,(ty+1)*th);y++)for(let xx=tx*tw;xx<Math.min(W,(tx+1)*tw);xx++){const v=lum[y*W+xx];tot++;if(v<paper-30){ink++;if(v<mn)mn=v}}
+    if(ink>tot*0.002&&mn>paper*0.55)faint++}
+  if(!faint)return null;
+  const curve=new Uint8Array(256);for(let v=0;v<256;v++)curve[v]=Math.round(255*Math.pow(Math.min(1,v/paper),2.4));
+  for(let i=0,j=0;i<n;i++,j+=4){const v=lum[i],k=v?curve[v]/v:0;px[j]=Math.min(255,px[j]*k);px[j+1]=Math.min(255,px[j+1]*k);px[j+2]=Math.min(255,px[j+2]*k)}
+  x.putImageData(d,0,0);return canvasToJpeg(c)}
 async function prepImages(b64,cfg){
+  b64=await fadeFix(b64).catch(()=>null)||b64;
   if(!cfg.enhance&&!cfg.tiles)return [b64];
   const bmp=await loadImg(b64),out=[await enhanceCanvas(bmp,0,0,bmp.width,bmp.height,2000,cfg.enhance)];
   if(cfg.tiles){const W=bmp.width,H=bmp.height,ov=0.08;

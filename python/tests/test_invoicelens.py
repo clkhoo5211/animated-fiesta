@@ -515,3 +515,12 @@ def test_wrong_quarter_turn_tries_other_way(tmp_path):
     il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
     res = json.loads((tmp_path / "results.json").read_text())["documents"][0]["segments"][0]
     assert len(seen) == 3 and res["straightened"] == 270 and res["usage"]["model_a"] == {"in": 30, "out": 15}
+
+
+def test_fade_fix_darkens_a_faded_block_only():
+    faded = il.jpeg_b64(il.Image.open(FIX / "faded.jpg"))
+    out = il.fade_fix(faded)
+    assert out is not None
+    blk = il.b64_image(out).convert("L").crop((480, 200, 880, 320))
+    assert min(blk.getdata()) < 150   # was ~196
+    assert il.fade_fix(il.jpeg_b64(il.Image.open(FIX / "invoice.jpg"))) is None  # clean page untouched

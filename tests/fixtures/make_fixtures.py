@@ -76,3 +76,12 @@ for y in range(80, 1050, 28):
     dq.text((60, y), "ITEM %d   QTY 1.00 UNIT   PRICE 12.34   TOTAL 12.34" % y, fill="black")
 sq.paste(qrcode.make("https://myinvois.hasil.gov.my/TEST-UUID-0001/share/ABC123").convert("RGB").resize((72, 72), Image.BILINEAR), (20, 1100))
 sq.filter(ImageFilter.GaussianBlur(0.9)).save(p("small-qr.jpg"), "JPEG", quality=55)
+
+# --- a scan whose delivery-address block has faded to light grey (the rest of the page is dark) ---
+fd = Image.new("RGB", (900, 1200), (246, 246, 246))
+dd = ImageDraw.Draw(fd)
+for i, t in enumerate(["DEMO TRADING SDN BHD", "Invoice  No: INV-FADE-01", "Billing Address: SAMPLE STORE"]):
+    dd.text((40, 40 + i * 30), t, fill=(20, 20, 20))
+for i, t in enumerate(["Delivery Address", "1234 SAMPLE OUTLET (DD)", "NO. 4 & 5 (GROUND FLOOR), JALAN CONTOH 1", "71010 PORT DICKSON"]):
+    dd.text((480, 200 + i * 30), t, fill=(196, 196, 196))
+fd.save(p("faded.jpg"), quality=92)
