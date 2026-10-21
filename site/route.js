@@ -15,20 +15,21 @@ const DELIVER = ["ship_to"], BILL = ["bill_to", "customer"];
 const ADDR_COL = /address|alamat|地址|deliver(y)? to|ship.?to addr/i;
 export function collectStops(docs) {
   const out = new Map();
-  const add = (address, name, ref, src) => {
+  const add = (address, name, ref, src, sus) => {
     const k = normAddr(address); if (k.length < 6) return;
-    const s = out.get(k) || { key: k, address: String(address).replace(/\s*\n\s*/g, ", ").trim(), name: name || "", refs: [], src };
+    const s = out.get(k) || { key: k, address: String(address).replace(/\s*\n\s*/g, ", ").trim(), name: name || "", refs: [], src, suspect: !!sus };
+    s.suspect = s.suspect && !!sus;
     if (ref && !s.refs.includes(ref)) s.refs.push(ref);
     if (!s.name && name) s.name = name;
     out.set(k, s);
   };
-  for (const { file, result: r } of docs) {
+  for (const { file, result: r, suspect } of docs) {
     if (!r) continue;
     const ref = r.document_number || file;
     const parties = (r.parties || []).filter(p => p && p.address);
     // a document is delivered to its ship-to / delivery address; the billing address is used only when there is none
     const pick = parties.filter(p => DELIVER.includes(p.role));
-    for (const p of (pick.length ? pick : parties.filter(p => BILL.includes(p.role)))) add(p.address, p.name, ref, pick.length ? "ship_to" : "bill_to");
+    for (const p of (pick.length ? pick : parties.filter(p => BILL.includes(p.role)))) add(p.address, p.name, ref, pick.length ? "ship_to" : "bill_to", suspect);
     // registers / delivery lists with an address column: one stop per row
     for (const t of r.tables || []) {
       const cols = (t.columns || []).map(c => (typeof c === "string" ? c : c?.name) || "");
@@ -64,6 +65,7 @@ export function mergeNearDuplicates(list) {
     if (!twin) { out.push({ ...s, refs: [...s.refs] }); continue }
     for (const r of s.refs) if (!twin.refs.includes(r)) twin.refs.push(r);
     if (!twin.name && s.name) twin.name = s.name;
+    twin.suspect = twin.suspect && s.suspect;
     (twin.variants ||= []).push(s.address);
   }
   return out;
@@ -296,7 +298,7 @@ export function renderRoute(view, api) {
     else h += `<div style="overflow:auto"><table><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_refs")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => `<tr${s.skip ? ' style="opacity:.5"' : ""}>
       <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
       <td>${s.name ? `<b>${esc(s.name)}</b><br>` : ""}<span class="sub">${esc(s.address)}</span>${s.variants ? `<br><span class="badge" style="background:var(--soft);color:var(--mut)" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</td><td class="sub">${esc(s.refs.join(", ")) || "—"}</td>
-      <td style="min-width:200px">${status(s)} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button> <button class="btn sm" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">✕</button>
+      <td style="min-width:200px">${status(s)}${s.suspect ? ` <span class="badge warn" title="${esc(t("rt_check_d"))}">⚠ ${t("rt_check")}</span>` : ""} <button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button> <button class="btn sm" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">✕</button>
         ${editing === s.key ? `<div class="f" style="margin-top:6px"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
     h += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" class="f"><input id="rt-new" style="flex:1;min-width:14em;width:auto" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div></div>`;
     h += `<div class="sec"><h3>${t("rt_step4")}</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg || need)}</span></div></div>`;

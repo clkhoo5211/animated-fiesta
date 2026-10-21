@@ -85,3 +85,14 @@ for i, t in enumerate(["DEMO TRADING SDN BHD", "Invoice  No: INV-FADE-01", "Bill
 for i, t in enumerate(["Delivery Address", "1234 SAMPLE OUTLET (DD)", "NO. 4 & 5 (GROUND FLOOR), JALAN CONTOH 1", "71010 PORT DICKSON"]):
     dd.text((480, 200 + i * 30), t, fill=(196, 196, 196))
 fd.save(p("faded.jpg"), quality=92)
+
+# --- six text pages (page n says "PAGE n" so a mocked model can tell them apart) ---
+try:
+    import fitz
+    doc = fitz.open()
+    for n in range(1, 7):
+        pg = doc.new_page()
+        pg.insert_textbox(fitz.Rect(40, 40, 550, 780), f"PAGE {n}\n" + "SYNTHETIC TEST INVOICE for automated tests only, not a real document. " * 6, fontsize=11)
+    doc.save(p("six_pages.pdf"))
+except ImportError:
+    print("pymupdf not installed: six_pages.pdf not regenerated")
