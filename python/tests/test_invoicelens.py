@@ -524,3 +524,18 @@ def test_fade_fix_darkens_a_faded_block_only():
     blk = il.b64_image(out).convert("L").crop((480, 200, 880, 320))
     assert min(blk.getdata()) < 150   # was ~196
     assert il.fade_fix(il.jpeg_b64(il.Image.open(FIX / "invoice.jpg"))) is None  # clean page untouched
+
+
+def test_apply_copies_corrects_the_odd_copy():
+    def read(no, name):
+        return {"document_number": no, "grand_total": "423.08", "parties": [{"role": "ship_to", "name": name, "address": "NO. 4 & 5, LORONG LUKUT MAKMUR 1, 71010 PORT DICKSON"}]}
+    good = read("A261001216", "NS TMN LUKUT MAKMUR (DD)")
+    segs = [
+        {"segment_identifier": "Page_1", "final_result": json.loads(json.dumps(good)), "provider_responses": {"model_a": good, "model_b": good}},
+        {"segment_identifier": "Page_2", "final_result": read("A2610632158", "RS MIN LUKUT MAKMUR (JD)"),
+         "provider_responses": {"model_a": read("A2610632158", "RS MIN LUKUT MAKMUR (JD)"), "model_b": read("A261001216", "NS TMN LUKUT MAKMUR (OD)")}},
+    ]
+    il.apply_copies(segs)
+    f = segs[1]["final_result"]
+    assert f["document_number"] == "A261001216" and f["parties"][0]["name"] == "NS TMN LUKUT MAKMUR (DD)"
+    assert {c["path"] for c in segs[1]["consensus"]} == {"document_number", "parties.ship_to.name"} and "consensus" not in segs[0]

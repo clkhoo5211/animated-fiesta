@@ -1072,9 +1072,74 @@ async def process_file(client, path: Path, o: Options, rotate=0):
     out = []
     for i in range(0, len(segs), 3):
         out += await asyncio.gather(*(process_segment(client, s, o) for s in segs[i:i + 3]))
+    apply_copies(out)
     return {"source_document": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "elapsed_ms": int((time.time() - t0) * 1000),
             "total_extracted_segments": len(out), "segments": out}
+
+
+def _sim(a, b) -> float:
+    """Character-pair (Dice) similarity of two texts, ignoring case, spaces and punctuation (same as site/route.js)."""
+    def g(x):
+        t = re.sub(r"[^A-Z0-9]", "", re.sub(r"[\s,.]+", " ", str(x or "").upper()))
+        m = {}
+        for i in range(len(t) - 1):
+            m[t[i:i + 2]] = m.get(t[i:i + 2], 0) + 1
+        return m, max(0, len(t) - 1)
+    (ga, na), (gb, nb) = g(a), g(b)
+    if not na or not nb:
+        return 0.0
+    return 2 * sum(min(v, gb.get(k, 0)) for k, v in ga.items()) / (na + nb)
+
+
+COPY_ROLES = ("ship_to", "bill_to", "customer", "supplier", "issuer")
+
+
+def apply_copies(segs):
+    """The same document twice in one file (original + copy): pick, per key value, the read the other reads agree with most
+    (medoid) across both models of every copy, and correct a copy whose final value is the odd one out. As the web app."""
+    nrm = lambda v: re.sub(r"[\s,.:;()\-_/\"']", "", str(v if v is not None else "").lower())
+    ok = [sg for sg in segs if isinstance(sg.get("final_result"), dict)]
+    if len(ok) < 2:
+        return
+    tot = lambda sg: num(sg["final_result"].get("grand_total"))
+    addr = lambda sg: next((p.get("address") or "" for p in sg["final_result"].get("parties") or [] if isinstance(p, dict) and p.get("role") == "ship_to"), "")
+    same = lambda a, b: tot(a) is not None and tot(a) == tot(b) and (
+        _sim(a["final_result"].get("document_number") or "", b["final_result"].get("document_number") or "") >= 0.7 or _sim(addr(a), addr(b)) >= 0.8)
+    keys = ["document_number", "document_date", "grand_total"] + [f"{r}.{f}" for r in COPY_ROLES for f in ("name", "address")]
+
+    def get(r, k):
+        if "." not in k:
+            return r.get(k)
+        role, f = k.split(".")
+        return next((p.get(f) for p in r.get("parties") or [] if isinstance(p, dict) and p.get("role") == role), None)
+    seen = set()
+    for a in ok:
+        if id(a) in seen:
+            continue
+        grp = [b for b in ok if b is a or (id(b) not in seen and same(a, b))]
+        if len(grp) < 2:
+            continue
+        seen.update(id(g) for g in grp)
+        reads = [[r for r in (g["provider_responses"].get("model_a"), g["provider_responses"].get("model_b")) if isinstance(r, dict) and not r.get("error") and not r.get("status")] for g in grp]
+        for k in keys:
+            vals = [str(v) for rs in reads for r in rs for v in [get(r, k)] if v is not None and str(v).strip()]
+            if len(vals) < 3:
+                continue
+            score = lambda v: sum(_sim(v, o) for o in vals)
+            pick = max(vals, key=score)
+            for sg in grp:
+                r = sg["final_result"]
+                role, f = k.split(".") if "." in k else (None, k)
+                p = next((x for x in r.get("parties") or [] if isinstance(x, dict) and x.get("role") == role), None) if role else r
+                if p is None:
+                    continue
+                cur = "" if p.get(f) is None else str(p.get(f))
+                if nrm(cur) == nrm(pick) or (cur and score(pick) <= score(cur) + 0.5):
+                    continue
+                sg.setdefault("consensus", []).append({"path": f"parties.{role}.{f}" if role else f, "from": p.get(f), "to": pick,
+                                                       "with": [g["segment_identifier"] for g in grp if g is not sg]})
+                p[f] = pick
 
 
 def status_of(result) -> str:

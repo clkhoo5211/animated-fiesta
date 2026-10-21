@@ -112,3 +112,26 @@ test("cross-field checks: early handwritten date and one-digit stamp/address mis
   await expect(page.locator("#view")).toContainText("Line items were extracted as totals");
   await expect(page.locator(".job")).toHaveAttribute("data-status", "bad");
 });
+
+test("two copies of one invoice in a file: a value one copy misread is corrected by the reads of the other copy", async ({ page, context }) => {
+  const n = { "model-a": 0, "model-b": 0 };
+  const read = (no, name) => ({ document_type: "invoice", document_number: no, document_date: "7/10/2026", grand_total: "423.08", tables: [],
+    parties: [{ role: "bill_to", name: "99 SPEED MART SDN. BHD.", address: "LOT P.T. 2811, JALAN ANGSA, 41150 KLANG" }, { role: "ship_to", name, address: "NO. 4 & 5 (GROUND FLOOR), LORONG LUKUT MAKMUR 1, TMN LUKUT MAKMUR, 71010 PORT DICKSON" }] });
+  await serve(context, { model: ({ model }) => {
+    const k = ++n[model]; // k-th page this model reads
+    if (k === 1) return { json: read("A261001216", "NS TMN LUKUT MAKMUR (DD)") };
+    return { json: model === "model-a" ? read("A2610632158", "RS MIN LUKUT MAKMUR (JD)") : read("A261001216", "NS TMN LUKUT MAKMUR (OD)") };
+  } });
+  await preset(page, { b: {} });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("two_copies.pdf"));
+  await page.click("#go");
+  await waitIdle(page);
+  const finals = await page.evaluate(async () => {
+    const r = await new Promise((res) => { const req = indexedDB.open("invoicelens"); req.onsuccess = () => { const tx = req.result.transaction("jobs"); const g = tx.objectStore("jobs").getAll(); g.onsuccess = () => res(g.result) } });
+    return r[0].result.segments.map((sg) => [sg.final_result.document_number, sg.final_result.parties.find((p) => p.role === "ship_to").name, (sg.consensus || []).length]);
+  });
+  // pages may be read in either order: both end up with the majority reading, and one of them was corrected
+  for (const f of finals) expect(f.slice(0, 2)).toEqual(["A261001216", "NS TMN LUKUT MAKMUR (DD)"]);
+  expect(finals[0][2] + finals[1][2]).toBeGreaterThan(0);
+});
