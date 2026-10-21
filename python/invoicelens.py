@@ -117,9 +117,12 @@ def ingest(path: Path, rotate: int = 0, pdf_text: str = "auto") -> list[Segment]
         import pymupdf
         with pymupdf.open(path) as doc:
             for i, page in enumerate(doc, 1):
-                pix = page.get_pixmap(dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
                 text = page.get_text()
+                # scanned page: render near scan resolution (~200 dpi, longest side <= 2600 px) so faded strokes stay legible
+                scan = len(re.sub(r"\s", "", text)) < 200
+                dpi = min(200, int(2600 / max(page.rect.width, page.rect.height) * 72)) if scan else 150
+                pix = page.get_pixmap(dpi=dpi)
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
                 if pdf_text != "image" and len(re.sub(r"\s", "", text)) >= 200:   # real text layer: send text, keep image for QR
                     segs.append(Segment(f"Page_{i}", jpeg_b64(img), text[:MAX_TEXT], "text", "PDF text layer", len(text) > MAX_TEXT, None, True))
                 else:
@@ -190,7 +193,39 @@ def enhance(img: Image.Image, box=None, target=2000, do_enhance=True) -> str:
     return jpeg_b64(img)
 
 
+def fade_fix(b64: str) -> str | None:
+    """A block that faded to light grey while the rest of the page is dark: darken mid-greys relative to the paper (as the web app)."""
+    img = b64_image(b64).convert("RGB")
+    g = img.convert("L")
+    hist, n = g.histogram(), g.size[0] * g.size[1]
+    acc, paper = 0, 255
+    for v in range(256):
+        acc += hist[v]
+        if acc >= n * 0.6:
+            paper = v
+            break
+    if paper < 150:
+        return None
+    W, H = g.size
+    tw, th = -(-W // 8), -(-H // 8)
+    faint = False
+    for ty in range(8):
+        for tx in range(8):
+            h = g.crop((tx * tw, ty * th, min(W, (tx + 1) * tw), min(H, (ty + 1) * th))).histogram()
+            tot = sum(h)
+            ink = sum(h[:max(0, paper - 30)])
+            mn = next((v for v in range(256) if h[v]), 255)
+            if tot and ink > tot * 0.002 and mn > paper * 0.55:
+                faint = True
+    if not faint:
+        return None
+    curve = [round(255 * min(1, v / paper) ** 2.4) for v in range(256)]
+    out = Image.merge("RGB", [ch.point(curve) for ch in img.split()])
+    return jpeg_b64(out)
+
+
 def prep_images(b64: str, do_enhance: bool, tiles: bool) -> list[str]:
+    b64 = fade_fix(b64) or b64
     if not do_enhance and not tiles:
         return [b64]
     img = b64_image(b64)
