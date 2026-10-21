@@ -121,3 +121,34 @@ test("stops can be removed: a hand-added stop is deleted, a document stop is hid
   await page.click(".tab[data-tab=route]");
   await expect(page.locator("#view")).toContainText("Delivery stops — 1 of 1 selected");
 });
+
+test("two copies of one invoice read slightly differently are one stop; geocoder hits in another postcode are rejected; far-away stops are flagged", async ({ page, context }) => {
+  await serve(context, {});
+  await page.goto("/");
+  const r = await page.evaluate(async () => {
+    const m = await import("./route.js");
+    const stops = m.collectStops([
+      { file: "p1", result: { document_number: "A261001104", parties: [{ role: "ship_to", address: "1577 NS TANAH MERAM (DD) PT 1075 & PT 1076, OLN MELUR 1 THN JIMAH JAYA, 71960 PORT DICKSON" }] } },
+      { file: "p2", result: { document_number: "A261001104", parties: [{ role: "ship_to", address: "1577 NS TANAH MERAH (DD) PT 1075 & PT 1076, JLN MELUR 1 TMN JIMAH JAYA, 71960 PORT DICKSON" }] } },
+      { file: "p3", result: { document_number: "AZ01001205", parties: [{ role: "ship_to", address: "3036 NS Tmn Mikamas (B), NO. 15 (GF), Tmn Mikamas B1. 2, Jln Seremban, 71000 Port Dickson" }] } },
+      { file: "p4", result: { document_number: "A2510032261", parties: [{ role: "ship_to", address: "3036 NS TMM MIKAMAS (LD), NO. 15 (GF), TMM MIKAMAS BT. 2, JLN SEREMBAN, 71000 PORT DICKSON" }] } },
+      // a different shop one letter apart, other document: stays separate
+      { file: "p5", result: { document_number: "DO-A", parties: [{ role: "ship_to", address: "SHOP A, 10 Jalan A, 41000 Klang" }] } },
+      { file: "p6", result: { document_number: "DO-B", parties: [{ role: "ship_to", address: "SHOP B, 10 Jalan B, 41000 Klang" }] } },
+    ]);
+    const near = [0, 1, 2, 3, 4].map((i) => ({ lat: 2.5 + i * 0.02, lng: 101.8 }));
+    const far = m.farStops([...near, { lat: 1.55, lng: 103.79, key: "jb" }]).map((x) => x.p.key);
+    return { n: stops.length, merged: stops.map((s) => (s.variants || []).length), far, links: m.mapsLinks({ lat: 0, lng: 0 }, [{ lat: 1, lng: 1 }, { lat: 1, lng: 1 }, { lat: 2, lng: 2 }], false)[0] };
+  });
+  expect(r.n).toBe(4);
+  expect(r.merged).toEqual([1, 1, 0, 0]);
+  expect(r.far).toEqual(["jb"]);
+  expect(r.links).toContain("destination=2,2&waypoints=1%2C1"); // the repeated spot is one waypoint
+
+  // the geocoder's first answer is a same-named street in another postcode: rejected, the next query is used
+  await page.evaluate(() => localStorage.clear());
+  await context.unroute("**/*");
+  await serve(context, { geo: (url) => (url.includes("q=Jalan%20Melur%201") ? [{ lat: "3.1", lon: "101.5", address: { postcode: "40000" } }] : [{ lat: "2.48", lon: "101.86", address: { postcode: "71960" } }]) });
+  const g = await page.evaluate(async () => (await import("./route.js")).geocode("Jalan Melur 1, 71960 Port Dickson", "my", null, ["Jalan Melur 1", "Taman Jimah Jaya, 71960 Port Dickson"]));
+  expect(g).toMatchObject({ lat: 2.48, lng: 101.86 });
+});
