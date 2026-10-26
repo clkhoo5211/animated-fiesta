@@ -2,6 +2,7 @@
 // and which query shape works best? Run on your own computer (needs internet, Node 18+):
 //   node tools/geo-bench.mjs addresses.json > bench.md          (addresses.json: ["address 1", "address 2", ...])
 //   node tools/geo-bench.mjs addresses.json --dry               (only print the queries, no network)
+//   HERE_KEY=... GEOAPIFY_KEY=... node tools/geo-bench.mjs addresses.json > bench.md   (also compare HERE and Geoapify, free keys; either may be left out)
 // Nominatim policy: one request per second, identifying User-Agent. Results are cached in .geo-bench-cache.json.
 import fs from "node:fs";
 import { geoQueries, postcodeOf } from "../site/route.js";
@@ -58,9 +59,27 @@ async function overpassBrand() {
   }
   throw new Error(lastErr);
 }
+
+// optional commercial-grade geocoders with a free tier (keys from the environment); same postcode filter, "exact" = a house / building / place hit
+const KEYS = { here: process.env.HERE_KEY, geoapify: process.env.GEOAPIFY_KEY };
+async function keyed(name, q) {
+  const k = `${name}|${q}`; if (cache[k]) return cache[k];
+  await sleep(300);
+  const url = name === "here"
+    ? `https://geocode.search.hereapi.com/v1/geocode?q=${encodeURIComponent(q)}&in=countryCode:MYS&limit=3&apiKey=${KEYS.here}`
+    : `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(q)}&filter=countrycode:my&limit=3&format=json&apiKey=${KEYS.geoapify}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": UA } });
+  if (!r.ok) throw new Error(`${name} HTTP ${r.status}`);
+  const j = await r.json();
+  const rows = name === "here"
+    ? (j.items || []).map(i => ({ text: i.title, lat: i.position?.lat, lng: i.position?.lng, type: i.resultType, pc: i.address?.postalCode, exact: ["houseNumber", "place"].includes(i.resultType) }))
+    : (j.results || []).map(i => ({ text: i.formatted, lat: i.lat, lng: i.lon, type: i.result_type, pc: i.postcode, exact: ["building", "amenity"].includes(i.result_type) }));
+  cache[k] = rows; fs.writeFileSync(CACHE, JSON.stringify(cache)); return rows;
+}
 const exact = h => h && (Number(h.place_rank) >= 28 || ["shop", "amenity", "building", "office"].includes(h.category || h.class));
 const short = h => h ? `${(h.display_name || "").split(",").slice(0, 3).join(",")} [${h.category || h.class}/${h.type}, rank ${h.place_rank}]` : "no hit";
 
+const full = a => String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
 const out = [];
 const score = Object.fromEntries(Object.keys(VARIANTS).map(k => [k, 0]));
 out.push(`# Geocoding bench, ${addrs.length} addresses\n`);
@@ -75,6 +94,16 @@ for (const [i, item] of addrs.entries()) {
     for (const q of qs) { const hs = await nominatim(q).catch(e => { out.push(`  - error: ${e.message}`); return [] }); const h = hs.find(x => !pc || !x.address?.postcode || String(x.address.postcode).replace(/\s/g, "") === pc) || null; if (h && (!best || (exact(h) && !exact(best)))) { best = h; used = q } if (exact(best)) break }
     if (exact(best)) score[name]++;
     out.push(`- ${name}: ${exact(best) ? "EXACT" : best ? "area only" : "none"}: ${short(best)}${best ? ` (${Number(best.lat).toFixed(5)}, ${Number(best.lon).toFixed(5)}) via \`${used}\`` : ""}`);
+  }
+  if (!DRY) for (const name of Object.keys(KEYS).filter(n => KEYS[n])) {
+    let best = null, used = "";
+    for (const q of [tidy(a), full(a)]) {
+      const rows = await keyed(name, q).catch(e => { out.push(`  - ${name} error: ${e.message}`); return [] });
+      const h = rows.find(x => x.lat != null && (!pc || !x.pc || String(x.pc).replace(/\s/g, "") === pc)) || null;
+      if (h && (!best || (h.exact && !best.exact))) { best = h; used = q } if (best?.exact) break;
+    }
+    score[name] = (score[name] || 0) + (best?.exact ? 1 : 0);
+    out.push(`- ${name.toUpperCase()}: ${best?.exact ? "EXACT" : best ? "area only" : "none"}: ${best ? `${best.text} [${best.type}] (${Number(best.lat).toFixed(5)}, ${Number(best.lng).toFixed(5)}) via \`${used}\`` : "no hit"}`);
   }
   out.push("");
 }
