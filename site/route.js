@@ -350,6 +350,28 @@ export function renderRoute(view, api) {
   const precise = s => !!s.web || !!s.manual || !!parseLatLng(s.address) || (!s.approx && (s.rank || 0) >= 28);
   const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` : "");
+  // Fix by pin: a Leaflet map (loaded on first use, OpenStreetMap tiles) where a click or a drag sets the exact position of a stop
+  let draft = null;
+  const LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
+  let leafletP = null;
+  const leaflet = () => leafletP ||= new Promise((res, rej) => {
+    const css = document.createElement("link"); css.rel = "stylesheet"; css.href = LEAFLET + "leaflet.css"; document.head.append(css);
+    const sc = document.createElement("script"); sc.src = LEAFLET + "leaflet.js"; sc.onload = () => res(window.L); sc.onerror = () => { leafletP = null; rej(new Error("leaflet")) }; document.head.append(sc);
+  });
+  const initPin = async (host, s) => {
+    let L; try { L = await leaflet() } catch { host.textContent = t("rt_map_off"); return }
+    if (!host.isConnected) return;
+    const d = draft && draft.key === s.key ? draft : null, c = d || (s.lat != null ? s : null), centre = c || st.startLL || { lat: 4.2, lng: 102 };
+    const map = L.map(host, { scrollWheelZoom: false }).setView([centre.lat, centre.lng], c ? 17 : st.startLL ? 12 : 6);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+    const input = () => view.querySelector("[data-ll]"), icon = L.divIcon({ className: "pin", iconSize: [18, 18], iconAnchor: [9, 9] });
+    const set = (lat, lng) => { draft = { key: s.key, lat, lng }; const el = input(); if (el) el.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
+    let mk = null;
+    const place = (lat, lng) => { if (mk) mk.setLatLng([lat, lng]); else { mk = L.marker([lat, lng], { draggable: true, icon }).addTo(map); mk.on("dragend", () => { const p = mk.getLatLng(); set(p.lat, p.lng) }) } set(lat, lng) };
+    if (c) { mk = L.marker([c.lat, c.lng], { draggable: true, icon }).addTo(map); mk.on("dragend", () => { const p = mk.getLatLng(); set(p.lat, p.lng) }) }
+    map.on("click", e => place(e.latlng.lat, e.latlng.lng));
+    setTimeout(() => map.invalidateSize(), 0);
+  };
   const draw = () => {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
     const fld = (id, label, attrs) => `<div class="f"><label for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
@@ -361,7 +383,7 @@ export function renderRoute(view, api) {
           <div class="rt-addr">${esc(s.address)}</div>${s.variants ? `<span class="rt-note" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</div>
         <div class="rt-loc">${status(s)}${s.suspect ? `<span class="badge warn" title="${esc(t("rt_check_d"))}">${t("rt_check")}</span>` : ""}</div>
         <div class="rt-acts"><button class="lnk" data-edit="${i}" type="button">${t("rt_edit")}</button><button class="lnk" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">&times;</button></div>
-        ${editing === s.key ? `<div class="rt-fix"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</li>`;
+        ${editing === s.key ? `<div class="rt-fix"><div class="rt-pin" data-pin="${i}"></div><span class="sub">${t("rt_pin_help")}</span><input data-ll="${i}" value="${(draft && draft.key === s.key) ? `${draft.lat.toFixed(5)}, ${draft.lng.toFixed(5)}` : s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span><div class="rt-pinbar"><button class="btn sm pri" data-pin-save type="button">${t("rt_pin_use")}</button><button class="lnk" data-pin-cancel type="button">${t("rt_pin_cancel")}</button></div></div>` : ""}</li>`;
     let stopsHtml = `<div class="rt-head"><h3>${t("rt_step3", { n: on.length, m: S.length })}</h3>${S.length ? `<span class="rt-sum">${t("rt_sum", { n: S.length, p: S.filter(placed).length, q: S.filter(s => !placed(s)).length })}</span>` : ""}</div>`;
     stopsHtml += `<div class="rt-tools"><input id="rt-new" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div>`;
     if (S.length) stopsHtml += `<div class="rt-sub"><label class="chk"><input type="checkbox" id="rt-onlyfix" ${st.onlyFix ? "checked" : ""}> ${t("rt_only")}</label><span class="rt-io"><button class="lnk" id="rt-export" type="button">${t("rt_export")}</button><label class="lnk">${t("rt_import")}<input type="file" id="rt-import" accept=".json,application/json" hidden></label></span></div>`;
@@ -434,6 +456,9 @@ export function renderRoute(view, api) {
       } catch { msg = t("rt_import_bad"); draw() }
     });
     view.querySelectorAll(".rt-row").forEach(li => { const on = v => view.querySelector(`.rt-dot[data-key="${CSS.escape(li.dataset.key)}"]`)?.classList.toggle("hl", v); li.addEventListener("mouseenter", () => on(true)); li.addEventListener("mouseleave", () => on(false)) });
+    const pinHost = view.querySelector(".rt-pin"); if (pinHost) initPin(pinHost, S[+pinHost.dataset.pin]);
+    view.querySelector("[data-pin-save]")?.addEventListener("click", () => view.querySelector("[data-ll]")?.dispatchEvent(new Event("change")));
+    view.querySelector("[data-pin-cancel]")?.addEventListener("click", () => { editing = null; draft = null; draw() });
     view.querySelector("#rt-onlyfix")?.addEventListener("change", e => { st.onlyFix = e.target.checked; persist(); draw() });
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
@@ -451,8 +476,8 @@ export function renderRoute(view, api) {
       plan = null; review = null; persist(); draw();
     });
     const rs = view.querySelector("#rt-restore"); if (rs) rs.onclick = () => { for (const k in st.over) delete st.over[k].removed; plan = null; persist(); draw() };
-    view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; draw(); view.querySelector("[data-ll]")?.focus() });
-    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll, { manual: true }); else { delete o.lat; delete o.lng; delete o.manual } st.over[s.key] = o; editing = null; persist(); draw() });
+    view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; if (!editing) draft = null; draw() });
+    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll, { manual: true }); else { delete o.lat; delete o.lng; delete o.manual } st.over[s.key] = o; editing = null; draft = null; persist(); draw() });
     view.querySelector("#rt-add").onclick = () => { const v = view.querySelector("#rt-new").value.trim(); if (!v) return; st.manual.push({ address: v }); persist(); draw() };
     const lb = view.querySelector("#rt-locate"); if (lb) lb.onclick = () => locate();
     if (!locating && S.some(needs)) setTimeout(locate, 0);

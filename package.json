@@ -9,6 +9,7 @@
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "heic2any": "0.0.4",
+    "leaflet": "^1.9.4",
     "mammoth": "1.8.0",
     "pdfjs-dist": "4.4.168",
     "xlsx": "0.18.5",
