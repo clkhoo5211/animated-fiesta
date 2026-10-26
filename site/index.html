@@ -954,15 +954,22 @@ async function callModel(c,content,img,maxTok=c.maxTok||32000){
       c.onRetry?.(i+1,e);try{await sleep(RETRY_MS[i],c.signal)}catch(x){throw abortMsg(x,c)||x}}}}
 const httpErr=(msg,status)=>Object.assign(new Error(msg),{status});
 // temperature 0 = the same page reads the same way every run; a model/relay that refuses the parameter is asked again without it
-async function callModelInner(c,content,img,maxTok,signal){try{return await callModelRaw(c,content,img,maxTok,signal)}
-  catch(e){if(c.temperature!=null&&e.status>=400&&e.status<500&&/temperature/i.test(e.message||""))return callModelRaw({...c,temperature:null},content,img,maxTok,signal);throw e}}
+// newer OpenAI models (o-series, gpt-5) refuse max_tokens and want max_completion_tokens: the first refusal switches the parameter, remembered per endpoint + model
+const TOKPARAM=new Map(),tokKey=c=>`${c.base}|${c.model}`;
+async function callModelInner(c,content,img,maxTok,signal){
+  c={...c,tokParam:c.tokParam||TOKPARAM.get(tokKey(c))||(/^(o\d|gpt-5)/i.test(c.model||"")&&/openai\.com/.test(c.base||"")?"max_completion_tokens":"max_tokens")};
+  try{return await callModelRaw(c,content,img,maxTok,signal)}
+  catch(e){const m=e.message||"",ok=e.status>=400&&e.status<500;
+    if(ok&&c.type!=="anthropic"&&!c.tokSwapped){const to=c.tokParam==="max_tokens"&&/max_completion_tokens/i.test(m)?"max_completion_tokens":c.tokParam==="max_completion_tokens"&&/max_tokens/i.test(m)&&!/max_completion_tokens/i.test(m)?"max_tokens":null;
+      if(to){TOKPARAM.set(tokKey(c),to);return callModelInner({...c,tokParam:to,tokSwapped:true},content,img,maxTok,signal)}}
+    if(c.temperature!=null&&ok&&/temperature/i.test(m))return callModelInner({...c,temperature:null},content,img,maxTok,signal);throw e}}
 async function callModelRaw(c,content,img,maxTok,signal){
   const imgs=img?(Array.isArray(img)?img:[img]):[];
   if(c.type==="anthropic"){const parts=[...imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}})),...content];return anthropic(c.key,c.model,parts,maxTok,signal,c.temperature)}
   const parts=[...content,...imgs.map(d=>({type:"image_url",image_url:{url:`data:image/jpeg;base64,${d}`,detail:"high"}}))];
   const h={"Content-Type":"application/json",Authorization:`Bearer ${c.key}`};if(c.proxy)h["X-Target-Base"]=c.base;
   const r=await fetch((c.proxy||c.base).replace(/\/+$/,"")+"/chat/completions",{signal,method:"POST",headers:h,
-    body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),max_tokens:maxTok,...(c.temperature!=null?{temperature:c.temperature}:{}),messages:[{role:"user",content:parts}]})})
+    body:JSON.stringify({model:c.model,...(c.json?{response_format:{type:"json_object"}}:{}),[c.tokParam||"max_tokens"]:maxTok,...(c.temperature!=null?{temperature:c.temperature}:{}),messages:[{role:"user",content:parts}]})})
     .catch(e=>{if(e?.name==="AbortError"||e?.name==="TimeoutError")throw e;throw new Error(t("cant_connect",{b:c.base,x:c.proxy?t("via_proxy"):t("maybe_cors")}))});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw httpErr(j.error?.message||`HTTP ${r.status}`,r.status);
   const ch=j.choices?.[0]||{},txt=ch.message?.content||"";if(!txt.trim()&&ch.finish_reason==="length")throw new Error(t("out_of_tokens",{n:maxTok}));

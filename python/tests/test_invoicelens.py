@@ -484,6 +484,21 @@ def test_temperature_zero_with_fallback(tmp_path):
     assert seen == [0, None]
 
 
+def test_max_completion_tokens_fallback(tmp_path):
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append("max_tokens" in body)
+        if "max_tokens" in body:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."}})
+        doc = {"document_type": "invoice", "document_number": "INV-1", "rotation_degrees": "0", "tables": []}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(doc)}}]})
+    il._TOK_PARAM.clear()
+    il.main([str(FIX / "invoice.jpg"), "--a-base", "https://relay.test/v1", "--a-key", "k", "--b-key", "", "--out", str(tmp_path)], transport=httpx.MockTransport(handler))
+    assert seen[0] is True and seen[1] is False  # refused once, then the other parameter name; later calls use it directly
+
+
 def test_normalize_id_prefix_and_label_colon():
     r = il.normalize_result({"parties": [{"tax_id": "TIN:C6850683100", "registration_no": "(279018-W)"}], "fields": [{"label": "Payment Terms :", "value": "14 DAYS"}]})
     assert r["parties"][0]["tax_id"] == "C6850683100" and r["parties"][0]["registration_no"] == "279018-W"
