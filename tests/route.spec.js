@@ -264,3 +264,51 @@ test("tidyAddr drops the branch name, unit numbers and state suffix and spells o
   expect(r.q[0]).toBe("Jalan A 1, Taman B, 71900 LABU, NEGERI SEMBILAN"); // the street form first, the printed line later
   expect(r.q).toContain("NO. 7, JLN A 1, TMN B, 71900 LABU, NEGERI SEMBILAN DARUL KHUSUS");
 });
+
+test("Google Maps API key (optional): without it nothing is sent to Google; with it a stop the map cannot place exactly is looked up and accepted only after the postcode / words check", async ({ page, context }) => {
+  const ADDR = "NS SENDAYAN INDAH (DD) NO 7, JLN SENDAYAN INDAH 1, TMN SENDAYAN INDAH, 71900 LABU, NEGERI SEMBILAN";
+  const run = async (key) => {
+    const places = [];
+    await serve(context, {
+      model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", address: ADDR }], tables: [] } }),
+      geo: (url) => url.includes("nominatim") ? [{ lat: "2.6", lon: "101.8", place_rank: 26 }] : [],
+    });
+    await context.route("https://places.googleapis.com/**", async (route) => {
+      const req = route.request(); places.push({ key: req.headers()["x-goog-api-key"], body: JSON.parse(req.postData() || "{}") });
+      return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [
+        { id: "P1", displayName: { text: "Restoran Lain" }, formattedAddress: "Jalan Seberang, 71900 Labu", location: { latitude: 2.1, longitude: 101.1 } },
+        { id: "P2", displayName: { text: "99 Speed Mart" }, formattedAddress: "7, Jalan Sendayan Indah 1, Taman Sendayan Indah, 71900 Labu, Negeri Sembilan", location: { latitude: 2.61234, longitude: 101.81234 } },
+      ] }) });
+    });
+    await preset(page, { extra: key ? { google_key: key } : {} });
+    await page.goto("/");
+    await page.setInputFiles("#f", FIX("invoice.jpg"));
+    await page.click("#go");
+    await waitIdle(page);
+    await page.click(".tab[data-tab=route]");
+    return places;
+  };
+  const places = await run("g-test-key");
+  await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
+  expect(places).toHaveLength(1);
+  expect(places[0].key).toBe("g-test-key");
+  expect(places[0].body.textQuery).toBe(ADDR + ", Malaysia");
+  await expect(page.locator("#view")).toContainText("99 Speed Mart, 7, Jalan Sendayan Indah 1");
+});
+
+test("without a Google key the route tab never calls Google Places", async ({ page, context }) => {
+  let called = 0;
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", address: "NO 7, JLN A 1, TMN B, 71900 LABU" }], tables: [] } }),
+    geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }],
+  });
+  await context.route("https://places.googleapis.com/**", (route) => { called++; return route.abort(); });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
+  expect(called).toBe(0);
+});

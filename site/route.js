@@ -43,6 +43,23 @@ export function collectStops(docs) {
 // the same address read twice (two copies of one invoice, a slightly different scan) is one stop:
 // same postcode and nearly the same text (character-pair similarity), e.g. "TANAH MERAM … OLN MELUR" vs "TANAH MERAH … JLN MELUR"
 export const postcodeOf = a => (String(a ?? "").match(/\b\d{5}\b/g) || []).pop() || "";
+const STOPWORDS = new Set(["jalan", "taman", "pusat", "bandar", "persiaran", "lorong", "kampung", "medan", "laman", "komersial", "perniagaan", "negeri", "sembilan", "darul", "khusus", "ground", "floor", "malaysia", "selangor", "johor", "kuala", "lumpur", "single", "storey", "delivery", "address"]);
+/** distinctive words (street / area names) of an address, to compare it with the address a place service returns */
+export const addrWords = a => [...new Set(String(a ?? "").toLowerCase().replace(/\(.*?\)/g, " ").split(/[^a-z]+/).filter(w => w.length >= 5 && !STOPWORDS.has(w)))];
+/** is the place a service found the delivery address? found: {name, address, lat, lng}. Same postcode, and the place is a Speed Mart or the street / area words agree. */
+export function judgePlace(wanted, found) {
+  if (!found || found.lat == null || found.lng == null) return { ok: false, reason: "no place" };
+  if (!found.address) return { ok: false, reason: "place has no address to compare" };
+  const wantPc = postcodeOf(wanted), foundPc = postcodeOf(found.address);
+  if (wantPc && foundPc && wantPc !== foundPc) return { ok: false, reason: `postcode ${foundPc} is not ${wantPc}` };
+  if (wantPc && !foundPc) return { ok: false, reason: "place address has no postcode" };
+  const brand = /speed\s*mart/i.test(found.name || "") || /speed\s*mart/i.test(found.address);
+  const fw = new Set(addrWords(found.address + " " + (found.name || ""))), common = addrWords(wanted).filter(w => fw.has(w));
+  if (brand && common.length >= 1) return { ok: true, confidence: "high", reason: `Speed Mart, postcode ${foundPc}, words: ${common.join(" ")}` };
+  if (common.length >= 2) return { ok: true, confidence: "medium", reason: `postcode ${foundPc}, words: ${common.join(" ")}` };
+  if (brand && foundPc === wantPc) return { ok: true, confidence: "medium", reason: `Speed Mart in postcode ${foundPc}` };
+  return { ok: false, reason: `different place: ${found.name || "?"} (${common.length} shared words)` };
+}
 export function similarity(a, b) {
   const g = x => { const s = normAddr(x).replace(/[^A-Z0-9]/g, ""), m = new Map(); for (let i = 0; i < s.length - 1; i++) { const k = s.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1) } return [m, Math.max(0, s.length - 1)] };
   const [ga, na] = g(a), [gb, nb] = g(b); if (!na || !nb) return 0;
@@ -316,7 +333,7 @@ export async function roadMatrix(pts) {
 
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
-  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, dl } = api;
+  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, googleLocate, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const allStops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
@@ -337,36 +354,63 @@ export function renderRoute(view, api) {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
     const fld = (id, label, attrs) => `<div class="f"><label for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
     const placed = s => s.lat != null && !s.fail && precise(s);
-    let stopsHtml = `<div class="sec"><h3>${t("rt_step3", { n: on.length, m: S.length })}</h3>`;
-    if (!S.length) stopsHtml += `<div class="box"><p class="sub" style="margin:0">${t("rt_none")}</p></div>`;
-    else stopsHtml += `<div class="rt-bar"><span class="sub">${t("rt_sum", { n: S.length, p: S.filter(placed).length, q: S.filter(s => !placed(s)).length })}</span><label class="chk"><input type="checkbox" id="rt-onlyfix" ${st.onlyFix ? "checked" : ""}> ${t("rt_only")}</label></div>`;
-    stopsHtml += `<div class="rt-add f"><input id="rt-new" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button><button class="btn sm" id="rt-export" type="button">${t("rt_export")}</button><label class="btn sm">${t("rt_import")}<input type="file" id="rt-import" accept=".json,application/json" hidden></label>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div>`;
-    if (S.length) stopsHtml += `<div class="rt-scroll"><table class="rt-stops"><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => (st.onlyFix && placed(s) && !s.suspect) ? "" : `<tr${s.skip ? ' style="opacity:.5"' : ""}>
-      <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
-      <td>${s.name ? `<b>${esc(s.name)}</b> ` : ""}${s.refs.length ? `<span class="sub">${esc(s.refs.join(", "))}</span>` : ""}<div class="rt-addr">${esc(s.address)}</div>${s.variants ? `<br><span class="badge" style="background:var(--soft);color:var(--mut)" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</td>
-      <td><div class="rt-loc">${status(s)}${s.suspect ? `<span class="badge warn" title="${esc(t("rt_check_d"))}">${t("rt_check")}</span>` : ""}<div class="rt-acts"><button class="btn sm" data-edit="${i}" type="button">${t("rt_edit")}</button><button class="btn sm" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">✕</button></div></div>
-        ${editing === s.key ? `<div class="f" style="margin-top:6px"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
-    stopsHtml += `</div>`;
-    let h = `<details class="how"><summary>${t("rt_how_h")}</summary><p class="sub">${t("rt_intro")}</p><p class="sub">${t("rt_how")}</p></details>
-      <div class="sec"><h3>${t("rt_setup")}</h3><div class="rt-setup">
-        <div class="f rt-w2"><label for="rt-start">${t("rt_start")}</label><div class="rt-inline"><input id="rt-start" value="${esc(st.start)}" placeholder="${esc(t("rt_start_ph"))}"><button class="btn sm" id="rt-here" type="button">${t("rt_here")}</button></div>${st.startLL ? `<span class="sub">${t("rt_start_ok")} <a target="_blank" rel="noopener" href="${esc(mapLink(st.startLL))}">${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}</a></span>` : ""}</div>
-        ${fld("rt-time", t("rt_time"), `type="time" value="${esc(st.time)}"`)}
-        <div class="f"><label class="chk rt-back"><input type="checkbox" id="rt-back" ${st.back ? "checked" : ""}> ${t("rt_back")}</label></div>
-        ${fld("rt-lorries", t("rt_lorries"), `type="number" min="1" max="50" value="${st.lorries}"`)}${fld("rt-service", t("rt_service"), `type="number" min="0" max="240" value="${st.service}"`)}${fld("rt-max", t("rt_maxstops"), `type="number" min="0" value="${st.maxStops}"`)}${fld("rt-cc", t("rt_cc"), `value="${esc(st.cc)}" maxlength="20"`)}
-      </div></div>
-      <div class="rt-actions"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="btn sm" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="btn sm" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="sub" id="rt-msg">${esc(msg || need)}</span></div>`;
+    // ---- stops: one flat list, one block per stop (name, documents, address | location state | actions)
+    const rowHtml = (s, i) => `<li class="rt-row${s.skip ? " off" : ""}" data-key="${esc(s.key)}">
+        <input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}">
+        <div class="rt-info"><div class="rt-name">${s.name ? `<b>${esc(s.name)}</b>` : ""}${s.refs.length ? `<span class="rt-docs">${esc(s.refs.join(", "))}</span>` : ""}</div>
+          <div class="rt-addr">${esc(s.address)}</div>${s.variants ? `<span class="rt-note" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</div>
+        <div class="rt-loc">${status(s)}${s.suspect ? `<span class="badge warn" title="${esc(t("rt_check_d"))}">${t("rt_check")}</span>` : ""}</div>
+        <div class="rt-acts"><button class="lnk" data-edit="${i}" type="button">${t("rt_edit")}</button><button class="lnk" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">&times;</button></div>
+        ${editing === s.key ? `<div class="rt-fix"><input data-ll="${i}" value="${s.lat != null ? `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}` : ""}" placeholder="${esc(t("rt_ll_ph"))}"><span class="sub">${t("rt_ll_help")}</span></div>` : ""}</li>`;
+    let stopsHtml = `<div class="rt-head"><h3>${t("rt_step3", { n: on.length, m: S.length })}</h3>${S.length ? `<span class="rt-sum">${t("rt_sum", { n: S.length, p: S.filter(placed).length, q: S.filter(s => !placed(s)).length })}</span>` : ""}</div>`;
+    stopsHtml += `<div class="rt-tools"><input id="rt-new" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div>`;
+    if (S.length) stopsHtml += `<div class="rt-sub"><label class="chk"><input type="checkbox" id="rt-onlyfix" ${st.onlyFix ? "checked" : ""}> ${t("rt_only")}</label><span class="rt-io"><button class="lnk" id="rt-export" type="button">${t("rt_export")}</button><label class="lnk">${t("rt_import")}<input type="file" id="rt-import" accept=".json,application/json" hidden></label></span></div>`;
+    stopsHtml += S.length ? `<ul class="rt-list">${S.map((s, i) => (st.onlyFix && placed(s) && !s.suspect) ? "" : rowHtml(s, i)).join("")}</ul>` : `<p class="sub">${t("rt_none")}</p>`;
+
+    // ---- a schematic map (no tiles, no network): where the stops are, how the lorries run
+    const mapHtml = () => {
+      const pts = S.filter(s => s.lat != null && !s.fail), start = st.startLL;
+      if (!pts.length) return "";
+      const all = [...pts.map(p => [p.lat, p.lng]), ...(start ? [[start.lat, start.lng]] : [])];
+      const la = all.map(p => p[0]), lo = all.map(p => p[1]), minLa = Math.min(...la), maxLa = Math.max(...la), minLo = Math.min(...lo), maxLo = Math.max(...lo);
+      const kx = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180), W = 360, H = 250, pad = 20;
+      const sx = Math.max((maxLo - minLo) * kx, 1e-6), sy = Math.max(maxLa - minLa, 1e-6), sc = Math.min((W - 2 * pad) / sx, (H - 2 * pad) / sy);
+      const ox = pad + ((W - 2 * pad) - sx * sc) / 2, oy = pad + ((H - 2 * pad) - sy * sc) / 2;
+      const X = lng => (ox + (lng - minLo) * kx * sc).toFixed(1), Y = lat => (oy + (maxLa - lat) * sc).toFixed(1);
+      let g = "";
+      if (plan) plan.routes.forEach((rt, i) => {
+        const line = [...(start ? [start] : []), ...rt.stops, ...(st.back && start ? [start] : [])].map(p => `${X(p.lng)},${Y(p.lat)}`).join(" ");
+        g += `<polyline class="rt-line l${i % 6}" points="${line}"/>`;
+      });
+      pts.forEach(s => { g += `<circle class="rt-dot ${precise(s) ? "ex" : "st"}" data-key="${esc(s.key)}" cx="${X(s.lng)}" cy="${Y(s.lat)}" r="4"/>` });
+      if (plan) plan.routes.forEach((rt, i) => rt.stops.forEach((s, k) => { g += `<text class="rt-seq l${i % 6}" x="${(+X(s.lng) + 6).toFixed(1)}" y="${(+Y(s.lat) - 5).toFixed(1)}">${k + 1}</text>` }));
+      if (start) g += `<rect class="rt-start" x="${(+X(start.lng) - 5).toFixed(1)}" y="${(+Y(start.lat) - 5).toFixed(1)}" width="10" height="10"/>`;
+      return `<figure class="rt-fig"><svg class="rt-map" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t("rt_map_alt", { n: pts.length }))}">${g}</svg><figcaption><span class="lg ex"></span>${t("rt_leg_exact")}<span class="lg st"></span>${t("rt_leg_street")}<span class="lg sq"></span>${t("rt_leg_start")}</figcaption></figure>`;
+    };
+
+    // ---- side panel: setup, plan, result
+    let h = `<div class="rt-main">${stopsHtml}</div><aside class="rt-side">
+      <details class="how"><summary>${t("rt_how_h")}</summary><p class="sub">${t("rt_intro")}</p><p class="sub">${t("rt_how")}</p></details>
+      <h3 class="rt-title">${t("rt_setup")}</h3>
+      <div class="rt-form">
+        <div class="rt-f rt-wide"><label for="rt-start">${t("rt_start")}</label><div class="rt-inline"><input id="rt-start" value="${esc(st.start)}" placeholder="${esc(t("rt_start_ph"))}"><button class="lnk" id="rt-here" type="button">${t("rt_here")}</button></div>${st.startLL ? `<span class="rt-hint">${t("rt_start_ok")} <a target="_blank" rel="noopener" href="${esc(mapLink(st.startLL))}">${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}</a></span>` : ""}</div>
+        ${fld("rt-time", t("rt_time"), `type="time" value="${esc(st.time)}"`).replace('class="f"', 'class="rt-f"')}
+        <div class="rt-f"><label class="chk rt-back"><input type="checkbox" id="rt-back" ${st.back ? "checked" : ""}> ${t("rt_back")}</label></div>
+        ${[["rt-lorries", "rt_lorries", `type="number" min="1" max="50" value="${st.lorries}"`], ["rt-service", "rt_service", `type="number" min="0" max="240" value="${st.service}"`], ["rt-max", "rt_maxstops", `type="number" min="0" value="${st.maxStops}"`], ["rt-cc", "rt_cc", `value="${esc(st.cc)}" maxlength="20"`]].map(([id, k, at]) => fld(id, t(k), at).replace('class="f"', 'class="rt-f"')).join("")}
+      </div>
+      <div class="rt-plan"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="lnk" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="lnk" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="rt-msg" id="rt-msg">${esc(msg || need)}</span></div>
+      ${mapHtml()}`;
     if (plan) {
-      h += `<div class="sec"><h3>${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub" style="margin:0 0 8px">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? ", " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
-      if (plan.far.size) h += `<div class="box" style="border-color:var(--bad);margin:8px 0"><b>${t("rt_far_h", { n: plan.far.size })}</b><p class="sub" style="margin:4px 0 0">${t("rt_far_d")}</p><ul style="margin:6px 0 0 18px;padding:0">${[...plan.far].map(([k, km]) => { const s = ok_(k); return `<li>${esc(s ? (s.name ? s.name + " — " : "") + s.address : k)} <span class="sub">(${t("rt_far_km", { km: km.toFixed(0) })}${s?.refs?.length ? ", " + esc(s.refs.join(", ")) : ""})</span></li>` }).join("")}</ul></div>`;
+      h += `<h3 class="rt-title">${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? ", " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
+      if (plan.far.size) h += `<div class="rt-warn"><b>${t("rt_far_h", { n: plan.far.size })}</b><p class="sub">${t("rt_far_d")}</p><ul>${[...plan.far].map(([k, km]) => { const s = ok_(k); return `<li>${esc(s ? (s.name ? s.name + " — " : "") + s.address : k)} <span class="sub">(${t("rt_far_km", { km: km.toFixed(0) })}${s?.refs?.length ? ", " + esc(s.refs.join(", ")) : ""})</span></li>` }).join("")}</ul></div>`;
       plan.routes.forEach((r, i) => {
-        h += `<div class="box" style="margin:8px 0"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4><ol style="margin:4px 0 8px 18px;padding:0">${r.min > 10 * 60 ? `<p class="sub" style="margin:0 0 6px;color:var(--warn)">⚠ ${t("rt_long", { h: (r.min / 60).toFixed(1), k: Math.ceil(plan.min / (9 * 60)) })}</p>` : ""}${r.stops.map((s, k) => `<li${plan.far.has(s.key) ? ' style="color:var(--bad)"' : ""}><b>${fmtT(r.eta[k])}</b>, ${plan.far.has(s.key) ? "⚠ " : ""}${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol>${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a> `).join("")}</div>`;
+        h += `<section class="rt-lorry l${i % 6}"><h4>${t("rt_lorry", { i: i + 1, n: r.stops.length, km: r.km.toFixed(1), h: (r.min / 60).toFixed(1), end: fmtT(plan.t0 + r.min) })}</h4>${r.min > 10 * 60 ? `<p class="rt-warnline">${t("rt_long", { h: (r.min / 60).toFixed(1), k: Math.ceil(plan.min / (9 * 60)) })}</p>` : ""}<ol>${r.stops.map((s, k) => `<li${plan.far.has(s.key) ? ' class="far"' : ""}><b>${fmtT(r.eta[k])}</b>, ${esc(s.name ? s.name + " — " : "")}${esc(s.address)}${s.refs.length ? ` <span class="sub">(${esc(s.refs.join(", "))})</span>` : ""}</li>`).join("")}</ol><div class="rt-nav">${r.links.map((u, k) => `<a class="btn sm" target="_blank" rel="noopener" href="${esc(u)}">${t("rt_nav", { k: k + 1, n: r.links.length })}</a>`).join("")}</div></section>`;
       });
       if (plan.unplaced.length) h += `<p class="sub">${t("rt_unplaced_d")}: ${plan.unplaced.map(s => esc(s.address)).join(", ")}</p>`;
-      h += `</div>`;
     }
-    if (review) h += `<div class="sec"><h3>${t("rt_ai_h")}</h3><div class="box">${review.summary ? `<p>${esc(review.summary)}</p>` : ""}${(review.warnings || []).map(w => `<p>${esc(w)}</p>`).join("")}${(review.suggestions || []).map(w => `<p>${esc(w)}</p>`).join("")}<p class="sub">${t("rt_ai_note")}</p></div></div>`;
-    h += stopsHtml;
-    h += `<p class="sub" style="margin-top:16px">${t("rt_privacy")}</p>`;
+    if (review) h += `<h3 class="rt-title">${t("rt_ai_h")}</h3><div class="rt-review">${review.summary ? `<p>${esc(review.summary)}</p>` : ""}${(review.warnings || []).map(w => `<p>${esc(w)}</p>`).join("")}${(review.suggestions || []).map(w => `<p>${esc(w)}</p>`).join("")}<p class="sub">${t("rt_ai_note")}</p></div>`;
+    h += `<p class="rt-priv">${t("rt_privacy")}</p></aside>`;
+    h = `<div class="rt">${h}</div>`;
     // background lookups redraw the page: keep what the user is typing (and where) so it is not wiped
     const act = document.activeElement, keep = [...view.querySelectorAll("input[id]:not([type=checkbox])")].filter(el => el.id === "rt-new" || el === act).map(el => [el.id, el.value, el === act, el.selectionStart]);
     view.innerHTML = h;
@@ -389,6 +433,7 @@ export function renderRoute(view, api) {
         persist(); msg = t("rt_imported", { n }); draw();
       } catch { msg = t("rt_import_bad"); draw() }
     });
+    view.querySelectorAll(".rt-row").forEach(li => { const on = v => view.querySelector(`.rt-dot[data-key="${CSS.escape(li.dataset.key)}"]`)?.classList.toggle("hl", v); li.addEventListener("mouseenter", () => on(true)); li.addEventListener("mouseleave", () => on(false)) });
     view.querySelector("#rt-onlyfix")?.addEventListener("change", e => { st.onlyFix = e.target.checked; persist(); draw() });
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
@@ -426,7 +471,7 @@ export function renderRoute(view, api) {
   // look up every stop that has no location yet (results are cached, so this is quick the second time)
   // every stop without a location is looked up as soon as it appears. With a model configured, model A first rewrites all
   // pending addresses in one call into clean search text; the map service then finds the coordinates.
-  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!locateMany && !s.webTried && !precise(s)));
+  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!googleLocate && !s.gTried && !precise(s)) || (!!locateMany && !s.webTried && !precise(s)));
   let locating = null;
   const locate = () => locating || (locating = locateAll(stops().filter(needs)).catch(e => { msg = String(e.message || e) }).finally(() => { locating = null; draw() }));
   const locateAll = async S => {
@@ -453,6 +498,17 @@ export function renderRoute(view, api) {
           const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
           st.over[s.key] = { ...o, ...g, aiTried: true }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g, { aiTried: true }); persist();
         }
+      }
+    }
+    // optional: Google Places (the user's own API key) looks up every stop that is still not exact; accepted only after judgePlace() confirms it
+    if (googleLocate) {
+      const G = S.filter(s => !s.gTried && !precise(s) && !parseLatLng(s.address));
+      for (const [k, s] of G.entries()) {
+        show(t("rt_g_prog", { i: k + 1, n: G.length }));
+        const res = await googleLocate(s.address).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
+        if (res.fatal) { show(t("rt_g_err", { e: res.reason })); break }
+        const patch = res.ok ? { lat: +res.lat, lng: +res.lng, label: [res.place, res.found_address].filter(Boolean).join(", "), approx: false, fail: undefined, web: true, rank: 30, webSrc: res.url || "", webConf: res.confidence === "high" ? "high" : "medium" } : { webWhy: "Google: " + res.reason };
+        st.over[s.key] = { ...(st.over[s.key] || {}), ...patch, gTried: true }; Object.assign(s, patch, { gTried: true }); persist();
       }
     }
     // a model that can search the web finds the exact premises of every stop that is still only street / estate level (or not found);
