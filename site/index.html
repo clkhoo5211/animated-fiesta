@@ -127,6 +127,13 @@ th{background:none;color:var(--fg);border-bottom:1px solid var(--fg)}
 .help{background:none;border-left:0;padding:0}
 @media (min-width:761px) and (max-width:1100px){main{grid-template-columns:260px minmax(0,1fr);gap:var(--s5);padding:var(--s5) var(--s4) 64px}.bar{padding:var(--s3) var(--s4)}}
 @media (max-width:760px){main{grid-template-columns:minmax(0,1fr);gap:var(--s5);padding:var(--s4) var(--s4) 48px}.tabs{padding:0 var(--s3);gap:var(--s3)}.tabs .tab{padding:var(--s3) 0}.tools{justify-content:flex-start;overflow:visible}#results>.pad{padding:var(--s4)}}
+
+/* route + settings pass */
+.rt-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--s5)}
+.f input,.f select{background:var(--panel)}
+fieldset{border:0;border-top:1px solid var(--fg);border-radius:0;padding:var(--s3) 0 var(--s4);margin:var(--s4) 0 0}legend{font-family:var(--serif);font-size:18px;font-weight:500;padding:0 var(--s2) 0 0}
+.test.ok{color:var(--ok)}.test.bad{color:var(--bad)}
+.dh h2{font-family:var(--serif);font-size:22px;font-weight:500}
 </style>
 </head>
 <body>
@@ -213,6 +220,7 @@ th{background:none;color:var(--fg);border-bottom:1px solid var(--fg)}
       <div class="f"><label data-i18n="pdf_text_label"></label><select name="pdf_text"><option value="auto" data-i18n="pdf_auto"></option><option value="image" data-i18n="pdf_image"></option></select></div>
       <label class="chk"><input type="checkbox" name="enhance"> <span data-i18n="enhance"></span></label>
       <label class="chk"><input type="checkbox" name="tiles"> <span data-i18n="tiles"></span></label>
+      <div class="f"><label data-i18n="loc_with"></label><select name="locate_with"><option value="auto" data-i18n="loc_auto"></option><option value="a">A</option><option value="b">B</option></select><p class="note" data-i18n="loc_note"></p><div class="chk"><button type="button" class="btn sm" id="test-web" data-i18n="test_web"></button><span class="test" id="test-web-out"></span></div></div>
       <div class="f"><label data-i18n="proxy"></label><input name="proxy" placeholder="https://vision-cors-proxy.xxx.workers.dev"></div>
       <label class="chk"><input type="checkbox" name="remember_keys"> <span data-i18n="remember"></span></label>
       <p class="note warn" data-i18n="remember_warn"></p>
@@ -286,7 +294,7 @@ en:{
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
  edited_orig:"Corrected; original: {v}",tbl_head:"{t} · {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- orig_img:"Original",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ orig_img:"Original",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -356,7 +364,7 @@ zh:{
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
  edited_orig:"已修正，原值：{v}",tbl_head:"{t} · {n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- orig_img:"原图",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ orig_img:"原图",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -426,7 +434,7 @@ ms:{
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
  edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t} · {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- orig_img:"Asal",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ orig_img:"Asal",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",
@@ -809,7 +817,7 @@ const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 /* ---------- settings ---------- */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS="invoicelens.settings.v1";
-const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,a_maxtok:"32000",b_maxtok:"32000",b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
+const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,a_maxtok:"32000",b_maxtok:"32000",b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",locate_with:"auto",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
 const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
   set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
   clear(){try{localStorage.removeItem(LS)}catch{}}};
@@ -831,7 +839,7 @@ function paintProv(){for(const sl of ["a","b"]){const sel=form.elements[sl+"_pro
 function paintHelp(sl){const k=form.elements[sl+"_prov"].value,p=PROVIDERS[k],box=$(`[data-help="${sl}"]`);if(!box)return;
   const steps=k==="custom"?`<ol><li>${t("h_custom1")}</li><li>${t("h_custom2")}</li><li>${t("h_custom3")}</li></ol>`
    :`<ol><li>${t("h_step1",{link:`<a href="${p.url}" target="_blank" rel="noopener">${new URL(p.url).host}</a>`})}</li><li>${t("h_step2")}</li><li>${t("h_step3")}</li></ol>`;
-  const notes=[t("hn_"+k)];if(p.vision===0)notes.push(`<div class="warnline">⚠ ${t("h_novision")}</div>`);if(p.cors===0)notes.push(`<div class="warnline">⚠ ${t("h_cors")}</div>`);
+  const notes=[t("hn_"+k)];if(p.vision===0)notes.push(`<div class="warnline">${t("h_novision")}</div>`);if(p.cors===0)notes.push(`<div class="warnline">${t("h_cors")}</div>`);
   box.innerHTML=`<b>${t("h_title",{p:t("pv_"+k)})}</b>${steps}<div style="margin-top:6px">${notes[0]}</div>${notes.slice(1).join("")}`}
 function applyProv(sl){const k=form.elements[sl+"_prov"].value,p=PROVIDERS[k];
   if(k!=="custom"){form.elements[sl+"_type"].value=p.type;form.elements[sl+"_base"].value=p.base;
@@ -846,6 +854,12 @@ $("#open-settings").onclick=()=>{fillForm();$("#settings").showModal()};
 $("#save-settings").onclick=()=>{S=readForm();store.set(S);refreshChips();toast(S.remember_keys?t("saved_keys"):t("saved_nokeys"))};
 $("#clear-settings").onclick=()=>{store.clear();S={...DEF};fillForm();refreshChips();toast(t("cleared_settings"))};
 const slot=(s,o=S)=>({type:o[s+"_type"],model:o[s+"_model"],base:cleanBase(o[s+"_base"])||(o[s+"_type"]==="openai"?"https://api.openai.com/v1":""),key:o[s+"_key"],json:o[s+"_json"],maxTok:Math.max(256,parseInt(o[s+"_maxtok"])||32000),proxy:o.proxy,name:`${o[s+"_model"]}`});
+$("#test-web").onclick=async()=>{const out=$("#test-web-out"),f=readForm(),c=slot(f.locate_with==="b"||(f.locate_with==="auto"&&f.b_key)?"b":"a",f);out.textContent=t("web_testing");out.className="test";
+  try{const lat=(3+Math.random()*.3).toFixed(5),lon=(101.5+Math.random()*.3).toFixed(5),u=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+    const truth=await (await fetch(u)).json();
+    const r=await callModel({...c,temperature:0},[{type:"text",text:`Open this URL with your web browsing tool and copy two fields from the live JSON it returns. Do not guess. URL: ${u}\nIf you cannot open it, return {"opened":false}. Otherwise return JSON only: {"opened":true,"osm_id":<number>,"display_name":"..."}`}],null);
+    const ok=r&&r.opened!==false&&String(r.osm_id)===String(truth.osm_id);out.textContent=t(ok?"web_ok":"web_no");out.className="test "+(ok?"ok":"bad")}
+  catch(e){out.textContent=t("web_err")+(e.message||e);out.className="test bad"}};
 $$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dataset.slot,c=slot(s,readForm()),out=b.nextElementSibling;
   if(!c.key){out.innerHTML=`<span class="badge warn">${t("need_key")}</span>`;return}
   out.innerHTML=`<span class="badge mut">${t("testing")}</span>`;
@@ -1093,7 +1107,8 @@ function renderRouteTab(){
   const rewriteMany=a.key?async list=>{const r=await callModel({...a,temperature:0},[{type:"text",text:ADDRESS_BATCH_PROMPT+list.map((x,i)=>`${i+1}. ${String(x).replace(/\s*\n\s*/g,", ")}`).join("\n")}],null);
     const by=new Map((r?.results||[]).map(x=>[+x.n,x.queries]));return list.map((_,i)=>by.get(i+1)||[])}:null;
   // model A (when it can search the web) looks up the exact premises of stops the map only found at street level; route.js verifies every answer
-  const locateMany=a.key?async list=>{const r=await callModel({...a,temperature:0},[{type:"text",text:LOCATE_PROMPT+list.map((x,i)=>`${i+1}. ${String(x).replace(/\s*\n\s*/g,", ")}`).join("\n")}],null);return Array.isArray(r?.results)?r.results:null}:null;
+  const LB=slot("b"),LM=S.locate_with==="b"||(S.locate_with!=="b"&&S.locate_with!=="a"&&LB.key)?LB:a;
+  const locateMany=LM.key?async list=>{const r=await callModel({...LM,temperature:0},[{type:"text",text:LOCATE_PROMPT+list.map((x,i)=>`${i+1}. ${String(x).replace(/\s*\n\s*/g,", ")}`).join("\n")}],null);return Array.isArray(r?.results)?r.results:null}:null;
   renderRoute($("#view"),{t,esc,docs,askModel,rewriteAddr,rewriteMany,locateMany,dl:dlBlob})}
 /* ---------- cross-document reconciliation & duplicates ---------- */
 const normNo=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"");
