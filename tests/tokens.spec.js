@@ -14,6 +14,7 @@ test("max output tokens: 32000 by default, configurable, clear error when thinki
   expect(calls.at(-1).maxTokens).toBe(32000);
 
   await page.click("#open-settings");
+  await page.click("[data-model=a] .more summary");
   await page.fill('[name="a_maxtok"]', "65536");
   await page.click("#save-settings");
   await page.keyboard.press("Escape");
