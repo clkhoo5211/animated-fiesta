@@ -139,6 +139,14 @@ h1,h2,h3,h4{text-wrap:balance}
 @media (max-width:760px){.rt-stops th:nth-child(3),.rt-stops td:nth-child(3){display:none}.rt-stops td:nth-child(2){min-width:144px}}
 input[type=checkbox]{accent-color:var(--ac)}
 #results.card{color:var(--fg)}
+
+/* settings dialog: two models side by side, rarely used options folded */
+dialog{width:min(960px,calc(100% - 32px))}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:var(--s5)}
+details>summary{cursor:pointer;color:var(--mut);padding:var(--s2) 0;list-style:none}details>summary::-webkit-details-marker{display:none}details>summary::before{content:"+";display:inline-block;width:16px}details[open]>summary::before{content:"\2212"}
+details>summary:hover{color:var(--fg)}
+.locfs .f{margin-top:0}.remember{margin-top:var(--s4)}
+.adv{margin-top:var(--s4);border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -190,46 +198,60 @@ input[type=checkbox]{accent-color:var(--ac)}
   <form method="dialog">
   <div class="dh"><h2 data-i18n="settings"></h2><span class="sp"></span><button class="btn sm" value="cancel" data-i18n="close"></button></div>
   <div class="db">
+    <div class="mgrid">
     <fieldset data-model="a">
       <legend data-i18n="model_a"></legend>
-      <div class="f"><label data-i18n="provider"></label><select name="a_prov" class="prov"></select></div>
-      <div class="help" data-help="a"></div>
       <div class="row">
-        <div class="f"><label data-i18n="type"></label><select name="a_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
+      <div class="f"><label data-i18n="provider"></label><select name="a_prov" class="prov"></select></div>
         <div class="f"><label data-i18n="model_name_img"></label><input name="a_model" placeholder="gpt-4o"></div>
       </div>
       <div class="f" data-openai><label>Base URL</label><input name="a_base" list="presets" placeholder="https://api.openai.com/v1"></div>
       <div class="f"><label>API Key</label><div class="pw"><input name="a_key" type="password" autocomplete="off" placeholder="sk-..."><button type="button" class="eye" data-i18n="show"></button></div></div>
+      <details class="more"><summary data-i18n="more_opts"></summary>
+        <div class="f"><label data-i18n="type"></label><select name="a_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
       <label class="chk" data-openai><input type="checkbox" name="a_json"> <span data-i18n="json_mode"></span></label>
       <div class="f"><label data-i18n="max_tok"></label><input name="a_maxtok" inputmode="numeric" placeholder="32000"><p class="note" data-i18n="max_tok_hint"></p></div>
       <div class="f"><label data-i18n="price_label"></label><div class="row"><input name="a_price_in" inputmode="decimal" data-i18n-ph="price_in"><input name="a_price_out" inputmode="decimal" data-i18n-ph="price_out"></div></div>
+      </details>
+      <details class="howto"><summary data-i18n="howto"></summary>
+      <div class="help" data-help="a"></div>
+      </details>
       <div class="chk"><button type="button" class="btn sm test-btn" data-i18n="test_conn"></button><span class="test"></span></div>
     </fieldset>
     <fieldset data-model="b">
       <legend data-i18n="model_b"></legend>
-      <div class="f"><label data-i18n="provider"></label><select name="b_prov" class="prov"></select></div>
-      <div class="help" data-help="b"></div>
       <div class="row">
-        <div class="f"><label data-i18n="type"></label><select name="b_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
+      <div class="f"><label data-i18n="provider"></label><select name="b_prov" class="prov"></select></div>
         <div class="f"><label data-i18n="model_name"></label><input name="b_model" placeholder="claude-sonnet-5-5 / gemini-2.5-flash"></div>
       </div>
       <div class="f" data-openai><label>Base URL</label><input name="b_base" list="presets" data-i18n-ph="same_as_a"></div>
       <div class="f"><label data-i18n="key_b"></label><div class="pw"><input name="b_key" type="password" autocomplete="off"><button type="button" class="eye" data-i18n="show"></button></div></div>
+      <details class="more"><summary data-i18n="more_opts"></summary>
+        <div class="f"><label data-i18n="type"></label><select name="b_type"><option value="openai" data-i18n="compat"></option><option value="anthropic">Anthropic</option></select></div>
       <label class="chk" data-openai><input type="checkbox" name="b_json"> <span data-i18n="json_mode_s"></span></label>
       <div class="f"><label data-i18n="max_tok"></label><input name="b_maxtok" inputmode="numeric" placeholder="32000"><p class="note" data-i18n="max_tok_hint"></p></div>
       <div class="f"><label data-i18n="price_label"></label><div class="row"><input name="b_price_in" inputmode="decimal" data-i18n-ph="price_in"><input name="b_price_out" inputmode="decimal" data-i18n-ph="price_out"></div></div>
+      </details>
+      <details class="howto"><summary data-i18n="howto"></summary>
+      <div class="help" data-help="b"></div>
+      </details>
       <div class="chk"><button type="button" class="btn sm test-btn" data-i18n="test_conn"></button><span class="test"></span></div>
     </fieldset>
-    <fieldset>
-      <legend data-i18n="advanced"></legend>
+    </div>
+    <fieldset class="locfs">
+      <legend data-i18n="loc_with"></legend>
+      <div class="f"><select name="locate_with"><option value="auto" data-i18n="loc_auto"></option><option value="a">A</option><option value="b">B</option></select><p class="note" data-i18n="loc_note"></p><div class="chk"><button type="button" class="btn sm" id="test-web" data-i18n="test_web"></button><span class="test" id="test-web-out"></span></div></div>
+    </fieldset>
+    <details class="adv"><summary data-i18n="advanced"></summary>
       <div class="f"><label data-i18n="pdf_text_label"></label><select name="pdf_text"><option value="auto" data-i18n="pdf_auto"></option><option value="image" data-i18n="pdf_image"></option></select></div>
       <label class="chk"><input type="checkbox" name="enhance"> <span data-i18n="enhance"></span></label>
       <label class="chk"><input type="checkbox" name="tiles"> <span data-i18n="tiles"></span></label>
-      <div class="f"><label data-i18n="loc_with"></label><select name="locate_with"><option value="auto" data-i18n="loc_auto"></option><option value="a">A</option><option value="b">B</option></select><p class="note" data-i18n="loc_note"></p><div class="chk"><button type="button" class="btn sm" id="test-web" data-i18n="test_web"></button><span class="test" id="test-web-out"></span></div></div>
       <div class="f"><label data-i18n="proxy"></label><input name="proxy" placeholder="https://vision-cors-proxy.xxx.workers.dev"></div>
+    </details>
+    <div class="remember">
       <label class="chk"><input type="checkbox" name="remember_keys"> <span data-i18n="remember"></span></label>
       <p class="note warn" data-i18n="remember_warn"></p>
-    </fieldset>
+    </div>
     <datalist id="presets"><option value="https://api.openai.com/v1"><option value="https://openrouter.ai/api/v1"><option value="https://dashscope.aliyuncs.com/compatible-mode/v1"><option value="https://generativelanguage.googleapis.com/v1beta/openai"><option value="https://api.deepseek.com/v1"></datalist>
   </div>
   <div class="df"><button class="btn sm" type="button" id="clear-settings" data-i18n="clear_settings"></button><span class="sp"></span><button class="btn pri" value="save" id="save-settings" data-i18n="save"></button></div>
@@ -299,7 +321,7 @@ en:{
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
  edited_orig:"Corrected; original: {v}",tbl_head:"{t} · {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- orig_img:"Original",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ orig_img:"Original",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -369,7 +391,7 @@ zh:{
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
  edited_orig:"已修正，原值：{v}",tbl_head:"{t} · {n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- orig_img:"原图",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ orig_img:"原图",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -439,7 +461,7 @@ ms:{
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
  edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t} · {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- orig_img:"Asal",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ orig_img:"Asal",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",

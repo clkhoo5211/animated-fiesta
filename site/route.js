@@ -215,7 +215,7 @@ export function geoQueries(addr) {
 // The coordinates always come from the map service, never from the model.
 export async function geocode(addr, cc, rewrite, pre = []) {
   const cache = load(GEO, {}), k = normAddr(addr) + "|" + (cc || "");
-  if (cache[k] && !((rewrite || pre.length) && cache[k].approx)) return cache[k];
+  if (cache[k] && !((rewrite || pre.length) && (cache[k].approx || (pre.length && (cache[k].rank || 0) < 28)))) return cache[k];
   // a hit in another postcode is a wrong match (a same-named street elsewhere): keep looking, use it only as a last resort
   const want = postcodeOf(addr), ok = h => h && !(want && h.pc && String(h.pc).replace(/\s/g, "") !== want);
   let hit = null, approx = false, query = null, other = null;
@@ -398,21 +398,28 @@ export function renderRoute(view, api) {
   const locateAll = async S => {
     if (!S.length) return;
     const show = m => { msg = m; const el = view.querySelector("#rt-msg"); if (el) el.textContent = m };
-    const pre = new Map();
-    if (rewriteMany) {
-      show(t("rt_ai_addr"));
-      for (let i = 0; i < S.length; i += 25) {
-        const chunk = S.slice(i, i + 25), r = await rewriteMany(chunk.map(s => s.address)).catch(() => []);
-        chunk.forEach((s, k) => pre.set(s.key, Array.isArray(r[k]) ? r[k] : []));
-      }
-    }
+    // 1) the printed address goes to the map service first (cleaned by rules only, no model)
     let i = 0;
     for (const s of S) {
       show(t("rt_geo_prog", { i: ++i, n: S.length }));
-      if (s.lat != null && !s.fail) continue; // already placed (web search below may still improve it)
-      const g = parseLatLng(s.address) || await geocode(s.address, st.cc, null, pre.get(s.key) || []).catch(() => ({ fail: true }));
+      if (s.lat != null && !s.fail) continue; // already placed (later steps may still improve it)
+      const g = parseLatLng(s.address) || await geocode(s.address, st.cc, null, []).catch(() => ({ fail: true }));
       const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
-      st.over[s.key] = { ...o, ...g, ...(rewriteMany ? { aiTried: true } : {}) }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
+      st.over[s.key] = { ...o, ...g }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
+    }
+    // 2) only the stops the map could not place exactly: the model rewrites the address into cleaner search text, then the map is asked again
+    if (rewriteMany) {
+      const R = S.filter(s => !s.aiTried && !precise(s) && !parseLatLng(s.address));
+      if (R.length) show(t("rt_ai_addr"));
+      for (let k = 0; k < R.length; k += 25) {
+        const chunk = R.slice(k, k + 25), r = await rewriteMany(chunk.map(s => s.address)).catch(() => []);
+        for (const [j, s] of chunk.entries()) {
+          const pre = Array.isArray(r[j]) ? r[j] : [];
+          const g = await geocode(s.address, st.cc, null, pre).catch(() => ({ fail: true }));
+          const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
+          st.over[s.key] = { ...o, ...g, aiTried: true }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g, { aiTried: true }); persist();
+        }
+      }
     }
     // a model that can search the web finds the exact premises of every stop that is still only street / estate level (or not found);
     // its coordinates count only after verifyWebPos() confirms them

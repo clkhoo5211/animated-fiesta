@@ -212,3 +212,22 @@ test("a model-reported coordinate in another postcode is rejected", async ({ pag
   await webCase(page, context, { n: 1, found: true, lat: 1.6905, lng: 103.5251, maps_url: "https://www.google.com/maps/place/x/@1.6905,103.5251,17z" }, "80000");
   await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
 });
+
+test("the printed address goes to the map first; the model is only asked to rewrite addresses the map cannot place exactly", async ({ page, context }) => {
+  let rewrites = 0;
+  await serve(context, {
+    model: (c) => {
+      if (c.text.includes("Rewrite each numbered delivery address")) { rewrites++; return { json: { results: [{ n: 1, queries: [] }] } } }
+      return { json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", address: "NO 14 JALAN KEINDAHAN 1, TAMAN SKUDAI INDAH, 81300 SKUDAI, JOHOR." }], tables: [] } };
+    },
+    geo: (url) => url.includes("nominatim") ? [{ lat: "1.535", lon: "103.657", place_rank: 30 }] : [],
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator(".badge.ok")).toHaveCount(1, { timeout: 20000 });
+  expect(rewrites).toBe(0);
+});
