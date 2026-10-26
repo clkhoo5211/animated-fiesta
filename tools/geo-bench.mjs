@@ -1,0 +1,83 @@
+// Free-geocoding experiment: how many printed delivery addresses does OpenStreetMap place exactly,
+// and which query shape works best? Run on your own computer (needs internet, Node 18+):
+//   node tools/geo-bench.mjs addresses.json > bench.md          (addresses.json: ["address 1", "address 2", ...])
+//   node tools/geo-bench.mjs addresses.json --dry               (only print the queries, no network)
+// Nominatim policy: one request per second, identifying User-Agent. Results are cached in .geo-bench-cache.json.
+import fs from "node:fs";
+import { geoQueries, postcodeOf } from "../site/route.js";
+
+const [file, ...flags] = process.argv.slice(2);
+if (!file) { console.error("usage: node tools/geo-bench.mjs addresses.json [--dry]"); process.exit(1) }
+const DRY = flags.includes("--dry");
+const addrs = JSON.parse(fs.readFileSync(file, "utf8")).map(a => (typeof a === "string" ? { address: a } : a));
+const UA = "invoicelens-geo-bench/1.0 (+https://github.com/clkhoo5211/animated-fiesta)";
+const CACHE = ".geo-bench-cache.json";
+const cache = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, "utf8")) : {};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let last = 0;
+
+// V1: the printed address as a structured, spelled-out street query (abbreviations expanded, store codes and unit numbers dropped)
+const ABBR = [[/\bJLN\b/gi, "Jalan"], [/\bTMN\b/gi, "Taman"], [/\bPST\b/gi, "Pusat"], [/\bBDR\b/gi, "Bandar"], [/\bLRG\b/gi, "Lorong"], [/\bKG\b/gi, "Kampung"], [/\bPSRN\b/gi, "Persiaran"], [/\bN\.?\s*SEMBILAN\b/gi, "Negeri Sembilan"]];
+export function tidy(a) {
+  const parts = String(a).replace(/^\s*Delivery Address\s*/i, "").replace(/\s*\n\s*/g, ", ").split(",").map(x => x.trim()).filter(Boolean)
+    // the branch name ("1988 NS TMN X (DD)") and unit numbers ("NO: 20-G & 21-G (GROUND FLOOR)", "1780 (GF)", "3827") are not part of the street address
+    .filter(x => !/\((?:DD|TD|ND|FN|01|[A-Z]{2})\)/.test(x) && !/^(?:NO\s*[:.]?\s*)?[\dA-Z-]+(?:\s*&\s*[\dA-Z-]+)?\s*(?:\([^)]*\))?\.?$/i.test(x) && !/^(?:\d{3,4}\s+)?(?:NS|RS)\s/i.test(x));
+  let t = parts.join(", ").replace(/\bDARUL\s*K\w*\.?/gi, "").replace(/\bDARU\b\.?/gi, "").replace(/\s+/g, " ").replace(/[\s,.]+$/g, "");
+  for (const [re, to] of ABBR) t = t.replace(re, to);
+  return t.replace(/\b([A-Z]{2,})\b/g, w => w[0] + w.slice(1).toLowerCase());
+}
+// V2: brand + area (the shop is a 99 Speed Mart, which OpenStreetMap usually names after the brand)
+function brandQueries(a) {
+  const pc = postcodeOf(a), t = tidy(a), parts = t.split(",").map(s => s.trim()).filter(Boolean);
+  const area = parts.filter(p => /^(Taman|Pusat|Bandar|Medan|Laman|Kampung)\b/i.test(p) || /\b(Taman|Pusat|Bandar|Medan|Laman|Kampung)\b/i.test(p)).slice(-1)[0] || parts[Math.max(0, parts.length - 2)] || "";
+  const town = (t.match(/\b\d{5}\s+([A-Za-z .]+)/) || [])[1] || "";
+  return [...new Set([`99 Speed Mart ${area} ${pc} ${town}`.replace(/\s+/g, " ").trim(), `99 Speed Mart ${area}`.trim(), `99 Speed Mart ${pc} ${town}`.trim()])];
+}
+const VARIANTS = { "V0 as printed (current)": a => geoQueries(a), "V1 spelled out": a => [tidy(a), ...tidy(a).split(",").slice(-3).length > 2 ? [tidy(a).split(",").slice(-3).join(",").trim()] : []], "V2 brand + area": a => brandQueries(a) };
+
+async function nominatim(q) {
+  const k = "N|" + q; if (cache[k]) return cache[k];
+  const wait = 1100 - (Date.now() - last); if (wait > 0) await sleep(wait); last = Date.now();
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=3&countrycodes=my&q=${encodeURIComponent(q)}`, { headers: { "User-Agent": UA, "Accept-Language": "en" } });
+  if (!r.ok) throw new Error("nominatim HTTP " + r.status);
+  const j = await r.json(); cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
+}
+async function overpassBrand() {
+  const k = "O|brand-ns"; if (cache[k]) return cache[k];
+  const q = `[out:json][timeout:90];area["ISO3166-2"="MY-05"]->.a;nwr(area.a)["brand"~"99 Speed",i];out center tags;`;
+  const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", headers: { "User-Agent": UA }, body: "data=" + encodeURIComponent(q) });
+  if (!r.ok) throw new Error("overpass HTTP " + r.status);
+  const j = (await r.json()).elements || []; cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
+}
+const exact = h => h && (Number(h.place_rank) >= 28 || ["shop", "amenity", "building", "office"].includes(h.category || h.class));
+const short = h => h ? `${(h.display_name || "").split(",").slice(0, 3).join(",")} [${h.category || h.class}/${h.type}, rank ${h.place_rank}]` : "no hit";
+
+const out = [];
+const score = Object.fromEntries(Object.keys(VARIANTS).map(k => [k, 0]));
+out.push(`# Geocoding bench, ${addrs.length} addresses\n`);
+for (const [i, item] of addrs.entries()) {
+  const a = item.address, pc = postcodeOf(a);
+  out.push(`## ${i + 1}. ${a}\n`);
+  for (const [name, fn] of Object.entries(VARIANTS)) {
+    const qs = fn(a);
+    if (DRY) { out.push(`- ${name}: ${qs.map(q => "`" + q + "`").join(" | ")}`); continue }
+    let best = null, used = "";
+    for (const q of qs) { const hs = await nominatim(q).catch(e => { out.push(`  - error: ${e.message}`); return [] }); const h = hs.find(x => !pc || !x.address?.postcode || String(x.address.postcode).replace(/\s/g, "") === pc) || null; if (h && (!best || (exact(h) && !exact(best)))) { best = h; used = q } if (exact(best)) break }
+    if (exact(best)) score[name]++;
+    out.push(`- ${name}: ${exact(best) ? "EXACT" : best ? "area only" : "none"}: ${short(best)}${best ? ` (${Number(best.lat).toFixed(5)}, ${Number(best.lon).toFixed(5)}) via \`${used}\`` : ""}`);
+  }
+  out.push("");
+}
+if (!DRY) {
+  out.push("## Summary: exact hits per variant\n");
+  for (const [k, v] of Object.entries(score)) out.push(`- ${k}: ${v} / ${addrs.length}`);
+  try {
+    const els = await overpassBrand();
+    out.push(`\n## OpenStreetMap 99 Speed Mart POIs in Negeri Sembilan: ${els.length}\n`);
+    const withPc = addrs.map(x => postcodeOf(x.address));
+    let matched = 0;
+    for (const [i, x] of addrs.entries()) { const c = els.filter(e => (e.tags?.["addr:postcode"] || "") === withPc[i]); if (c.length) matched++; out.push(`- ${i + 1}. postcode ${withPc[i]}: ${c.length} POI(s) ${c.slice(0, 3).map(e => `${e.tags?.name || e.tags?.brand} (${(e.lat ?? e.center?.lat)?.toFixed?.(5)}, ${(e.lon ?? e.center?.lon)?.toFixed?.(5)})`).join("; ")}`) }
+    out.push(`\nAddresses whose postcode has at least one brand POI: ${matched} / ${addrs.length}`);
+  } catch (e) { out.push(`\n(overpass skipped: ${e.message})`) }
+}
+console.log(out.join("\n"));
