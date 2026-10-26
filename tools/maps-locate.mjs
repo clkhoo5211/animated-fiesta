@@ -10,10 +10,11 @@
 // small, the delay long, and use it for your own deliveries only.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { postcodeOf, addrWords, judgePlace } from "../site/route.js";
 
 export const MY_BOX = { lat: [0.8, 7.5], lng: [99, 119.7] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-export const postcodeOf = a => (String(a ?? "").match(/\b\d{5}\b/g) || []).pop() || "";
+export { postcodeOf };
 
 /** the pin of a Google Maps place URL ("...!3d2.5!4d101.8..."); the "@lat,lng" of the URL is only the map view and is never used */
 export function pinFromUrl(u) {
@@ -23,26 +24,9 @@ export function pinFromUrl(u) {
   return lat >= MY_BOX.lat[0] && lat <= MY_BOX.lat[1] && lng >= MY_BOX.lng[0] && lng <= MY_BOX.lng[1] ? { lat, lng } : null;
 }
 
-const STOP = new Set(["jalan", "taman", "pusat", "bandar", "persiaran", "lorong", "kampung", "medan", "laman", "komersial", "perniagaan", "negeri", "sembilan", "darul", "khusus", "ground", "floor", "malaysia", "selangor", "johor", "kuala", "lumpur", "single", "storey", "delivery", "address"]);
-/** distinctive words of an address (street / area names), for comparing it with the address Google shows */
-export function words(a) {
-  return [...new Set(String(a ?? "").toLowerCase().replace(/\(.*?\)/g, " ").split(/[^a-z]+/).filter(w => w.length >= 5 && !STOP.has(w)))];
-}
-
-/** decide whether a place Google found is the delivery address. found: {name, address, lat, lng} */
-export function judge(wanted, found) {
-  if (!found || found.lat == null) return { ok: false, reason: "no place page" };
-  if (!found.address) return { ok: false, reason: "place has no address to compare" };
-  const wantPc = postcodeOf(wanted), foundPc = postcodeOf(found.address);
-  if (wantPc && foundPc && wantPc !== foundPc) return { ok: false, reason: `postcode ${foundPc} is not ${wantPc}` };
-  if (wantPc && !foundPc) return { ok: false, reason: "place address has no postcode" };
-  const brand = /speed\s*mart/i.test(found.name || "") || /speed\s*mart/i.test(found.address);
-  const fw = new Set(words(found.address + " " + (found.name || ""))), common = words(wanted).filter(w => fw.has(w));
-  if (brand && common.length >= 1) return { ok: true, confidence: "high", reason: `Speed Mart, postcode ${foundPc}, words: ${common.join(" ")}` };
-  if (common.length >= 2) return { ok: true, confidence: "medium", reason: `postcode ${foundPc}, words: ${common.join(" ")}` };
-  if (brand && foundPc === wantPc) return { ok: true, confidence: "medium", reason: `Speed Mart in postcode ${foundPc}` };
-  return { ok: false, reason: `different place: ${found.name || "?"} (${common.length} shared words)` };
-}
+export const words = addrWords;
+/** decide whether a place Google found is the delivery address (same rules as the app's Google Places option) */
+export const judge = judgePlace;
 
 const searchUrl = q => `https://www.google.com/maps/search/?api=1&hl=en&query=${encodeURIComponent(q)}`;
 const full = a => String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();

@@ -128,8 +128,6 @@ th{background:none;color:var(--fg);border-bottom:1px solid var(--fg)}
 @media (min-width:761px) and (max-width:1100px){main{grid-template-columns:260px minmax(0,1fr);gap:var(--s5);padding:var(--s5) var(--s4) 64px}.bar{padding:var(--s3) var(--s4)}}
 @media (max-width:760px){main{grid-template-columns:minmax(0,1fr);gap:var(--s5);padding:var(--s4) var(--s4) 48px}.tabs{padding:0 var(--s3);gap:var(--s3)}.tabs .tab{padding:var(--s3) 0}.tools{justify-content:flex-start;overflow:visible}#results>.pad{padding:var(--s4)}}
 
-/* route + settings pass */
-.rt-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--s5)}
 .f input,.f select{background:var(--panel)}
 fieldset{border:0;border-top:1px solid var(--fg);border-radius:0;padding:var(--s3) 0 var(--s4);margin:var(--s4) 0 0}legend{font-family:var(--serif);font-size:18px;font-weight:500;padding:0 var(--s2) 0 0}
 .test.ok{color:var(--ok)}.test.bad{color:var(--bad)}
@@ -172,22 +170,49 @@ tr:not(.flag):hover td{background:var(--soft)}
 .pager{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin-bottom:var(--s4);padding:var(--s2) 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .pager select{min-width:0;max-width:100%;padding:var(--s1) var(--s2);border:0;border-bottom:1px solid var(--fg);border-radius:0;background:none;color:var(--fg)}
 .pager .sub{margin:0 var(--s2)}.pager #seg-flag{margin-left:auto}
-.rt-loc{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2)}.rt-loc div.sub{flex-basis:100%;order:3}.rt-loc .badge{white-space:nowrap}.rt-acts{display:flex;gap:var(--s1);margin-left:auto;order:2}
-.rt-bar{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;justify-content:space-between;margin:0 0 var(--s3)}.rt-bar .chk{margin:0}
-.rt-stops{table-layout:auto}.rt-stops td:nth-child(2){min-width:220px}.rt-stops td:nth-child(3){min-width:260px;width:300px}
-details.how>summary{padding:0}
 
-/* route page: compact setup, plan first, stops in a scrolling list */
-.rt-setup{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3) var(--s4);align-items:end}.rt-setup .f{margin-top:0}.rt-w2{grid-column:span 2}
-.rt-inline{display:flex;gap:var(--s2)}.rt-inline input{flex:1;min-width:0}.rt-back{margin:0 0 var(--s2)}
-.rt-actions{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin:var(--s4) 0 var(--s2);padding:var(--s3) 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.rt-add{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 0 var(--s3)}.rt-add input{flex:1;min-width:14em;width:auto}
-.rt-scroll{max-height:min(640px,72vh);overflow:auto;border-top:1px solid var(--line)}
-.rt-scroll th{position:sticky;top:1px;background:var(--panel);z-index:1}
-.rt-addr{font-size:13px;overflow-wrap:anywhere}
-.rt-loc div.sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;font-size:12px}
-@media (max-width:1100px){.rt-setup{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:560px){.rt-setup{grid-template-columns:minmax(0,1fr)}.rt-w2{grid-column:auto}.rt-stops td:nth-child(3){min-width:240px}}
+@media (min-width:901px){main.wide{grid-template-columns:272px minmax(0,1fr);gap:32px}main.wide .drop b{font-size:16px}main.wide .job .acts{grid-column:1/-1}}
+/* route page: a working surface, not a form. Stops on the left, the plan (setup, button, map, lorries) in a sticky column on the right. */
+.rt{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:var(--s5) 48px;align-items:start}
+.rt-main{min-width:0;container:rtm/inline-size}
+.rt-side{position:sticky;top:88px;max-height:calc(100vh - 104px);overflow:auto;padding-left:32px;border-left:1px solid var(--line);min-width:0}
+.rt-title{font-family:var(--serif);font-size:18px;font-weight:500;margin:var(--s5) 0 var(--s3)}.rt-side>.how+.rt-title{margin-top:var(--s4)}
+.how>summary{padding:0}.how p{margin:var(--s2) 0}
+.rt-form{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4) var(--s5)}
+.rt-f{display:grid;gap:var(--s1);min-width:0;align-content:end}.rt-f label{font-size:12px;color:var(--mut)}.rt-wide{grid-column:1/-1}
+.rt-f input:not([type=checkbox]),.rt-tools input{width:100%;min-width:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:var(--s1) 0;font-size:15px}
+.rt-f input:not([type=checkbox]):hover,.rt-tools input:hover{border-bottom-color:var(--mut)}
+.rt-inline{display:flex;gap:var(--s3);align-items:end}.rt-inline input{flex:1}
+.rt-hint{font-size:12px;color:var(--mut)}.rt-hint a{color:var(--ac)}
+.rt-back{margin:0;align-self:end;font-size:13px}
+.lnk{border:0;background:none;color:var(--ac);padding:0;font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}.lnk:hover{color:var(--fg)}
+.rt-plan{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);align-items:center;margin:var(--s5) 0 var(--s4)}.rt-plan .btn.pri{flex:1 1 100%;justify-content:center;padding:var(--s3)}
+.rt-msg{font-size:12px;color:var(--mut);flex-basis:100%}
+.rt-fig{margin:var(--s4) 0 0}.rt-map{display:block;width:100%;height:auto;background:var(--soft);border-radius:var(--r)}
+.rt-fig figcaption{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1);margin-top:var(--s2);font-size:12px;color:var(--mut)}
+.lg{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:var(--s3)}.lg:first-child{margin-left:0}.lg.ex{background:var(--ok)}.lg.st{background:var(--warn)}.lg.sq{border-radius:0;background:var(--fg)}
+.rt-dot.ex{fill:var(--ok)}.rt-dot.st{fill:var(--warn)}.rt-dot.hl{r:7;stroke:var(--fg);stroke-width:1.5}.rt-start{fill:var(--fg)}
+.rt-line{fill:none;stroke-width:1.6;stroke-linejoin:round;opacity:.85}.rt-seq{font-size:9px;font-weight:600;font-variant-numeric:tabular-nums;stroke:none}
+.l0{stroke:var(--ac);fill:var(--ac)}.l1{stroke:var(--warn);fill:var(--warn)}.l2{stroke:var(--bad);fill:var(--bad)}.l3{stroke:var(--ok);fill:var(--ok)}.l4{stroke:var(--mut);fill:var(--mut)}.l5{stroke:var(--fg);fill:var(--fg)}
+section.l0,section.l1,section.l2,section.l3,section.l4,section.l5{stroke:none;fill:none}
+.rt-lorry{border-top:1px solid var(--line);padding:var(--s3) 0}.rt-lorry h4{margin:0 0 var(--s2);font-size:14px}.rt-lorry ol{margin:0;padding-left:var(--s5);display:grid;gap:var(--s1);font-size:13px}.rt-lorry li.far{color:var(--bad)}
+.rt-nav{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s3)}.rt-warnline{color:var(--warn);font-size:13px;margin:0 0 var(--s2)}
+.rt-warn{border-top:1px solid var(--bad);padding:var(--s3) 0}.rt-warn ul{margin:var(--s2) 0 0;padding-left:var(--s5);font-size:13px}.rt-review p{margin:var(--s2) 0;font-size:13px}.rt-priv{font-size:12px;color:var(--mut);margin-top:var(--s5)}
+.rt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s2) var(--s4);margin-bottom:var(--s3)}.rt-head h3{margin:0;font-family:var(--serif);font-size:22px;font-weight:500}.rt-sum{font-size:13px;color:var(--mut)}
+.rt-tools{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s3);align-items:end;margin-bottom:var(--s2)}.rt-tools input{flex:1 1 220px}
+.rt-sub{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s5);justify-content:space-between;align-items:center;margin:var(--s3) 0 var(--s2);font-size:13px}.rt-sub .chk{margin:0}.rt-io{display:flex;gap:var(--s4)}
+.rt-list{list-style:none;margin:0;padding:0}
+.rt-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;grid-template-areas:"c i a" ". l l" ". f f";gap:var(--s2) var(--s4);align-items:start;padding:var(--s3) 0;border-top:1px solid var(--line);transition:background-color .12s}.rt-row:hover{background:var(--soft)}.rt-row.off{opacity:.45}
+.rt-row>input{grid-area:c}.rt-info{grid-area:i}.rt-loc{grid-area:l}.rt-acts{grid-area:a}.rt-fix{grid-area:f}
+@container rtm (min-width:500px){.rt-row{grid-template-columns:20px minmax(0,1fr) 220px auto;grid-template-areas:"c i l a" ". f f f"}}
+.rt-row>input{margin-top:var(--s1)}
+.rt-name{display:flex;flex-wrap:wrap;gap:0 var(--s2);align-items:baseline}.rt-name b{font-weight:600}.rt-docs{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+.rt-addr{font-size:13px;color:var(--mut);line-height:1.45;overflow-wrap:anywhere}.rt-note{display:inline-block;margin-top:var(--s1);font-size:12px;color:var(--mut)}
+.rt-loc{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2)}.rt-loc .badge{white-space:nowrap}.rt-loc div.sub{flex-basis:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.rt-acts{display:flex;gap:var(--s3);align-items:center}
+.rt-fix{display:grid;gap:var(--s1)}.rt-fix input{border:0;border-bottom:1px solid var(--ac);background:none;padding:var(--s1) 0;font-size:15px}
+@media (max-width:1100px){.rt{grid-template-columns:minmax(0,1fr)}.rt-side{position:static;max-height:none;overflow:visible;padding-left:0;border-left:0;order:-1}}
+@media (max-width:640px){.rt-form{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -281,6 +306,7 @@ details.how>summary{padding:0}
     </div>
     <fieldset class="locfs">
       <legend data-i18n="loc_with"></legend>
+      <div class="f"><label data-i18n="g_key"></label><div class="pw"><input name="google_key" type="password" autocomplete="off" placeholder="AIza..."><button type="button" class="eye" data-i18n="show"></button></div><p class="note" data-i18n="g_note"></p></div>
       <div class="f"><select name="locate_with"><option value="auto" data-i18n="loc_auto"></option><option value="a">A</option><option value="b">B</option></select><p class="note" data-i18n="loc_note"></p><div class="chk"><button type="button" class="btn sm" id="test-web" data-i18n="test_web"></button><span class="test" id="test-web-out"></span></div></div>
     </fieldset>
     <details class="adv"><summary data-i18n="advanced"></summary>
@@ -302,7 +328,7 @@ details.how>summary{padding:0}
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import {renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,LOCATE_PROMPT,similarity} from "./route.js";
+import {fullAddr,judgePlace,renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,LOCATE_PROMPT,similarity} from "./route.js";
 const I18N={
 en:{
  meta_desc:"In-browser document extraction: multi-model extraction, arithmetic checks, cross-verification",
@@ -362,7 +388,7 @@ en:{
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
  edited_orig:"Corrected; original: {v}",tbl_head:"{t}, {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- orig_img:"Original",rt_export:"Export stops to check",rt_import:"Import coordinates",rt_imported:"{n} coordinates imported",rt_import_bad:"That file is not a valid locations.json",rt_setup:"Setup",pg_prev:"Previous",pg_next:"Next",pg_page:"Page",pg_bad:"needs review",pg_warn:"check",pg_flag:"Next flagged page ({n})",rt_sum:"{n} stops, {p} placed exactly, {q} to check",rt_only:"Show only stops to check",rt_how_h:"How locations are found",sum_search:"Search file, number, party or total",sum_all:"All",sum_none:"Nothing matches this filter.",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ orig_img:"Original",g_key:"Google Maps API key (optional)",g_note:"Leave empty to keep the free methods. With a key, stops that OpenStreetMap cannot place exactly are looked up with Google Places (billed by Google to your key) and accepted only when the postcode and the street / area words match. Enable “Places API (New)” for the key.",rt_g_prog:"Google lookup {i}/{n}…",rt_g_err:"Google lookup stopped: {e}",rt_map_alt:"Map of {n} stops",rt_leg_exact:"Exact",rt_leg_street:"Street or area",rt_leg_start:"Start",rt_export:"Export stops to check",rt_import:"Import coordinates",rt_imported:"{n} coordinates imported",rt_import_bad:"That file is not a valid locations.json",rt_setup:"Setup",pg_prev:"Previous",pg_next:"Next",pg_page:"Page",pg_bad:"needs review",pg_warn:"check",pg_flag:"Next flagged page ({n})",rt_sum:"{n} stops, {p} placed exactly, {q} to check",rt_only:"Show only stops to check",rt_how_h:"How locations are found",sum_search:"Search file, number, party or total",sum_all:"All",sum_none:"Nothing matches this filter.",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -432,7 +458,7 @@ zh:{
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
  edited_orig:"已修正，原值：{v}",tbl_head:"{t}，{n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- orig_img:"原图",rt_export:"导出待核对的送货点",rt_import:"导入坐标",rt_imported:"已导入 {n} 个坐标",rt_import_bad:"这个文件不是有效的 locations.json",rt_setup:"出发与车辆设置",pg_prev:"上一页",pg_next:"下一页",pg_page:"页面",pg_bad:"需复核",pg_warn:"待确认",pg_flag:"下一个有问题的页面（{n}）",rt_sum:"{n} 个送货点，{p} 个已精确定位，{q} 个待核对",rt_only:"只显示待核对的送货点",rt_how_h:"位置是如何查找的",sum_search:"搜索文件、单号、对方或金额",sum_all:"全部",sum_none:"没有符合筛选条件的文件。",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ orig_img:"原图",g_key:"Google Maps API Key（可选）",g_note:"留空则继续使用免费方法。填写后，OpenStreetMap 无法精确定位的送货点会用 Google Places 查询（由 Google 向你的 Key 计费），并且只有邮编和街道/区域词都对得上才采用。需要为该 Key 启用 “Places API (New)”。",rt_g_prog:"Google 查询 {i}/{n}…",rt_g_err:"Google 查询已停止：{e}",rt_map_alt:"{n} 个送货点的示意图",rt_leg_exact:"精确",rt_leg_street:"街道或区域",rt_leg_start:"出发点",rt_export:"导出待核对的送货点",rt_import:"导入坐标",rt_imported:"已导入 {n} 个坐标",rt_import_bad:"这个文件不是有效的 locations.json",rt_setup:"出发与车辆设置",pg_prev:"上一页",pg_next:"下一页",pg_page:"页面",pg_bad:"需复核",pg_warn:"待确认",pg_flag:"下一个有问题的页面（{n}）",rt_sum:"{n} 个送货点，{p} 个已精确定位，{q} 个待核对",rt_only:"只显示待核对的送货点",rt_how_h:"位置是如何查找的",sum_search:"搜索文件、单号、对方或金额",sum_all:"全部",sum_none:"没有符合筛选条件的文件。",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -502,7 +528,7 @@ ms:{
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
  edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t}, {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- orig_img:"Asal",rt_export:"Eksport hentian untuk disemak",rt_import:"Import koordinat",rt_imported:"{n} koordinat diimport",rt_import_bad:"Fail itu bukan locations.json yang sah",rt_setup:"Tetapan",pg_prev:"Sebelumnya",pg_next:"Seterusnya",pg_page:"Halaman",pg_bad:"perlu semak",pg_warn:"semak",pg_flag:"Halaman bertanda seterusnya ({n})",rt_sum:"{n} hentian, {p} tepat, {q} perlu disemak",rt_only:"Tunjuk hentian untuk disemak sahaja",rt_how_h:"Cara lokasi dicari",sum_search:"Cari fail, nombor, pihak atau jumlah",sum_all:"Semua",sum_none:"Tiada padanan untuk penapis ini.",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ orig_img:"Asal",g_key:"Kunci API Google Maps (pilihan)",g_note:"Biarkan kosong untuk kekal dengan kaedah percuma. Dengan kunci, hentian yang tidak dapat ditentukan tepat oleh OpenStreetMap dicari dengan Google Places (dibilkan oleh Google kepada kunci anda) dan diterima hanya jika poskod dan perkataan jalan / kawasan sepadan. Aktifkan “Places API (New)” untuk kunci ini.",rt_g_prog:"Carian Google {i}/{n}…",rt_g_err:"Carian Google dihentikan: {e}",rt_map_alt:"Peta {n} hentian",rt_leg_exact:"Tepat",rt_leg_street:"Jalan atau kawasan",rt_leg_start:"Mula",rt_export:"Eksport hentian untuk disemak",rt_import:"Import koordinat",rt_imported:"{n} koordinat diimport",rt_import_bad:"Fail itu bukan locations.json yang sah",rt_setup:"Tetapan",pg_prev:"Sebelumnya",pg_next:"Seterusnya",pg_page:"Halaman",pg_bad:"perlu semak",pg_warn:"semak",pg_flag:"Halaman bertanda seterusnya ({n})",rt_sum:"{n} hentian, {p} tepat, {q} perlu disemak",rt_only:"Tunjuk hentian untuk disemak sahaja",rt_how_h:"Cara lokasi dicari",sum_search:"Cari fail, nombor, pihak atau jumlah",sum_all:"Semua",sum_none:"Tiada padanan untuk penapis ini.",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",
@@ -885,9 +911,9 @@ const safe=p=>p.catch(e=>({error:String(e.message||e)}));
 /* ---------- settings ---------- */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS="invoicelens.settings.v1";
-const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,a_maxtok:"32000",b_maxtok:"32000",b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",locate_with:"auto",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
+const DEF={a_prov:"openai",b_prov:"anthropic",a_type:"openai",a_model:"gpt-4o",a_base:"https://api.openai.com/v1",a_key:"",a_json:true,a_maxtok:"32000",b_maxtok:"32000",b_type:"anthropic",b_model:"claude-sonnet-5-5",b_base:"",b_key:"",b_json:true,proxy:"",remember_keys:false,enhance:true,tiles:false,pdf_text:"auto",locate_with:"auto",google_key:"",a_price_in:"",a_price_out:"",b_price_in:"",b_price_out:""};
 const store={get(){try{return {...DEF,...JSON.parse(localStorage.getItem(LS)||"{}")}}catch{return {...DEF}}},
-  set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
+  set(v){try{const o={...v};if(!o.remember_keys){delete o.a_key;delete o.b_key;delete o.google_key}localStorage.setItem(LS,JSON.stringify(o))}catch{}},
   clear(){try{localStorage.removeItem(LS)}catch{}}};
 let S=store.get();
 const form=$("#settings form");
@@ -1086,7 +1112,7 @@ function showCurrent(){const j=CUR;if(tab==="summary")return renderSummary();if(
   if(j.result)return render();
   $("#view").innerHTML=`<div class="empty">${j.error?`<b style="color:var(--bad)">${t("failed")}</b><br><span class="sub">${esc(j.error)}</span><br><br>${t("click_retry")}`:t("not_yet")}</div>`}
 function emptyFor(tb){const how=tb==="overview"?`<ol class="how"><li>${t("emp1")}</li><li>${t("emp2")}</li><li>${t("emp3")}</li></ol>`:"";return`<div class="empty">${{overview:t("empty_overview"),items:t("empty_items"),checks:t("empty_checks"),json:t("empty_json")}[tb]||t("no_results")}${how}</div>`}
-function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));showCurrent()}
+function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));$("main").classList.toggle("wide",t==="route");showCurrent()}
 /* ---------- autosave (IndexedDB) ---------- */
 const DB={db:null,ok:false,
   open(){return new Promise(res=>{try{const rq=indexedDB.open("invoicelens",1);rq.onupgradeneeded=()=>{rq.result.createObjectStore("jobs",{keyPath:"id"})};
@@ -1184,7 +1210,15 @@ function renderRouteTab(){
   // model A (when it can search the web) looks up the exact premises of stops the map only found at street level; route.js verifies every answer
   const LB=slot("b"),LM=S.locate_with==="b"||(S.locate_with!=="b"&&S.locate_with!=="a"&&LB.key)?LB:a;
   const locateMany=LM.key?async list=>{const r=await callModel({...LM,temperature:0},[{type:"text",text:LOCATE_PROMPT+list.map((x,i)=>`${i+1}. ${String(x).replace(/\s*\n\s*/g,", ")}`).join("\n")}],null);return Array.isArray(r?.results)?r.results:null}:null;
-  renderRoute($("#view"),{t,esc,docs,askModel,rewriteAddr,rewriteMany,locateMany,dl:dlBlob})}
+  // optional Google Places lookup with the user's own key: used only when a key is set; every answer is checked by judgePlace() before it counts
+  const gk=S.google_key,googleLocate=gk?async addr=>{
+    const r=await fetch("https://places.googleapis.com/v1/places:searchText",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gk,"X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location"},body:JSON.stringify({textQuery:fullAddr(addr),regionCode:"MY",languageCode:"en",maxResultCount:3})});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
+    let why="no result";
+    for(const p of j.places||[]){const c={name:p.displayName?.text||"",address:p.formattedAddress||"",lat:p.location?.latitude,lng:p.location?.longitude},v=judgePlace(addr,c);
+      if(v.ok)return{ok:true,...c,place:c.name,found_address:c.address,url:`https://www.google.com/maps/place/?q=place_id:${p.id}`,confidence:v.confidence,reason:v.reason};why=v.reason}
+    return{ok:false,reason:why}}:null;
+  renderRoute($("#view"),{t,esc,docs,askModel,rewriteAddr,rewriteMany,locateMany,googleLocate,dl:dlBlob})}
 /* ---------- cross-document reconciliation & duplicates ---------- */
 const normNo=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"");
 const ocrCanon=k=>k.replace(/O|Q|D/g,"0").replace(/[IL|]/g,"1").replace(/S/g,"5").replace(/B/g,"8").replace(/Z/g,"2").replace(/G/g,"6");
