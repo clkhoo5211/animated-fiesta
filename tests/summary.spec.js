@@ -1,0 +1,30 @@
+const { test, expect } = require("@playwright/test");
+const { serve, preset, waitIdle, invoice, FIX } = require("./helpers");
+
+test("summary: search, status filter, sortable columns, Esc returns from a file to the summary", async ({ page, context }) => {
+  let n = 0;
+  const totals = ["300.00", "100.00", "200.00"];
+  await serve(context, { model: () => { const i = n++ % 3; return { json: invoice({ document_number: "INV-" + i, grand_total: totals[i] }) }; } });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", [FIX("invoice.jpg"), FIX("rotated.jpg"), FIX("small-qr.jpg")]);
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=summary]");
+  const rows = page.locator("#sum-t tbody tr");
+  await expect(rows).toHaveCount(3);
+  await page.fill("#sum-q", "INV-1");
+  await expect(rows).toHaveCount(1);
+  await page.fill("#sum-q", "");
+  await page.click('#sum-f [data-f="warn"]');
+  await expect(page.locator("#sum-t")).toContainText("Nothing matches");
+  await page.click('#sum-f [data-f="all"]');
+  await page.click('.sortb[data-s="total"]');
+  await expect(rows.first()).toContainText("100.00");
+  await page.click('.sortb[data-s="total"]');
+  await expect(rows.first()).toContainText("300.00");
+  await rows.first().click();
+  await expect(page.locator(".tab.on")).not.toHaveAttribute("data-tab", "summary");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".tab.on")).toHaveAttribute("data-tab", "summary");
+});

@@ -164,6 +164,11 @@ tr:not(.flag):hover td{background:var(--soft)}
 .job .nm{overflow-wrap:anywhere;word-break:normal}.job .badge{padding:0 var(--s2)}
 @media (min-width:1200px){#results>.pad{padding:var(--s5) 32px}.tabs{padding:0 32px}}
 @media (max-width:760px){.exp{margin-left:0}.tabs{gap:var(--s4)}.exp .tools{right:auto;left:0}}
+
+.sumbar{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;margin:var(--s5) 0 var(--s3)}
+.sumbar input{flex:1 1 240px;min-width:0;padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.seg .btn.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.sortb{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:inherit}.sortb:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -338,7 +343,7 @@ en:{
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
  edited_orig:"Corrected; original: {v}",tbl_head:"{t}, {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- orig_img:"Original",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ orig_img:"Original",sum_search:"Search file, number, party or total",sum_all:"All",sum_none:"Nothing matches this filter.",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -408,7 +413,7 @@ zh:{
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
  edited_orig:"已修正，原值：{v}",tbl_head:"{t}，{n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- orig_img:"原图",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ orig_img:"原图",sum_search:"搜索文件、单号、对方或金额",sum_all:"全部",sum_none:"没有符合筛选条件的文件。",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -478,7 +483,7 @@ ms:{
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
  edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t}, {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- orig_img:"Asal",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ orig_img:"Asal",sum_search:"Cari fail, nombor, pihak atau jumlah",sum_all:"Semua",sum_none:"Tiada padanan untuk penapis ini.",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",
@@ -1216,15 +1221,27 @@ function costOf(u){const p=k=>[num(S[k+"_price_in"]),num(S[k+"_price_out"])];let
 const fmtTok=n=>n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(1)+"k":String(n);
 const fmtCost=c=>c==null?"":c<0.01?c.toFixed(4):c.toFixed(2);
 function usageLine(u){const parts=[];for(const k of ["a","b"])if(u[k].in||u[k].out)parts.push(`${k.toUpperCase()} ${fmtTok(u[k].in)} / ${fmtTok(u[k].out)}`);if(!parts.length)return"";const c=costOf(u);return t("usage_line",{v:parts.join(" · ")})+(c!=null?t("cost_line",{c:fmtCost(c)}):"")}
+const SUM={q:"",f:"all",s:"",d:1};
 function renderSummary(){const v=$("#view");const done=JOBS.filter(j=>j.result||j.error);
   if(!done.length){v.innerHTML=`<div class="empty">${t("no_results")}</div>`;return}
   const c=s=>JOBS.filter(j=>j.status===s).length;
   v.innerHTML=`<div class="kpis"><div class="kpi"><span>${t("sum_files")}</span><b>${JOBS.length}</b></div><div class="kpi"><span>${t("st_ok")}</span><b style="color:var(--ok)">${c("ok")}</b></div><div class="kpi"><span>${t("st_warn")}</span><b style="color:var(--warn)">${c("warn")}</b></div>${(()=>{const tot={a:{in:0,out:0},b:{in:0,out:0}};JOBS.forEach(j=>{const u=usageOf(j.result);for(const k of ["a","b"]){tot[k].in+=u[k].in;tot[k].out+=u[k].out}});const n=tot.a.in+tot.a.out+tot.b.in+tot.b.out;if(!n)return"";const c=costOf(tot);return `<div class="kpi"><span>${t("sum_tokens")}</span><b>${fmtTok(n)}</b></div>`+(c!=null?`<div class="kpi"><span>${t("sum_cost")}</span><b>${fmtCost(c)}</b></div>`:"")})()}<div class="kpi"><span>${t("sum_bad")}</span><b style="color:var(--bad)">${c("bad")+c("err")}</b></div></div>
-  <div class="sec tw"><table><thead><tr><th>${t("th_file")}</th><th>${t("th_type")}</th><th>${t("th_no")}</th><th>${t("th_date")}</th><th>${t("th_party")}</th><th class="n">${t("th_total")}</th><th class="n">${t("th_rows")}</th><th>${t("th_status")}</th></tr></thead><tbody>
-  ${done.map(j=>{const r=j.result&&best(j.result.segments[0])[1];const [k,tx]=STATUS[j.status];const party=r?.parties?.find(p=>p.role!=="issuer"&&p.role!=="supplier")||r?.parties?.[0];
-    return`<tr class="click" data-id="${j.id}"><td>${esc(j.file.name)}</td><td>${esc(r?typeName(r.document_type):"—")}</td><td>${esc(r?.document_number??"—")}</td><td>${esc(r?.document_date??"—")}</td><td>${esc(party?.name??"—")}</td><td class="n">${r?.grand_total!=null?esc(`${r.currency||""} ${r.grand_total}`):"—"}</td><td class="n">${r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"—"}</td><td><span class="badge ${k}">${tx}</span>${j.error?`<div class="sub">${esc(j.error).slice(0,60)}</div>`:""}</td></tr>`}).join("")}
-  </tbody></table></div><p class="sub">${t("click_row")}</p>`;
-  v.querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>select(JOBS.find(j=>j.id==tr.dataset.id)))}
+  <div class="sumbar"><input id="sum-q" type="search" value="${esc(SUM.q)}" placeholder="${esc(t("sum_search"))}" aria-label="${esc(t("sum_search"))}"><div class="seg" id="sum-f">${[["all",t("sum_all")],["ok",t("st_ok")],["warn",t("st_warn")],["bad",t("st_bad")]].map(([k,l])=>`<button type="button" class="btn sm${SUM.f===k?" on":""}" data-f="${k}" aria-pressed="${SUM.f===k}">${l}</button>`).join("")}</div></div>
+  <div id="sum-t"></div><p class="sub">${t("click_row")}</p>`;
+  const sumRow=j=>{const r=j.result&&best(j.result.segments[0])[1];const party=r?.parties?.find(p=>p.role!=="issuer"&&p.role!=="supplier")||r?.parties?.[0];
+    return{j,r,file:j.file.name,type:r?typeName(r.document_type):"",no:r?.document_number??"",date:r?.document_date??"",party:party?.name??"",total:r?.grand_total!=null?parseFloat(String(r.grand_total).replace(/[^0-9.-]/g,"")):NaN,rows:r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):NaN}};
+  const drawSum=()=>{let L=done.map(sumRow);const q=SUM.q.trim().toLowerCase();
+    if(q)L=L.filter(x=>[x.file,x.type,x.no,x.date,x.party,x.r?.grand_total].join(" ").toLowerCase().includes(q));
+    if(SUM.f!=="all")L=L.filter(x=>SUM.f==="bad"?["bad","err"].includes(x.j.status):x.j.status===SUM.f);
+    if(SUM.s){const k=SUM.s,d=SUM.d;L.sort((x,y)=>{const a=x[k],b=y[k],na=typeof a==="number",nb=typeof b==="number";if(na&&nb)return(isNaN(a)-isNaN(b))||(a-b)*d;return String(a).localeCompare(String(b),undefined,{numeric:true})*d})}
+    const th=(k,l,n)=>`<th${n?' class="n"':""} aria-sort="${SUM.s===k?(SUM.d>0?"ascending":"descending"):"none"}"><button type="button" class="sortb" data-s="${k}">${l}${SUM.s===k?(SUM.d>0?" ▲":" ▼"):""}</button></th>`;
+    $("#sum-t").innerHTML=L.length?`<div class="tw"><table><thead><tr>${th("file",t("th_file"))}${th("type",t("th_type"))}${th("no",t("th_no"))}${th("date",t("th_date"))}${th("party",t("th_party"))}${th("total",t("th_total"),1)}${th("rows",t("th_rows"),1)}<th>${t("th_status")}</th></tr></thead><tbody>${L.map(({j,r,file,type,no,date,party})=>{const [k,tx]=STATUS[j.status];
+      return`<tr class="click" data-id="${j.id}"><td>${esc(file)}</td><td>${esc(type||"—")}</td><td>${esc(no||"—")}</td><td>${esc(date||"—")}</td><td>${esc(party||"—")}</td><td class="n">${r?.grand_total!=null?esc(`${r.currency||""} ${r.grand_total}`):"—"}</td><td class="n">${r?(r.tables||[]).reduce((a,t)=>a+(t.rows||[]).length,0):"—"}</td><td><span class="badge ${k}">${tx}</span>${j.error?`<div class="sub">${esc(j.error).slice(0,60)}</div>`:""}</td></tr>`}).join("")}</tbody></table></div>`:`<div class="empty">${t("sum_none")}</div>`;
+    $("#sum-t").querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>select(JOBS.find(j=>j.id==tr.dataset.id)));
+    $("#sum-t").querySelectorAll(".sortb").forEach(bt=>bt.onclick=()=>{const k=bt.dataset.s;if(SUM.s===k)SUM.d=-SUM.d;else{SUM.s=k;SUM.d=1}drawSum()})};
+  drawSum();
+  $("#sum-q").oninput=e=>{SUM.q=e.target.value;drawSum()};
+  v.querySelectorAll("#sum-f [data-f]").forEach(bt=>bt.onclick=()=>{SUM.f=bt.dataset.f;renderSummary()})}
 
 /* pick the model whose result held up under more checks: passed checks count, failures cost more; a result that ran no checks does not win by default */
 // tie-break: how much table content a result captured (a truncated description loses)
@@ -1376,7 +1393,7 @@ const touched=(seg,f)=>{f=String(f);return (seg.accepted||[]).includes(f)||(seg.
 function commitEdit(seg,path,val){best(seg);const r=seg.final_result;const old=getPath(r,path);const v=val===""?null:val;
   if(String(old??"")===String(v??""))return false;setPath(r,path,v);seg.manual_edits.push({path,from:old??null,to:v,at:new Date().toISOString()});afterEdit();return true}
 function afterEdit(){if(!CUR)return;CUR.reviewed=false;CUR.status=verdict(CUR.result);drawQueue()}
-window.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&EDIT&&!document.activeElement?.classList.contains("ev")){$("#undo")?.click()}});
+window.addEventListener("keydown",e=>{if(e.key==="Escape"&&!document.querySelector("dialog[open]")&&!/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)&&!document.activeElement?.isContentEditable&&tab!=="summary"&&!$("#tab-summary").hidden){$("#tab-summary").click()}if((e.metaKey||e.ctrlKey)&&e.key==="z"&&EDIT&&!document.activeElement?.classList.contains("ev")){$("#undo")?.click()}});
 function issues(seg){const L=[];const cv=seg.cross_verification;best(seg);
   const nEd=seg.manual_edits.length;
   // after a manual edit or an automatic column repair, the checks that matter are the ones on the final result
