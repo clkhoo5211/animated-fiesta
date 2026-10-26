@@ -110,7 +110,7 @@ main>section:first-child .pad{padding:0}
 .tabs{padding:0 var(--s5);gap:var(--s4);border-bottom:1px solid var(--line)}
 .tab{padding:var(--s4) 0;font-size:14px}
 .tools{width:100%;margin:0;padding:var(--s3) 0;justify-content:flex-end;border-top:1px solid var(--line)}
-.tools .btn{border:0;background:none;color:var(--mut);padding:4px var(--s2);text-decoration:underline;text-underline-offset:3px}.tools .btn:hover{color:var(--fg);background:none}.tools .btn:disabled{display:none}.tools:not(:has(.btn:not(:disabled))){display:none}
+.tools .btn{border:0;background:none;color:var(--mut);padding:4px var(--s2);text-decoration:underline;text-underline-offset:3px}.tools .btn:hover{color:var(--fg);background:none}.tools .btn:disabled{display:none}
 #results>.pad{padding:var(--s5)}
 .empty{text-align:left;padding:var(--s5) 0;font-family:var(--serif);font-size:20px;color:var(--mut);max-width:44ch}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border-top:1px solid var(--fg);border-bottom:1px solid var(--line)}
@@ -147,6 +147,23 @@ details>summary{cursor:pointer;color:var(--mut);padding:var(--s2) 0;list-style:n
 details>summary:hover{color:var(--fg)}
 .locfs .f{margin-top:0}.remember{margin-top:var(--s4)}
 .adv{margin-top:var(--s4);border-top:1px solid var(--line)}
+
+/* professional pass: one-row tabs with an export menu, compact queue, aligned figures, guided empty state */
+.tabs{align-items:center;gap:var(--s5);padding:0 var(--s5);border-bottom:1px solid var(--line)}
+.tab{padding:var(--s4) 0;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px}.tab.on{border-bottom-color:var(--ac)}
+.exp{position:relative;margin-left:auto}.exp>summary{border:1px solid var(--line);border-radius:var(--r);padding:var(--s1) var(--s3);color:var(--fg);background:var(--panel)}.exp>summary::before{content:none}
+.exp .tools{position:absolute;right:0;top:calc(100% + var(--s1));z-index:6;width:240px;flex-direction:column;align-items:stretch;gap:0;padding:var(--s1);margin:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.exp .tools .btn{justify-content:flex-start;text-decoration:none;color:var(--fg);padding:var(--s2) var(--s3);width:100%}.exp .tools .btn:hover{background:var(--soft)}
+.exp:not(:has(.btn:not(:disabled))){display:none}
+.empty .how{margin:var(--s5) 0 0;padding-left:var(--s5);font-family:var(--font);font-size:14px;color:var(--fg);display:grid;gap:var(--s2)}
+th.n,td.n{text-align:right}
+.tab{display:inline-flex;align-items:center;gap:var(--s2)}
+td:first-child{font-weight:500}
+tr:not(.flag):hover td{background:var(--soft)}
+.job{grid-template-columns:36px minmax(0,1fr) auto;gap:var(--s3);padding:var(--s3) 0}.job .tn{width:36px;height:48px}
+.job .nm{overflow-wrap:anywhere;word-break:normal}.job .badge{padding:0 var(--s2)}
+@media (min-width:1200px){#results>.pad{padding:var(--s5) 32px}.tabs{padding:0 32px}}
+@media (max-width:760px){.exp{margin-left:0}.tabs{gap:var(--s4)}.exp .tools{right:auto;left:0}}
 </style>
 </head>
 <body>
@@ -188,7 +205,7 @@ details>summary:hover{color:var(--fg)}
     <button class="tab" data-tab="items" data-i18n="tab_items"></button>
     <button class="tab" data-tab="checks"><span data-i18n="tab_checks"></span> <span id="check-count"></span></button>
     <button class="tab" data-tab="json" data-i18n="tab_json"></button>
-    <div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csvall" disabled data-i18n="csv_all"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div>
+    <details class="exp"><summary data-i18n="export_menu"></summary><div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csvall" disabled data-i18n="csv_all"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div></details>
   </div>
   <div class="pad" id="view"></div>
 </section>
@@ -320,8 +337,8 @@ en:{
  codes_found:"Found {n} code(s) locally",no_codes:"No QR / barcode found",no_codes_d:"If the image has a code: use the original photo (avoid WhatsApp compression) or a close-up",
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
- edited_orig:"Corrected; original: {v}",tbl_head:"{t} · {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- orig_img:"Original",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ edited_orig:"Corrected; original: {v}",tbl_head:"{t}, {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
+ orig_img:"Original",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -390,8 +407,8 @@ zh:{
  codes_found:"本地识别到 {n} 个码",no_codes:"未识别到 QR / 条码",no_codes_d:"若图片中有码：请用原图（避免 WhatsApp 压缩）或近拍",
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
- edited_orig:"已修正，原值：{v}",tbl_head:"{t} · {n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- orig_img:"原图",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ edited_orig:"已修正，原值：{v}",tbl_head:"{t}，{n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
+ orig_img:"原图",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -460,8 +477,8 @@ ms:{
  codes_found:"{n} kod ditemui secara tempatan",no_codes:"Tiada QR / kod bar ditemui",no_codes_d:"Jika imej ada kod: guna foto asal (elakkan mampatan WhatsApp) atau ambil gambar dari dekat",
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
- edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t} · {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- orig_img:"Asal",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t}, {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
+ orig_img:"Asal",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",
@@ -1037,7 +1054,7 @@ function showCurrent(){const j=CUR;if(tab==="summary")return renderSummary();if(
   if(j.status==="run")return paintProgress(j);
   if(j.result)return render();
   $("#view").innerHTML=`<div class="empty">${j.error?`<b style="color:var(--bad)">${t("failed")}</b><br><span class="sub">${esc(j.error)}</span><br><br>${t("click_retry")}`:t("not_yet")}</div>`}
-function emptyFor(tb){return`<div class="empty">${{overview:t("empty_overview"),items:t("empty_items"),checks:t("empty_checks"),json:t("empty_json")}[tb]||t("no_results")}</div>`}
+function emptyFor(tb){const how=tb==="overview"?`<ol class="how"><li>${t("emp1")}</li><li>${t("emp2")}</li><li>${t("emp3")}</li></ol>`:"";return`<div class="empty">${{overview:t("empty_overview"),items:t("empty_items"),checks:t("empty_checks"),json:t("empty_json")}[tb]||t("no_results")}${how}</div>`}
 function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));showCurrent()}
 /* ---------- autosave (IndexedDB) ---------- */
 const DB={db:null,ok:false,
@@ -1454,6 +1471,7 @@ const dlBlob=(name,text,type)=>{const a=document.createElement("a");a.href=URL.c
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");
 const allResults=()=>JOBS.filter(j=>j.result).map(j=>j.result);
 const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+document.addEventListener("click",e=>{const d=document.querySelector(".exp[open]");if(d&&(e.target.closest(".exp .btn")||!e.target.closest(".exp")))d.open=false});
 $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(RESULT||allResults(),null,2));toast(RESULT?t("copied_cur"):t("copied"))}catch{toast(t("copy_fail"))}};
 $("#dl").onclick=()=>{const all=allResults();dlBlob(all.length===1?all[0].source_document.replace(/\.[^.]+$/,"")+".json":`invoicelens_${stamp()}.json`,JSON.stringify(all.length===1?all[0]:{exported_at:new Date().toISOString(),documents:all},null,2),"application/json")};
 $("#csv").onclick=()=>{const lines=[];

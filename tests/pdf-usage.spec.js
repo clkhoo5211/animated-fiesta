@@ -47,6 +47,7 @@ test("token usage and estimated cost are shown and exported", async ({ page, con
   await page.locator(".job").first().click();
   await page.click(".tab[data-tab=overview]");
   await expect(page.locator("#view")).toContainText("Tokens (in / out): A 10.0k / 1.0k · B 2.0k / 500");
+  await page.click(".exp summary");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#csvsum")]);
   const row = fs.readFileSync(await dl.path(), "utf8").split("\n")[1];
   expect(row).toContain('"12000","1500","0.039000"');
