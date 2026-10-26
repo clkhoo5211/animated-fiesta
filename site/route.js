@@ -204,8 +204,21 @@ async function nominatim(q, cc) {
   const j = await r.json(); return j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name, rank: +j[0].place_rank || 0, pc: j[0].address?.postcode || postcodeOf(j[0].display_name) } : null;
 }
 // full address first; then from the postcode onwards (unit / lot numbers often confuse the geocoder)
+// the printed address as a street query the map service can match: the branch name ("1988 NS TMN X (DD)"), unit numbers ("NO: 20-G & 21-G",
+// "1780 (GF)") and state suffixes are dropped, abbreviations spelled out. Measured on 22 real store addresses: the whole printed line never matched,
+// this form reached the street for about half of them.
+const ABBR = [[/\bJLN\b/gi, "Jalan"], [/\bTMN\b/gi, "Taman"], [/\bPST\b/gi, "Pusat"], [/\bBDR\b/gi, "Bandar"], [/\bLRG\b/gi, "Lorong"], [/\bKG\b/gi, "Kampung"], [/\bPSRN\b/gi, "Persiaran"], [/\bN\.?\s*SEMBILAN\b/gi, "Negeri Sembilan"]];
+export function tidyAddr(addr) {
+  const parts = String(addr).replace(/^\s*Delivery Address\s*/i, "").replace(/\s*\n\s*/g, ", ").split(",").map(x => x.trim()).filter(Boolean)
+    .filter(x => !/\((?:DD|TD|ND|FN|01|[A-Z]{2})\)/.test(x) && !/^(?:NO\s*[:.]?\s*)?[\dA-Z-]+(?:\s*&\s*[\dA-Z-]+)?\s*(?:\([^)]*\))?\.?$/i.test(x) && !/^(?:\d{3,4}\s+)?(?:NS|RS)\s/i.test(x));
+  let s = parts.join(", ").replace(/\bDARUL\s*K\w*\.?/gi, "").replace(/\bDARU\b\.?/gi, "").replace(/\s+/g, " ").replace(/[\s,.]+$/g, "");
+  for (const [re, to] of ABBR) s = s.replace(re, to);
+  return s;
+}
 export function geoQueries(addr) {
-  const a = String(addr).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim(), qs = [a];
+  const a = String(addr).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim(), tidy = tidyAddr(a), qs = [];
+  if (tidy) { qs.push(tidy); const tp = tidy.split(",").map(s => s.trim()).filter(Boolean); if (tp.length > 3) qs.push(tp.slice(-3).join(", ")) }
+  qs.push(a);
   const pc = a.match(/\b\d{5}\b.*$/); if (pc && pc[0] !== a) qs.push(pc[0]);
   const parts = a.split(",").map(s => s.trim()).filter(Boolean); if (parts.length > 2) qs.push(parts.slice(-2).join(", "));
   return [...new Set(qs)];
