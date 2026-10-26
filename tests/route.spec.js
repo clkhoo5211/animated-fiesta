@@ -247,3 +247,20 @@ test("view on map and the Google route use the complete printed address (store n
   const href = decodeURIComponent(await page.locator("a:has-text('view on map')").first().getAttribute("href"));
   expect(href).toContain("query=" + ADDR);
 });
+
+test("tidyAddr drops the branch name, unit numbers and state suffix and spells out abbreviations", async ({ page, context }) => {
+  await serve(context);
+  await page.goto("/");
+  const r = await page.evaluate(async () => {
+    const { tidyAddr, geoQueries } = await import("/route.js");
+    return {
+      a: tidyAddr("1988 NS TMN GADONG INDAH (DD) NO 1 (SINGLE STOREY), JLN GADONG INDAH 3 TMN GADONG INDAH 1, 71900 LABU NEGERI SEMBILAN"),
+      b: tidyAddr("NS TIARA SENDAYAN (DD) NO. 13 (GF), JLN TIARA SENDAYAN BIZ 1, PST KOMERSIAL TIARA SENDAYAN, 71900 LABU, N.SEMBILAN."),
+      q: geoQueries("NO. 7, JLN A 1, TMN B, 71900 LABU, NEGERI SEMBILAN DARUL KHUSUS"),
+    };
+  });
+  expect(r.a).toBe("Jalan GADONG INDAH 3 Taman GADONG INDAH 1, 71900 LABU NEGERI SEMBILAN");
+  expect(r.b).toBe("Jalan TIARA SENDAYAN BIZ 1, Pusat KOMERSIAL TIARA SENDAYAN, 71900 LABU, Negeri Sembilan");
+  expect(r.q[0]).toBe("Jalan A 1, Taman B, 71900 LABU, NEGERI SEMBILAN"); // the street form first, the printed line later
+  expect(r.q).toContain("NO. 7, JLN A 1, TMN B, 71900 LABU, NEGERI SEMBILAN DARUL KHUSUS");
+});
