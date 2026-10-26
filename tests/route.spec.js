@@ -231,3 +231,19 @@ test("the printed address goes to the map first; the model is only asked to rewr
   await expect(page.locator(".badge.ok")).toHaveCount(1, { timeout: 20000 });
   expect(rewrites).toBe(0);
 });
+
+test("view on map and the Google route use the complete printed address (store number, brackets, state), not a trimmed tail", async ({ page, context }) => {
+  const ADDR = "1988 NS TMN GADONG INDAH (DD) NO 1 (SINGLE STOREY), JLN GADONG INDAH 3 TMN GADONG INDAH 1, 71900 LABU NEGERI SEMBILAN";
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", address: ADDR }], tables: [] } }),
+    geo: () => [],
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  const href = decodeURIComponent(await page.locator("a:has-text('view on map')").first().getAttribute("href"));
+  expect(href).toContain("query=" + ADDR);
+});
