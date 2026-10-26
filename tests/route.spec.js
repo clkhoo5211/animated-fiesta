@@ -174,3 +174,41 @@ test("a map hit that is only a street / estate is not shown as located, and the 
   expect(href).toContain("SCIENTEX 10 TMN SCIENTEX");
   expect(href).not.toContain("1.687");
 });
+
+const SCI = "7124 JH TMN SCIENTEX KULAI ( DC ) NO 340 & 341 (GF), JLN SCIENTEX 10 TMN SCIENTEX, KELAPA SAWIT 81030,KULAI, JOHOR";
+async function webCase(page, context, found, revPc) {
+  const prompts = [];
+  await serve(context, {
+    model: (c) => {
+      if (c.text.includes("find the EXACT premises")) { prompts.push(c.text); return { json: { results: [found] } }; }
+      return { json: { document_type: "delivery_order", document_number: "A260907009", parties: [{ role: "ship_to", address: SCI }], tables: [] } };
+    },
+    geo: (url) => url.includes("/reverse") ? { display_name: "somewhere", address: { postcode: revPc } } : [{ lat: "1.687", lon: "103.523", place_rank: 26, display_name: "Jalan Scientex Utama, Kulai" }],
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  return prompts;
+}
+
+test("model web search finds the exact premises: accepted only when its Google link and the map's postcode confirm the coordinate", async ({ page, context }) => {
+  const prompts = await webCase(page, context, { n: 1, found: true, place_name: "99 Speed Mart Scientex Kulai", address_found: "No 340, Jalan Scientex 10, 81030 Kulai", lat: 1.6905, lng: 103.5251, maps_url: "https://www.google.com/maps/place/99+Speed+Mart/@1.6905,103.5251,17z" }, "81030");
+  await expect(page.locator("#view")).toContainText("Located by web search", { timeout: 20000 });
+  await expect(page.locator("#view")).toContainText("99 Speed Mart Scientex Kulai");
+  expect(prompts.length).toBe(1);
+  expect(prompts[0]).toContain("JLN SCIENTEX 10");
+});
+
+test("a model-reported coordinate that its own link or the postcode contradicts is rejected (stays street / area only)", async ({ page, context }) => {
+  await webCase(page, context, { n: 1, found: true, lat: 1.6905, lng: 103.5251, maps_url: "https://www.google.com/maps/place/x/@1.9,103.9,17z" }, "81030");
+  await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
+  await expect(page.locator("#view")).not.toContainText("Located by web search");
+});
+
+test("a model-reported coordinate in another postcode is rejected", async ({ page, context }) => {
+  await webCase(page, context, { n: 1, found: true, lat: 1.6905, lng: 103.5251, maps_url: "https://www.google.com/maps/place/x/@1.6905,103.5251,17z" }, "80000");
+  await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
+});

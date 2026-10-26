@@ -50,18 +50,48 @@ def norm_text(s):
     return re.sub(r"[\u201C\u201D\u201F]", '"', re.sub(r"[\u2018\u2019\u201B]", "'", s))
 
 
+def repair_json(t: str) -> str:
+    """Typical damage in model JSON: bare quotes inside strings, missing commas between elements, trailing commas (as the web app)."""
+    o, in_s, i = [], False, 0
+    while i < len(t):
+        c = t[i]
+        if in_s:
+            if c == "\\":
+                o.append(c + (t[i + 1] if i + 1 < len(t) else ""))
+                i += 2
+                continue
+            if c == '"':
+                m = re.match(r"\s*(.)", t[i + 1:], re.S)
+                if m and m.group(1) not in ",}]:":
+                    o.append('\\"')
+                    i += 1
+                    continue
+                in_s = False
+            o.append(c)
+            i += 1
+            continue
+        cur = "".join(o)
+        if c == '"' and (re.search(r'["}\]\d]\s*$|\b(?:true|false|null)\s*$', cur)):
+            o.append(",")
+        if c == '"':
+            in_s = True
+        if c in "{[" and re.search(r'[}\]"]\s*$', cur):
+            o.append(",")
+        o.append(c)
+        i += 1
+    return re.sub(r",\s*([}\]])", r"\1", "".join(o))
+
+
 def parse_json(text: str):
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (text or "").strip())
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                pass
-        return {"raw": text}
+    m = re.search(r"\{.*\}", text, re.S)
+    body = m.group(0) if m else text
+    for cand in (text, body, repair_json(body)):
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            pass
+    return {"raw": text}
 
 
 def jpeg_b64(img: Image.Image, quality=95) -> str:
@@ -796,6 +826,10 @@ def tables_fixed(res):
     return not tables_broken(res) and any(x["ok"] and x["code"] in TABLE_CK for c in res["checks"].values() if c for x in c["checks"])
 
 
+def agree_of(r):
+    return ((r or {}).get("cross_verification") or {}).get("agreement_rate", 0)
+
+
 def still_turned(res):
     return any(_int((r or {}).get("rotation_degrees")) in (90, 180, 270) for r in res["provider_responses"].values() if isinstance(r, dict))
 
@@ -908,6 +942,47 @@ def pick_model(seg_result):
     return ("A", a) if ok(a) else (("B", b) if ok(b) else (None, None))
 
 
+_UNIT = re.compile(r"^(UNITS?|PCS?|CTNS?|BOXES|BOX|KGS?|G|PKTS?|BTLS?|BAGS?|SETS?|ROLLS?|NOS|EA|PAX|DOZ|LTR|L|ML|M|CARTONS?|PACKS?)/?$", re.I)
+
+
+def fix_row_shape(r):
+    """Rows whose cell count differs from the column count are shifted and cannot be summed. Too many cells: a unit word split off the
+    quantity is glued back. Too few: two neighbouring text columns were read as one cell - merge them, keeping the merge only when the sums work."""
+    for t in (r or {}).get("tables") or []:
+        cols = t.get("columns")
+        rows = [x for x in t.get("rows") or [] if isinstance(x, list)]
+        if not isinstance(cols, list) or not rows or any(not isinstance(c, dict) for c in cols):
+            continue
+        n, lens = len(cols), [len(x) for x in rows]
+        if all(l == n for l in lens):
+            continue
+        if any(l > n for l in lens):
+            for x in rows:
+                while len(x) > n:
+                    j = next((i for i in range(1, len(x)) if _UNIT.match(str(x[i] or "").strip()) and re.fullmatch(r"[\d.,\s]+", str(x[i - 1] or "").strip())), -1)
+                    if j < 0:
+                        break
+                    x[j - 1] = f"{str(x[j - 1]).strip()} {str(x[j]).strip()}"
+                    del x[j]
+            continue
+        m = lens[0]
+        if any(l != m for l in lens) or m >= n or n - m > 1:
+            continue
+        def hits(cs):
+            idx = [i for i, c in enumerate(cs) if c.get("role") in ("qty", "unit_price", "amount", "row_total")]
+            return sum(1 for row in rows for i in idx if i < len(row) and re.search(r"\d", str(row[i] or "")) and num(row[i]) is not None)
+        kind = lambda i: cols[i].get("role") in ("text", "id", "number", None)
+        best, best_hits = None, hits(cols)
+        for i in range(n - 1):
+            if not kind(i) or not kind(i + 1) or (cols[i].get("role") == "number" and cols[i + 1].get("role") == "number"):
+                continue
+            nc = cols[:i] + [{"name": f"{cols[i].get('name')} {cols[i + 1].get('name')}", "role": "text"}] + cols[i + 2:]
+            if hits(nc) > best_hits:
+                best, best_hits = nc, hits(nc)
+        if best:
+            t["columns"] = best
+
+
 def normalize_result(r):
     """Models sometimes return table headers as plain strings: give them roles from the data so every check can run."""
     if not isinstance(r, dict) or r.get("error"):
@@ -915,6 +990,7 @@ def normalize_result(r):
     if isinstance(r.get("tables"), list):  # "tables" without columns are stray text, not tables
         r["tables"] = [t for t in r["tables"] if isinstance(t, dict) and isinstance(t.get("columns"), list) and t["columns"]
                        and not (isinstance(t.get("row_kinds"), list) and t["row_kinds"] and all(k == "other" for k in t["row_kinds"]))]
+    fix_row_shape(r)
     for p in r.get("parties") or []:  # IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself
         for k in ("registration_no", "tax_id"):
             if isinstance(p, dict) and isinstance(p.get(k), str):
@@ -1000,27 +1076,6 @@ async def process_segment(client, seg: Segment, o: Options):
             rb = await run(cb, text_b, imgs_b)
         else:
             ra, rb = await asyncio.gather(run(ca), run(cb, text_b, imgs_b))
-        # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows)
-        rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
-        if rd and seg.b64 and not seg.text_only and not seg.straightened:
-            orig = seg.b64
-            seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-rd, expand=True)), rd
-            first = {"model_a": ra.get("__usage") if isinstance(ra, dict) else None, "model_b": rb.get("__usage") if isinstance(rb, dict) else None}
-            res = await process_segment(client, seg, o)
-            res["usage"] = sum_usage(res["usage"], first)
-            res["straightened"] = rd
-            # models often get a quarter turn's direction wrong: if it still reads as turned (or its tables fail), try the other way
-            if rd in (90, 270) and (still_turned(res) or tables_broken(res)):
-                turned, alt = seg.b64, 360 - rd
-                seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-alt, expand=True)), alt
-                other = await process_segment(client, seg, o)
-                other["usage"] = sum_usage(other["usage"], res["usage"])
-                rank = lambda r: (0 if still_turned(r) else 1, seg_score(r))
-                if rank(other) > rank(res):
-                    other["straightened"] = alt
-                    return other
-                res["usage"], seg.b64, seg.straightened = other["usage"], turned, rd
-            return res
     ra = normalize_result(ra if isinstance(ra, dict) else {"error": "invalid model output"})
     rb = normalize_result(rb if isinstance(rb, dict) else {"error": "invalid model output"})
     align_by_label(ra, rb)
@@ -1029,6 +1084,32 @@ async def process_segment(client, seg: Segment, o: Options):
            "image_size": list(b64_image(seg.b64).size) if seg.b64 and not seg.text_only else None, "local_extraction": local,
            "provider_responses": {"model_a": {"model": o.a.model, **ra} if "model" not in ra else ra, "model_b": {"model": o.b.model, **rb}},
            "checks": {"model_a": verify(ra), "model_b": verify(rb)}, "cross_verification": compare(ra, rb)}
+    # the model says the page is turned: straighten it and read once more (sideways tables shift columns/rows). The upright read stays as a
+    # fallback: a turned read the two models agree on far less than the upright one (they invented a document from it) is thrown away.
+    rd = next((d for d in (_int((r or {}).get("rotation_degrees")) for r in (ra, rb) if isinstance(r, dict)) if d in (90, 180, 270)), None)
+    if rd and seg.b64 and not seg.text_only and not seg.straightened:
+        orig = seg.b64
+        seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-rd, expand=True)), rd
+        again = await process_segment(client, seg, o)
+        again["usage"] = sum_usage(again["usage"], res["usage"])
+        again["straightened"] = rd
+        # models often get a quarter turn's direction wrong: if it still reads as turned (or its tables fail), try the other way
+        if rd in (90, 270) and (still_turned(again) or tables_broken(again)):
+            turned, alt = seg.b64, 360 - rd
+            seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-alt, expand=True)), alt
+            other = await process_segment(client, seg, o)
+            other["usage"] = sum_usage(other["usage"], again["usage"])
+            rank = lambda r: (0 if still_turned(r) else 1, seg_score(r))
+            if rank(other) > rank(again):
+                other["straightened"] = alt
+                again = other
+            else:
+                again["usage"], seg.b64, seg.straightened = other["usage"], turned, rd
+        if agree_of(again) < agree_of(res) - 0.2:
+            res["usage"], res["rotation_rejected"] = again["usage"], rd
+            seg.b64, seg.straightened = orig, 0
+        else:
+            return again
     # every model's table fails its sums though the page was called upright: it may be sideways anyway — read it turned 90° / 270°, keep the better read
     if seg.b64 and not seg.text_only and not seg.straightened and tables_broken(res):
         orig, best_res, best_b64 = seg.b64, res, seg.b64
@@ -1036,7 +1117,7 @@ async def process_segment(client, seg: Segment, o: Options):
             seg.b64, seg.straightened = jpeg_b64(b64_image(orig).rotate(-d, expand=True)), d
             again = await process_segment(client, seg, o)
             again["usage"] = sum_usage(again["usage"], best_res["usage"])
-            if tables_fixed(again) and seg_score(again) > seg_score(best_res):
+            if tables_fixed(again) and seg_score(again) > seg_score(best_res) and agree_of(again) >= agree_of(best_res) - 0.2:
                 again["straightened"], best_res, best_b64 = d, again, seg.b64
             else:
                 best_res["usage"] = again["usage"]
@@ -1102,12 +1183,30 @@ def apply_copies(segs):
     (medoid) across both models of every copy, and correct a copy whose final value is the odd one out. As the web app."""
     nrm = lambda v: re.sub(r"[\s,.:;()\-_/\"']", "", str(v if v is not None else "").lower())
     ok = [sg for sg in segs if isinstance(sg.get("final_result"), dict)]
+    groups = []
     if len(ok) < 2:
+        flag_suspects(ok, groups)
         return
     tot = lambda sg: num(sg["final_result"].get("grand_total"))
     addr = lambda sg: next((p.get("address") or "" for p in sg["final_result"].get("parties") or [] if isinstance(p, dict) and p.get("role") == "ship_to"), "")
-    same = lambda a, b: tot(a) is not None and tot(a) == tot(b) and (
-        _sim(a["final_result"].get("document_number") or "", b["final_result"].get("document_number") or "") >= 0.7 or _sim(addr(a), addr(b)) >= 0.8)
+    def reads_of(sg):
+        return [r for r in (sg["provider_responses"].get("model_a"), sg["provider_responses"].get("model_b")) if isinstance(r, dict) and not r.get("error") and not r.get("status")]
+
+    def tots(sg):
+        v = [tot(sg), lines_sum(sg["final_result"])] + [num(r.get("grand_total")) for r in reads_of(sg)]
+        return {f"{x:.2f}" for x in v if x is not None}
+
+    def addrs(sg):
+        v = [addr(sg)] + [next((p.get("address") for p in r.get("parties") or [] if isinstance(p, dict) and p.get("role") == "ship_to"), None) for r in reads_of(sg)]
+        return [x for x in v if x]
+
+    def same(a, b):
+        if not (tots(a) & tots(b)):
+            return False
+        # two different shops can have the same total and neighbouring numbers: with addresses on both sides they must match
+        ds = _sim(a["final_result"].get("document_number") or "", b["final_result"].get("document_number") or "")
+        aa, ab = addrs(a), addrs(b)
+        return (any(_sim(x, y) >= 0.8 for x in aa for y in ab) or ds >= 0.95) if aa and ab else ds >= 0.7
     keys = ["document_number", "document_date", "grand_total"] + [f"{r}.{f}" for r in COPY_ROLES for f in ("name", "address")]
 
     def get(r, k):
@@ -1123,6 +1222,7 @@ def apply_copies(segs):
         if len(grp) < 2:
             continue
         seen.update(id(g) for g in grp)
+        groups.append(grp)
         reads = [[r for r in (g["provider_responses"].get("model_a"), g["provider_responses"].get("model_b")) if isinstance(r, dict) and not r.get("error") and not r.get("status")] for g in grp]
         for k in keys:
             vals = [str(v) for rs in reads for r in rs for v in [get(r, k)] if v is not None and str(v).strip()]
@@ -1141,7 +1241,249 @@ def apply_copies(segs):
                     continue
                 sg.setdefault("consensus", []).append({"path": f"parties.{role}.{f}" if role else f, "from": p.get(f), "to": pick,
                                                        "with": [g["segment_identifier"] for g in grp if g is not sg]})
+                if not role:
+                    sync_value(r, p.get(f), pick)
                 p[f] = pick
+    for g in groups:
+        reconcile_lines(g)
+    batch_fix(ok, groups)
+    flag_suspects(ok, groups)
+
+
+def lines_sum(r):
+    tb = ((r or {}).get("tables") or [None])[0]
+    if not isinstance(tb, dict):
+        return None
+    ci = next((i for i, c in enumerate(tb.get("columns") or []) if isinstance(c, dict) and c.get("role") == "amount"), -1)
+    if ci < 0:
+        return None
+    kinds = tb.get("row_kinds") or []
+    v = [num(row[ci]) for i, row in enumerate(tb.get("rows") or []) if isinstance(row, list) and ci < len(row) and (kinds[i] if i < len(kinds) else "line") == "line"]
+    v = [x for x in v if x is not None]
+    return round(sum(v), 2) if v else None
+
+
+def sync_value(r, frm, to):
+    f = _nrm(frm)
+    if not f or not r:
+        return
+    for k in ("fields", "totals"):
+        for x in r.get(k) or []:
+            if isinstance(x, dict) and isinstance(x.get("value"), str) and _nrm(x["value"]) == f:
+                x["value"] = to
+
+
+def _nrm(v):
+    return re.sub(r"[\s,.:;()\-_/\"']", "", str(v if v is not None else "").lower())
+
+
+def _clean(v):
+    return re.sub(r"[^A-Z0-9]", "", str(v or "").upper())
+
+
+def _mode(vals):
+    best, n = None, 0
+    counts = {}
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+        if counts[v] > n:
+            best, n = v, counts[v]
+    return best, n
+
+
+def _pos_diff(a, b):
+    return 99 if len(a) != len(b) else sum(1 for x, y in zip(a, b) if x != y)
+
+
+def _stamp_no(r):
+    for x in [z.get("text") for z in (r or {}).get("stamps_and_chops") or [] if isinstance(z, dict)] + list((r or {}).get("notes") or []):
+        m = re.search(r"\((\d{4})\)", str(x or ""))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _lead_no(v):
+    m = re.match(r"\s*(\d{4})\b", str(v or ""))
+    return m.group(1) if m else None
+
+
+def _ship_to(r):
+    return next((p for p in (r or {}).get("parties") or [] if isinstance(p, dict) and p.get("role") == "ship_to"), None)
+
+
+def _reads(sg):
+    return [r for r in (sg["provider_responses"].get("model_a"), sg["provider_responses"].get("model_b")) if isinstance(r, dict) and not r.get("error") and not r.get("status")]
+
+
+def _note(sg, path, frm, to, pages, batch=False):
+    sg.setdefault("consensus", []).append({"path": path, "from": frm, "to": to, "with": pages, **({"batch": True} if batch else {})})
+
+
+def _col_idx(t):
+    cols = t.get("columns") or []
+    f = lambda role: next((i for i, c in enumerate(cols) if isinstance(c, dict) and c.get("role") == role), -1)
+    return {"q": f("qty"), "p": f("unit_price"), "a": f("amount") if f("amount") >= 0 else f("row_total")}
+
+
+def _row_desc(row, t):
+    cols = t.get("columns") or []
+    return " ".join(str(c) for i, c in enumerate(row) if not (i < len(cols) and isinstance(cols[i], dict) and cols[i].get("role") in ("qty", "unit_price", "amount", "row_total", "number")))
+
+
+def reconcile_lines(grp):
+    """Copies of one document: where this copy's lines do not add up to its total, take the aligned lines of the other copies that make them
+    add up (or, when the lines already match another read's total, correct the total). Printed totals are the arbiter, not a vote."""
+    if len(grp) < 2:
+        return
+    T = [((g["final_result"].get("tables") or [None])[0]) for g in grp]
+    if any(not isinstance(t, dict) or not isinstance(t.get("rows"), list) for t in T):
+        return
+    I = [_col_idx(t) for t in T]
+    if any(i["q"] < 0 or i["p"] < 0 or i["a"] < 0 for i in I):
+        return
+    triple = lambda i, row: [row[i["q"]], row[i["p"]], row[i["a"]]] if max(i.values()) < len(row) else [None, None, None]
+
+    def good(tr):
+        q, p, a = (num(x) for x in tr)
+        return q is not None and p is not None and a is not None and abs(abs(q * p) - abs(a)) <= 0.011
+    tkey = lambda tr: "|".join(str(num(x)) for x in tr)
+    read_tots = list(dict.fromkeys(str(r.get("grand_total")).strip() for g in grp for r in _reads(g) if r.get("grand_total") is not None and num(r.get("grand_total")) is not None))
+    for x, sg in enumerate(grp):
+        r, t = sg["final_result"], T[x]
+        ls, tot = lines_sum(r), num(r.get("grand_total"))
+        if ls is None or (tot is not None and abs(ls - tot) < 0.006):
+            continue
+        kinds = t.get("row_kinds") or []
+        diffs = []
+        for ri, row in enumerate(t["rows"]):
+            if not isinstance(row, list) or (kinds[ri] if ri < len(kinds) else "line") != "line":
+                continue
+            d, mine, alts = _row_desc(row, t), triple(I[x], row), []
+            for y, u in enumerate(T):
+                if y == x:
+                    continue
+                best, bs = None, 0.6
+                for o in u["rows"]:
+                    if isinstance(o, list):
+                        sc = _sim(d, _row_desc(o, u))
+                        if sc > bs:
+                            best, bs = o, sc
+                if best is not None:
+                    tr = triple(I[y], best)
+                    if good(tr) and tkey(tr) != tkey(mine):
+                        alts.append(tr)
+            if alts:
+                k, _ = _mode([tkey(a) for a in alts])
+                diffs.append({"ri": ri, "tr": next(a for a in alts if tkey(a) == k), "old": mine})
+        delta = lambda d: (num(d["tr"][2]) or 0) - (num(d["old"][2]) or 0)
+        targets = ([str(r.get("grand_total"))] if tot is not None else []) + [v for v in read_tots if tot is None or abs(num(v) - tot) > 0.006]
+        for target in targets:
+            goal, chosen = num(target), None
+            for m in range(1 << min(len(diffs), 10)):
+                sub = [d for i, d in enumerate(diffs) if m >> i & 1]
+                if abs(round(ls + sum(delta(d) for d in sub), 2) - goal) < 0.006 and (chosen is None or len(sub) < len(chosen)):
+                    chosen = sub
+            if chosen is None:
+                continue
+            others = [g["segment_identifier"] for g in grp if g is not sg]
+            for d in chosen:
+                row = t["rows"][d["ri"]]
+                row[I[x]["q"]], row[I[x]["p"]], row[I[x]["a"]] = d["tr"]
+                _note(sg, f"tables.0.rows.{d['ri'] + 1}", " × ".join(str(v) for v in d["old"]), " × ".join(str(v) for v in d["tr"]), others)
+            if tot is None or abs(goal - tot) > 0.006:
+                old = r.get("grand_total")
+                _note(sg, "grand_total", old, target, others)
+                r["grand_total"] = target
+                sync_value(r, old, target)
+            break
+
+
+def batch_fix(ok, groups):
+    """Whole-file consistency: one date for the batch, one numbering for the document numbers, store numbers from the stamp."""
+    grp_of = lambda sg: next((g for g in groups if any(x is sg for x in g)), [sg])
+    ds = [(sg, sg["final_result"].get("document_date")) for sg in ok if sg["final_result"].get("document_date")]
+    dm, dn = _mode([_nrm(d) for _, d in ds])
+    if dm and dn >= 4 and dn / len(ds) >= 0.6:
+        raw = next(d for _, d in ds if _nrm(d) == dm)
+        for sg, d in ds:
+            if _nrm(d) == dm:
+                continue
+            rd = [_nrm(r.get("document_date")) for r in _reads(sg) if r.get("document_date")]
+            parts = re.split(r"[/.\-]", str(d))
+            evidence = len(set(rd)) > 1 or (len(parts) > 1 and parts[1].isdigit() and int(parts[1]) > 12) or dm in rd
+            if evidence and _pos_diff(_nrm(d), dm) <= 3:
+                _note(sg, "document_date", d, raw, ["batch"], True)
+                sg["final_result"]["document_date"] = raw
+                sync_value(sg["final_result"], d, raw)
+            else:
+                sg.setdefault("flags", set()).add("date")
+    ns = [(sg, _clean(sg["final_result"].get("document_number"))) for sg in ok if _clean(sg["final_result"].get("document_number"))]
+    pre, pc = _mode([n[:5] for _, n in ns])
+    if pre and pc >= 4 and pc / len(ns) >= 0.5:
+        ln, _ = _mode([len(n) for _, n in ns if n.startswith(pre)])
+        for sg, n in ns:
+            if n.startswith(pre):
+                continue
+            g = grp_of(sg)
+            reads = [_clean(v) for x in g for v in [x["final_result"].get("document_number")] + [r.get("document_number") for r in _reads(x)]]
+            cands = list(dict.fromkeys(c for c in reads if c.startswith(pre)))
+            if not cands:
+                sg.setdefault("flags", set()).add("docno")
+                continue
+            pick = max(cands, key=lambda c: (2 if len(c) == ln else 0) + sum(_sim(c, o) for o in reads))
+            old = sg["final_result"].get("document_number")
+            _note(sg, "document_number", old, pick, ["batch"], True)
+            sg["final_result"]["document_number"] = pick
+            sync_value(sg["final_result"], old, pick)
+    singles = [[sg] for sg in ok if not any(any(x is sg for x in g) for g in groups)]
+    for g in groups + singles:
+        votes = {}
+        for sg in g:
+            for r in _reads(sg):
+                for v, w in ((_stamp_no(r), 1.5), (_lead_no((_ship_to(r) or {}).get("name")) or _lead_no((_ship_to(r) or {}).get("address")), 1)):
+                    if v:
+                        votes[v] = votes.get(v, 0) + w
+        top = sorted(votes.items(), key=lambda kv: -kv[1])
+        if not top or top[0][1] < 2 or (len(top) > 1 and top[1][1] == top[0][1]):
+            continue
+        pick = top[0][0]
+        for sg in g:
+            sp = _ship_to(sg["final_result"])
+            if not sp:
+                continue
+            for f, mx in (("name", 2), ("address", 1)):
+                L = _lead_no(sp.get(f))
+                if L and L != pick and _pos_diff(L, pick) <= mx:
+                    old = sp[f]
+                    sp[f] = old.replace(L, pick, 1)
+                    _note(sg, f"parties.ship_to.{f}", old, sp[f], ["stamp"], True)
+
+
+def flag_suspects(ok, groups):
+    """Pages a person should look at before trusting them (shown on the page and on the route stop)."""
+    for sg in ok:
+        r, cv = sg["final_result"], sg.get("cross_verification") or {}
+        L = list(sg.get("flags") or [])
+        g = next((x for x in groups if any(y is sg for y in x)), [sg])
+        if sg.get("rotation_rejected"):
+            L.append("rotation")
+        if cv and cv.get("agreement_rate", 1) < 0.6:
+            L.append("lowagree")
+        if any(not x["ok"] and not x.get("warn") for x in ((verify(r) or {}).get("checks") or [])):
+            L.append("checks")
+        ad = lambda x: (_ship_to(x["final_result"]) or {}).get("address") or ""
+        reads = [(_ship_to(z) or {}).get("address") for z in _reads(sg)]
+        reads = [x for x in reads if x]
+        agree = all(not ad(x) or not ad(sg) or _sim(ad(x), ad(sg)) >= 0.9 for x in g) if len(g) > 1 else (len(reads) < 2 or _sim(reads[0], reads[1]) >= 0.9)
+        if not agree:
+            L.append("addr")
+        st, sp = _stamp_no(r), _ship_to(r) or {}
+        ln = _lead_no(sp.get("name")) or _lead_no(sp.get("address"))
+        if st and ln and st != ln and _pos_diff(st, ln) <= 2:
+            L.append("store")
+        sg["suspects"] = list(dict.fromkeys(L))
+        sg.pop("flags", None)
 
 
 def status_of(result) -> str:

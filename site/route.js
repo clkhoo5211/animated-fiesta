@@ -234,6 +234,40 @@ export async function geocode(addr, cc, rewrite, pre = []) {
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
+
+// With a model that can search the web: it looks up the exact premises (Google Maps place) of every stop the map service only found at street /
+// estate level. Its coordinates are never taken on trust: verifyWebPos() below must confirm them.
+export const LOCATE_PROMPT = `You can search the web. Each numbered line is a delivery address in Malaysia, printed on a delivery order (usually a 99 Speed Mart store, with a store code and branch name).
+For each, find the EXACT premises on Google Maps (search the store name + street + postcode) and report the coordinates that the page you found shows (a Google Maps place page or link: "@lat,lng" / "!3dLAT!4dLNG"), with 6 decimals.
+Never estimate, interpolate or guess coordinates, and never give the centre of a street or estate. If you cannot find the exact premises, set found to false.
+Return JSON only: {"results":[{"n":1,"found":true,"place_name":"...","address_found":"full address as shown","lat":1.234567,"lng":103.123456,"maps_url":"the Google Maps URL you used","evidence":"one short sentence"}]}
+Addresses:
+`;
+async function nominatimReverse(lat, lng) {
+  const wait = 1100 - (Date.now() - lastGeo); if (wait > 0) await sleep(wait); lastGeo = Date.now();
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { "Accept-Language": "en" } });
+  if (!r.ok) throw new Error("geocoder HTTP " + r.status); const j = await r.json();
+  return { pc: j?.address?.postcode || postcodeOf(j?.display_name || ""), label: j?.display_name || "" };
+}
+// coordinates a Google Maps URL carries
+export function coordsInUrl(u) {
+  const s = decodeURIComponent(String(u || "")), m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || s.match(/[?&](?:query|q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  return m ? { lat: +m[1], lng: +m[2] } : null;
+}
+/* a model-reported position is accepted only when: it lies in Malaysia; the Google URL it cites (if any) carries the same coordinate;
+   and the map service agrees that point is in the printed postcode (or, without a postcode, within 3 km of the street-level hit). */
+export async function verifyWebPos(addr, m, near) {
+  const lat = +m?.lat, lng = +m?.lng;
+  if (!m?.found || !Number.isFinite(lat) || !Number.isFinite(lng)) return { ok: false, reason: "not found" };
+  if (lat < 0.8 || lat > 7.5 || lng < 99.5 || lng > 119.5) return { ok: false, reason: "outside Malaysia" };
+  const u = coordsInUrl(m.maps_url), urlAgrees = !!u && haversineKm({ lat, lng }, u) <= 0.15;
+  if (u && !urlAgrees) return { ok: false, reason: "coordinate differs from its own Google link" };
+  const want = postcodeOf(addr); let rev = null; try { rev = await nominatimReverse(lat, lng) } catch { }
+  if (want && rev?.pc) { if (String(rev.pc).replace(/\s/g, "") !== want) return { ok: false, reason: `point is in postcode ${rev.pc}, not ${want}` } }
+  else if (near && haversineKm({ lat, lng }, near) > 3) return { ok: false, reason: "far from the street the map service found" };
+  else if (!urlAgrees) return { ok: false, reason: "nothing confirms the coordinate" };
+  return { ok: true, confidence: urlAgrees ? "high" : "medium", label: [m.place_name, m.address_found].filter(Boolean).join(" · ") || rev?.label || "" };
+}
 // a stop far from every other stop is usually a wrong location or a document that belongs to another trip
 export function farStops(pts) {
   if (pts.length < 4) return [];
@@ -267,7 +301,7 @@ export async function roadMatrix(pts) {
 
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
-  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, dl } = api;
+  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const allStops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
@@ -280,8 +314,9 @@ export function renderRoute(view, api) {
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
   // a stop's own link searches Google for the printed address (its own business / lot data); the open-map coordinate is often only the street
   const addrLink = s => s.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanAddr(s.address))}` : mapLink(s);
-  const precise = s => !s.approx && (s.rank || 0) >= 28;
-  const status = s => s.lat != null && !s.fail ? (!precise(s) ? `<span class="badge warn" title="${esc(t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
+  // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified
+  const precise = s => !!s.web || !!s.manual || !!parseLatLng(s.address) || (!s.approx && (s.rank || 0) >= 28);
+  const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">✓ ${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
@@ -338,7 +373,7 @@ export function renderRoute(view, api) {
     });
     const rs = view.querySelector("#rt-restore"); if (rs) rs.onclick = () => { for (const k in st.over) delete st.over[k].removed; plan = null; persist(); draw() };
     view.querySelectorAll("[data-edit]").forEach(el => el.onclick = () => { const k = S[+el.dataset.edit].key; editing = editing === k ? null : k; draw(); view.querySelector("[data-ll]")?.focus() });
-    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll); else { delete o.lat; delete o.lng } st.over[s.key] = o; editing = null; persist(); draw() });
+    view.querySelectorAll("[data-ll]").forEach(el => el.onchange = () => { const s = S[+el.dataset.ll], ll = parseLatLng(el.value); const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; if (ll) Object.assign(o, ll, { manual: true }); else { delete o.lat; delete o.lng; delete o.manual } st.over[s.key] = o; editing = null; persist(); draw() });
     view.querySelector("#rt-add").onclick = () => { const v = view.querySelector("#rt-new").value.trim(); if (!v) return; st.manual.push({ address: v }); persist(); draw() };
     const lb = view.querySelector("#rt-locate"); if (lb) lb.onclick = () => locate();
     if (!locating && S.some(needs)) setTimeout(locate, 0);
@@ -357,7 +392,7 @@ export function renderRoute(view, api) {
   // look up every stop that has no location yet (results are cached, so this is quick the second time)
   // every stop without a location is looked up as soon as it appears. With a model configured, model A first rewrites all
   // pending addresses in one call into clean search text; the map service then finds the coordinates.
-  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)));
+  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!locateMany && !s.webTried && !precise(s)));
   let locating = null;
   const locate = () => locating || (locating = locateAll(stops().filter(needs)).catch(e => { msg = String(e.message || e) }).finally(() => { locating = null; draw() }));
   const locateAll = async S => {
@@ -374,9 +409,25 @@ export function renderRoute(view, api) {
     let i = 0;
     for (const s of S) {
       show(t("rt_geo_prog", { i: ++i, n: S.length }));
+      if (s.lat != null && !s.fail) continue; // already placed (web search below may still improve it)
       const g = parseLatLng(s.address) || await geocode(s.address, st.cc, null, pre.get(s.key) || []).catch(() => ({ fail: true }));
       const o = { ...(st.over[s.key] || {}) }; delete o.fail; delete o.approx; delete o.ai;
       st.over[s.key] = { ...o, ...g, ...(rewriteMany ? { aiTried: true } : {}) }; Object.assign(s, { fail: undefined, approx: undefined, ai: undefined }, g); persist();
+    }
+    // a model that can search the web finds the exact premises of every stop that is still only street / estate level (or not found);
+    // its coordinates count only after verifyWebPos() confirms them
+    if (locateMany) {
+      const W = S.filter(s => !s.webTried && !precise(s) && !parseLatLng(s.address));
+      for (let k = 0; k < W.length; k += 5) {
+        const chunk = W.slice(k, k + 5); show(t("rt_web_prog", { i: Math.min(k + 5, W.length), n: W.length }));
+        const r = await locateMany(chunk.map(s => s.address)).catch(() => null);
+        for (const [j, s] of chunk.entries()) {
+          const m = Array.isArray(r) ? (r.find(x => +x?.n === j + 1) || r[j]) : null, near = s.lat != null ? { lat: s.lat, lng: s.lng } : null;
+          const v = r ? await verifyWebPos(s.address, m, near).catch(() => ({ ok: false, reason: "check failed" })) : { ok: false, reason: "no answer" };
+          const patch = v.ok ? { lat: +m.lat, lng: +m.lng, label: v.label, approx: false, fail: undefined, web: true, rank: 30, webSrc: m.maps_url || "", webConf: v.confidence } : { webWhy: v.reason };
+          st.over[s.key] = { ...(st.over[s.key] || {}), ...patch, webTried: true }; Object.assign(s, patch, { webTried: true }); persist();
+        }
+      }
     }
     msg = "";
   };
