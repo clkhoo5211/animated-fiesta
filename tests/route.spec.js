@@ -13,7 +13,7 @@ test("delivery route: stops from scanned ship-to addresses, geocoded, ordered by
     model: () => { if (n >= 3) return { json: { summary: "Plan looks balanced.", warnings: ["Confirm SHOP B opening hours"], suggestions: [] } }; const s = order[n++]; return { json: doc(s, `${s}, 10 Jalan ${s.slice(-1)}, 41000 Klang`) } },
     geo: (url) => {
       geoCalls.push(url);
-      if (url.includes("nominatim")) { const q = decodeURIComponent(url.split("&q=")[1]); const k = Object.keys(SHOPS).find((x) => q.includes(x)); return k ? [{ lat: String(SHOPS[k][0]), lon: String(SHOPS[k][1]), display_name: k }] : [] }
+      if (url.includes("nominatim")) { const q = decodeURIComponent(url.split("&q=")[1]); const k = Object.keys(SHOPS).find((x) => q.includes(x)); return k ? [{ lat: String(SHOPS[k][0]), lon: String(SHOPS[k][1]), place_rank: 30, display_name: k }] : [] }
       // OSRM table: durations proportional to the longitude gap
       const pts = url.split("/driving/")[1].split("?")[0].split(";").map((p) => p.split(",").map(Number));
       const m = pts.map((a) => pts.map((b) => Math.abs(a[0] - b[0]) * 1000));
@@ -82,7 +82,7 @@ test("as soon as the stops appear, model A reads the addresses and the map locat
       if (c.text.includes("Rewrite each numbered delivery address")) { prompts.push(c.text); return { json: { results: [{ n: 1, queries: ["14 Jalan Keindahan 1, Taman Skudai Indah, 81300 Skudai, Johor"] }] } } }
       return { json: { document_type: "delivery_order", document_number: "A260907007", parties: [{ role: "ship_to", address: "JH TMN SKUDAI INDAH ( DA ) NO 14 & 16 (GF), JLN KEINDAHAN 1 TMN SKUDAI INDAH 81300 SKUDAI, JOHOR." }], tables: [] } };
     },
-    geo: (url) => { const q = decodeURIComponent(url.split("&q=")[1] || ""); return q.includes("Jalan Keindahan") ? [{ lat: "1.535", lon: "103.657" }] : [] },
+    geo: (url) => { const q = decodeURIComponent(url.split("&q=")[1] || ""); return q.includes("Jalan Keindahan") ? [{ lat: "1.535", lon: "103.657", place_rank: 30 }] : [] },
   });
   await preset(page);
   await page.goto("/");
@@ -93,7 +93,10 @@ test("as soon as the stops appear, model A reads the addresses and the map locat
   await expect(page.locator("#view")).toContainText("Located (address tidied by AI)", { timeout: 20000 });
   expect(prompts.length).toBe(1);
   expect(prompts[0]).toContain("JLN KEINDAHAN 1");
-  expect(await page.locator("a:has-text('view on map')").getAttribute("href")).toContain("1.535,103.657");
+  // the stop's link searches the printed address (cleaned), not the open-map coordinate
+  const href = decodeURIComponent(await page.locator("a:has-text('view on map')").getAttribute("href"));
+  expect(href).toContain("query=JH TMN SKUDAI INDAH");
+  expect(href).not.toContain("1.535");
 });
 
 test("stops can be removed: a hand-added stop is deleted, a document stop is hidden and can be restored", async ({ page, context }) => {
@@ -152,4 +155,22 @@ test("two copies of one invoice read slightly differently are one stop; geocoder
   await serve(context, { geo: (url) => (url.includes("q=Jalan%20Melur%201") ? [{ lat: "3.1", lon: "101.5", address: { postcode: "40000" } }] : [{ lat: "2.48", lon: "101.86", address: { postcode: "71960" } }]) });
   const g = await page.evaluate(async () => (await import("./route.js")).geocode("Jalan Melur 1, 71960 Port Dickson", "my", null, ["Jalan Melur 1", "Taman Jimah Jaya, 71960 Port Dickson"]));
   expect(g).toMatchObject({ lat: 2.48, lng: 101.86 });
+});
+
+test("a map hit that is only a street / estate is not shown as located, and the stop link searches the printed address", async ({ page, context }) => {
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A260907008", parties: [{ role: "ship_to", address: "7124 JH TMN SCIENTEX KULAI ( DC ) NO 340 & 341 (GF), JLN SCIENTEX 10 TMN SCIENTEX, KELAPA SAWIT 81030,KULAI, JOHOR" }], tables: [] } }),
+    geo: () => [{ lat: "1.687", lon: "103.523", place_rank: 26, display_name: "Jalan Scientex Utama, Kulai" }],
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
+  await expect(page.locator("#view")).not.toContainText("✓ Located");
+  const href = decodeURIComponent(await page.locator("a:has-text('view on map')").getAttribute("href"));
+  expect(href).toContain("SCIENTEX 10 TMN SCIENTEX");
+  expect(href).not.toContain("1.687");
 });
