@@ -38,7 +38,7 @@ const VARIANTS = { "V0 as printed (current)": a => geoQueries(a), "V1 spelled ou
 async function nominatim(q) {
   const k = "N|" + q; if (cache[k]) return cache[k];
   const wait = 1100 - (Date.now() - last); if (wait > 0) await sleep(wait); last = Date.now();
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=3&countrycodes=my&q=${encodeURIComponent(q)}`, { headers: { "User-Agent": UA, "Accept-Language": "en" } });
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=3&countrycodes=my&q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": UA, "Accept-Language": "en" } });
   if (!r.ok) throw new Error("nominatim HTTP " + r.status);
   const j = await r.json(); cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
 }
@@ -50,7 +50,8 @@ async function overpassBrand() {
   let lastErr = "";
   for (let round = 0; round < 2; round++) for (const m of mirrors) {
     try {
-      const r = await fetch(m, { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) });
+      console.error(`overpass: asking ${new URL(m).host} ...`);
+      const r = await fetch(m, { method: "POST", signal: AbortSignal.timeout(75000), headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) });
       if (!r.ok) { lastErr = `${new URL(m).host} HTTP ${r.status}`; await sleep(3000); continue }
       const j = (await r.json()).elements || []; cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
     } catch (e) { lastErr = `${new URL(m).host} ${e.message}`; await sleep(3000) }
@@ -65,6 +66,7 @@ const score = Object.fromEntries(Object.keys(VARIANTS).map(k => [k, 0]));
 out.push(`# Geocoding bench, ${addrs.length} addresses\n`);
 for (const [i, item] of addrs.entries()) {
   const a = item.address, pc = postcodeOf(a);
+  console.error(`address ${i + 1} / ${addrs.length}`);
   out.push(`## ${i + 1}. ${a}\n`);
   for (const [name, fn] of Object.entries(VARIANTS)) {
     const qs = fn(a);
