@@ -51,3 +51,7 @@ Every push runs **Tests**. Only when they pass do GitHub Pages and here.now depl
 ## CORS proxy (optional)
 
 Some OpenAI-compatible providers block calls from web pages. `proxy/` is a Cloudflare Worker that only accepts requests from the two sites above and forwards them to the `X-Target-Base` URL without storing keys. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, run “Deploy CORS proxy”, and paste the worker URL into Model settings → Advanced.
+
+## Location lookup APIs
+
+All interfaces used for stop locations (OpenStreetMap, Google Places, SerpApi, local helpers), their parameters, limits and first-use checklist: [docs/location-apis.md](docs/location-apis.md).
