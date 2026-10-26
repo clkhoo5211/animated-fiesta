@@ -94,5 +94,10 @@ try:
         pg = doc.new_page()
         pg.insert_textbox(fitz.Rect(40, 40, 550, 780), f"PAGE {n}\n" + "SYNTHETIC TEST INVOICE for automated tests only, not a real document. " * 6, fontsize=11)
     doc.save(p("six_pages.pdf"))
+    doc = fitz.open()
+    for n in range(1, 9):
+        pg = doc.new_page()
+        pg.insert_textbox(fitz.Rect(40, 40, 550, 780), f"PAGE {n}\n" + "SYNTHETIC TEST INVOICE for automated tests only, not a real document. " * 6, fontsize=11)
+    doc.save(p("eight_pages.pdf"))
 except ImportError:
     print("pymupdf not installed: six_pages.pdf not regenerated")
