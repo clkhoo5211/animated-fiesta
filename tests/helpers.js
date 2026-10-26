@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const ROOT = path.resolve(__dirname, "..");
 const FIX = (n) => path.join(__dirname, "fixtures", n);
-const TYPES = { js: "text/javascript", mjs: "text/javascript", wasm: "application/wasm", map: "application/json" };
+const TYPES = { js: "text/javascript", mjs: "text/javascript", wasm: "application/wasm", map: "application/json", css: "text/css", png: "image/png", svg: "image/svg+xml" };
 
 /** @param {import('@playwright/test').BrowserContext} ctx */
 async function serve(ctx, { model, geo } = {}) {
