@@ -326,3 +326,23 @@ test("storeQuery turns the printed branch name into the name Google lists the sh
   expect(r[3]).toBe("");
   expect(r[4]).toBe("");
 });
+
+test("Google Places is asked for the store number + name first, then the printed address", async ({ page, context }) => {
+  const queries = [];
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN NUSARI BAYU 7/1 NUSARI BIZ, 71950 BDR SRI SENDAYAN NEGERI SEMBILAN" }], tables: [] } }),
+    geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }],
+  });
+  await context.route("https://places.googleapis.com/**", async (route) => {
+    queries.push(JSON.parse(route.request().postData()).textQuery);
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [{ id: "P9", displayName: { text: "99 Speedmart 1954 (NS) Nusari Biz" }, formattedAddress: "1780, Jalan Nusari Bayu 7/1, Nusari Biz, 71950 Bandar Sri Sendayan, Negeri Sembilan", location: { latitude: 2.66, longitude: 101.87 } }] }) });
+  });
+  await preset(page, { extra: { google_key: "g" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
+  expect(queries[0]).toBe("99 Speedmart 1954 (NS) Nusari Biz");
+});

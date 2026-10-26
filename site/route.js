@@ -542,7 +542,7 @@ export function renderRoute(view, api) {
       const G = S.filter(s => !s.gTried && !precise(s) && !parseLatLng(s.address));
       for (const [k, s] of G.entries()) {
         show(t("rt_g_prog", { i: k + 1, n: G.length }));
-        const res = await googleLocate(s.address).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
+        const res = await googleLocate(s.address, s.name).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
         if (res.fatal) { show(t("rt_g_err", { e: res.reason })); break }
         const patch = res.ok ? { lat: +res.lat, lng: +res.lng, label: [res.place, res.found_address].filter(Boolean).join(", "), approx: false, fail: undefined, web: true, rank: 30, webSrc: res.url || "", webConf: res.confidence === "high" ? "high" : "medium" } : { webWhy: "Google: " + res.reason };
         st.over[s.key] = { ...(st.over[s.key] || {}), ...patch, gTried: true }; Object.assign(s, patch, { gTried: true }); persist();

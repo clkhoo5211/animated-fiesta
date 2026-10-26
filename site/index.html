@@ -332,7 +332,7 @@ section.l0,section.l1,section.l2,section.l3,section.l4,section.l5{stroke:none;fi
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import {fullAddr,judgePlace,renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,LOCATE_PROMPT,similarity} from "./route.js";
+import {fullAddr,judgePlace,storeQuery,renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,LOCATE_PROMPT,similarity} from "./route.js";
 const I18N={
 en:{
  meta_desc:"In-browser document extraction: multi-model extraction, arithmetic checks, cross-verification",
@@ -1215,12 +1215,14 @@ function renderRouteTab(){
   const LB=slot("b"),LM=S.locate_with==="b"||(S.locate_with!=="b"&&S.locate_with!=="a"&&LB.key)?LB:a;
   const locateMany=LM.key?async list=>{const r=await callModel({...LM,temperature:0},[{type:"text",text:LOCATE_PROMPT+list.map((x,i)=>`${i+1}. ${String(x).replace(/\s*\n\s*/g,", ")}`).join("\n")}],null);return Array.isArray(r?.results)?r.results:null}:null;
   // optional Google Places lookup with the user's own key: used only when a key is set; every answer is checked by judgePlace() before it counts
-  const gk=S.google_key,googleLocate=gk?async addr=>{
-    const r=await fetch("https://places.googleapis.com/v1/places:searchText",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gk,"X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location"},body:JSON.stringify({textQuery:fullAddr(addr),regionCode:"MY",languageCode:"en",maxResultCount:3})});
-    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
-    let why="no result";
-    for(const p of j.places||[]){const c={name:p.displayName?.text||"",address:p.formattedAddress||"",lat:p.location?.latitude,lng:p.location?.longitude},v=judgePlace(addr,c);
-      if(v.ok)return{ok:true,...c,place:c.name,found_address:c.address,url:`https://www.google.com/maps/place/?q=place_id:${p.id}`,confidence:v.confidence,reason:v.reason};why=v.reason}
+  const gk=S.google_key,googleLocate=gk?async(addr,name)=>{
+    // the store number + name ("99 Speedmart 1954 (NS) Nusari Biz") is how Google lists the shop: asked first, the printed address second; judgePlace() decides
+    const queries=[...new Set([storeQuery(name,addr),fullAddr(addr)].filter(Boolean))];let why="no result";
+    for(const q of queries){
+      const r=await fetch("https://places.googleapis.com/v1/places:searchText",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gk,"X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location"},body:JSON.stringify({textQuery:q,regionCode:"MY",languageCode:"en",maxResultCount:3})});
+      const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
+      for(const p of j.places||[]){const c={name:p.displayName?.text||"",address:p.formattedAddress||"",lat:p.location?.latitude,lng:p.location?.longitude},v=judgePlace(addr,c);
+        if(v.ok)return{ok:true,...c,place:c.name,found_address:c.address,url:`https://www.google.com/maps/place/?q=place_id:${p.id}`,confidence:v.confidence,reason:v.reason};why=v.reason}}
     return{ok:false,reason:why}}:null;
   renderRoute($("#view"),{t,esc,docs,askModel,rewriteAddr,rewriteMany,locateMany,googleLocate,dl:dlBlob})}
 /* ---------- cross-document reconciliation & duplicates ---------- */

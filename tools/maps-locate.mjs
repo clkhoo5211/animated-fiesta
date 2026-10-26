@@ -10,7 +10,7 @@
 // small, the delay long, and use it for your own deliveries only.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { postcodeOf, addrWords, judgePlace } from "../site/route.js";
+import { postcodeOf, addrWords, judgePlace, storeQuery } from "../site/route.js";
 
 export const MY_BOX = { lat: [0.8, 7.5], lng: [99, 119.7] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -54,8 +54,9 @@ async function readPlace(page) {
 }
 
 /** locate one address; returns {ok, lat, lng, place, found_address, url, confidence, reason} */
-export async function locateOne(page, address, { debug = false, tag = "" } = {}) {
-  const queries = [...new Set([full(address), brandQuery(address)])];
+export async function locateOne(page, address, { debug = false, tag = "", name = "" } = {}) {
+  // the store number + name is how Google lists the shop, so it is asked first; then the printed address; then the brand + area
+  const queries = [...new Set([storeQuery(name, address), full(address), brandQuery(address)].filter(Boolean))];
   let best = { ok: false, reason: "nothing found" };
   for (const q of queries) {
     await page.goto(searchUrl(q), { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
@@ -87,7 +88,7 @@ export async function locateAddresses(items, { show = false, debug = false, dela
   try {
     for (const [i, it] of items.entries()) {
       const address = typeof it === "string" ? it : it.address;
-      const res = await locateOne(page, address, { debug, tag: String(i + 1) });
+      const res = await locateOne(page, address, { debug, tag: String(i + 1), name: typeof it === "object" ? it.name || "" : "" });
       const row = { ...(typeof it === "object" ? { key: it.key } : {}), address, ...res };
       out.push(row); onResult?.(row, i, items.length);
       if (i < items.length - 1) await sleep((delay + Math.random() * delay * 0.8) * 1000);
