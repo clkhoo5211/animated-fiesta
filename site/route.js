@@ -197,6 +197,18 @@ export function cleanAddr(a) {
 }
 // the full address exactly as printed (nothing removed; only line breaks and runs of spaces collapsed, and the country added so Google does not look abroad): what Google gets for a stop, so it matches the Address column
 export const fullAddr = a => { const t = String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim(); return /malaysia/i.test(t) ? t : t + ", Malaysia" };
+// The branch identity printed on the document ("1954 NS NUSARI BIZ (DD)") is how Google lists the shop: "99 Speedmart 1954 (NS) Nusari Biz".
+// Much more unique than a street address; returns "" when the text carries no store number.
+export function storeQuery(...texts) {
+  for (const x of texts) {
+    const m = /(?:^|[\s,])(\d{3,4})\s+(NS|RS)\s+([A-Za-z][A-Za-z0-9 .'&/-]*?)\s*\(\s*[A-Za-z0-9]{1,2}\s*\)/.exec(String(x ?? ""));
+    if (!m) continue;
+    let name = m[3]; for (const [re, to] of ABBR) name = name.replace(re, to);
+    name = name.replace(/\b(\w)(\w*)/g, (_, a, b) => a.toUpperCase() + b.toLowerCase()).replace(/\s+/g, " ").trim();
+    if (name) return `99 Speedmart ${m[1]} (${m[2].toUpperCase()}) ${name}`;
+  }
+  return "";
+}
 export function mapsLinks(start, stops, back) {
   // Google Maps takes up to 9 waypoints per link: long routes are split into consecutive legs
   // stops at the same spot (two invoices for one shop) are one waypoint
@@ -348,8 +360,8 @@ export function renderRoute(view, api) {
   const addrLink = s => s.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr(s.address))}` : mapLink(s);
   // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified
   const precise = s => !!s.web || !!s.manual || !!parseLatLng(s.address) || (!s.approx && (s.rank || 0) >= 28);
-  const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
-    : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` : "");
+  const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>${storeQuery(s.name, s.address) ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(storeQuery(s.name, s.address)))}" title="${esc(storeQuery(s.name, s.address))}">${t("rt_view_store")}</a>` : ""}` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
+    : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>${storeQuery(s.name, s.address) ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(storeQuery(s.name, s.address)))}" title="${esc(storeQuery(s.name, s.address))}">${t("rt_view_store")}</a>` : ""}` : "");
   // Fix by pin: a Leaflet map (loaded on first use, OpenStreetMap tiles) where a click or a drag sets the exact position of a stop
   let draft = null;
   const LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
