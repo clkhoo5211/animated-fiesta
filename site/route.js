@@ -199,7 +199,7 @@ async function nominatim(q, cc) {
   const wait = 1100 - (Date.now() - lastGeo); if (wait > 0) await sleep(wait); lastGeo = Date.now();   // usage policy: max 1 request per second
   const u = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1${cc ? "&countrycodes=" + encodeURIComponent(cc) : ""}&q=${encodeURIComponent(q)}`;
   const r = await fetch(u, { headers: { "Accept-Language": "en" } }); if (!r.ok) throw new Error("geocoder HTTP " + r.status);
-  const j = await r.json(); return j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name, pc: j[0].address?.postcode || postcodeOf(j[0].display_name) } : null;
+  const j = await r.json(); return j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name, rank: +j[0].place_rank || 0, pc: j[0].address?.postcode || postcodeOf(j[0].display_name) } : null;
 }
 // full address first; then from the postcode onwards (unit / lot numbers often confuse the geocoder)
 export function geoQueries(addr) {
@@ -228,8 +228,9 @@ export async function geocode(addr, cc, rewrite, pre = []) {
       const h = await tryQ(q); if (h) { hit = h; approx = false; query = q; break }
     }
   }
-  let res = hit ? { lat: hit.lat, lng: hit.lng, label: hit.label, approx, ...(query ? { ai: query } : {}) } : { fail: true };
-  if (!hit && other) res = { lat: other.lat, lng: other.lng, label: other.label, approx: true, pcMismatch: other.pc };
+  // the map service often knows only the street or the housing estate: that centroid is not the shop. Only a building / house / POI hit counts as located.
+  let res = hit ? { lat: hit.lat, lng: hit.lng, label: hit.label, approx, rank: hit.rank || 0, ...(query ? { ai: query } : {}) } : { fail: true };
+  if (!hit && other) res = { lat: other.lat, lng: other.lng, label: other.label, rank: other.rank || 0, approx: true, pcMismatch: other.pc };
   if (hit) { cache[k] = res; save(GEO, cache) }
   return res;
 }
@@ -277,7 +278,10 @@ export function renderRoute(view, api) {
   const fmtT = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return `${String(h).padStart(2, "0")}:${String(mm === 60 ? 59 : mm).padStart(2, "0")}` };
   let editing = null;
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
-  const status = s => s.lat != null && !s.fail ? (s.approx ? `<span class="badge warn">${t("rt_geo_approx")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(mapLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
+  // a stop's own link searches Google for the printed address (its own business / lot data); the open-map coordinate is often only the street
+  const addrLink = s => s.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanAddr(s.address))}` : mapLink(s);
+  const precise = s => !s.approx && (s.rank || 0) >= 28;
+  const status = s => s.lat != null && !s.fail ? (!precise(s) ? `<span class="badge warn" title="${esc(t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>` + (s.label ? `<div class="sub" style="font-size:11px">📍 ${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`;
   const draw = () => {
     const S = stops(), hidden = allStops().length - S.length, on = S.filter(s => !s.skip), need = !st.start ? t("rt_need_start") : !on.length ? t("rt_need_stops") : "";
