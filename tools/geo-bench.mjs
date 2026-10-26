@@ -43,11 +43,19 @@ async function nominatim(q) {
   const j = await r.json(); cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
 }
 async function overpassBrand() {
-  const k = "O|brand-ns"; if (cache[k]) return cache[k];
-  const q = `[out:json][timeout:90];area["ISO3166-2"="MY-05"]->.a;nwr(area.a)["brand"~"99 Speed",i];out center tags;`;
-  const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", headers: { "User-Agent": UA }, body: "data=" + encodeURIComponent(q) });
-  if (!r.ok) throw new Error("overpass HTTP " + r.status);
-  const j = (await r.json()).elements || []; cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
+  const k = "O|brand-ns2"; if (cache[k]) return cache[k];
+  // a bounding box (Negeri Sembilan) with a name / brand filter is far lighter than an area query; several public mirrors are tried
+  const q = `[out:json][timeout:60][bbox:2.35,101.6,3.25,102.8];(nwr["brand"~"99 Speed",i];nwr["name"~"Speed ?Mart",i];);out center tags;`;
+  const mirrors = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  let lastErr = "";
+  for (let round = 0; round < 2; round++) for (const m of mirrors) {
+    try {
+      const r = await fetch(m, { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) });
+      if (!r.ok) { lastErr = `${new URL(m).host} HTTP ${r.status}`; await sleep(3000); continue }
+      const j = (await r.json()).elements || []; cache[k] = j; fs.writeFileSync(CACHE, JSON.stringify(cache)); return j;
+    } catch (e) { lastErr = `${new URL(m).host} ${e.message}`; await sleep(3000) }
+  }
+  throw new Error(lastErr);
 }
 const exact = h => h && (Number(h.place_rank) >= 28 || ["shop", "amenity", "building", "office"].includes(h.category || h.class));
 const short = h => h ? `${(h.display_name || "").split(",").slice(0, 3).join(",")} [${h.category || h.class}/${h.type}, rank ${h.place_rank}]` : "no hit";
@@ -73,7 +81,7 @@ if (!DRY) {
   for (const [k, v] of Object.entries(score)) out.push(`- ${k}: ${v} / ${addrs.length}`);
   try {
     const els = await overpassBrand();
-    out.push(`\n## OpenStreetMap 99 Speed Mart POIs in Negeri Sembilan: ${els.length}\n`);
+    out.push(`\n## OpenStreetMap 99 Speed Mart POIs in the Negeri Sembilan box: ${els.length}\n`);
     const withPc = addrs.map(x => postcodeOf(x.address));
     let matched = 0;
     for (const [i, x] of addrs.entries()) { const c = els.filter(e => (e.tags?.["addr:postcode"] || "") === withPc[i]); if (c.length) matched++; out.push(`- ${i + 1}. postcode ${withPc[i]}: ${c.length} POI(s) ${c.slice(0, 3).map(e => `${e.tags?.name || e.tags?.brand} (${(e.lat ?? e.center?.lat)?.toFixed?.(5)}, ${(e.lon ?? e.center?.lon)?.toFixed?.(5)})`).join("; ")}`) }
