@@ -244,7 +244,8 @@ test("view on map and the Google route use the complete printed address (store n
   await page.click("#go");
   await waitIdle(page);
   await page.click(".tab[data-tab=route]");
-  const href = decodeURIComponent(await page.locator("a:has-text('view on map')").first().getAttribute("href"));
+  // this address starts with a store number, so the main link searches the store name and the address is the second link
+  const href = decodeURIComponent(await page.locator("a:has-text('by address')").first().getAttribute("href"));
   expect(href).toContain("query=" + ADDR);
 });
 
@@ -345,4 +346,26 @@ test("Google Places is asked for the store number + name first, then the printed
   await page.click(".tab[data-tab=route]");
   await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
   expect(queries[0]).toBe("99 Speedmart 1954 (NS) Nusari Biz");
+});
+
+test("with a store number the main map link searches the store name, the address is the second link; route waypoints use the store name", async ({ page, context }) => {
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN NUSARI BAYU 7/1 NUSARI BIZ, 71950 BDR SRI SENDAYAN NEGERI SEMBILAN" }], tables: [] } }),
+    geo: () => [],
+  });
+  await preset(page);
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  const main = decodeURIComponent(await page.locator("a:has-text('view on map')").first().getAttribute("href"));
+  expect(main).toContain("query=99 Speedmart 1954 (NS) Nusari Biz");
+  const second = decodeURIComponent(await page.locator("a:has-text('by address')").first().getAttribute("href"));
+  expect(second).toContain("1780 (GF), JLN NUSARI BAYU 7/1");
+  const links = await page.evaluate(async () => {
+    const m = await import("/route.js");
+    return m.mapsLinks({ lat: 0, lng: 0 }, [{ lat: 1, lng: 1, name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN X, 71950 BDR SRI SENDAYAN" }], false);
+  });
+  expect(decodeURIComponent(links[0])).toContain("99 Speedmart 1954 (NS) Nusari Biz");
 });
