@@ -214,7 +214,7 @@ export function mapsLinks(start, stops, back) {
   // stops at the same spot (two invoices for one shop) are one waypoint
   // a stop is sent to Google as its full printed address (as in the Address column): Google's own search knows Malaysian shops and lots far better
   // than a coordinate from the open map, which can land on a neighbouring business. Coordinates only when there is no address.
-  const ll = p => `${p.lat},${p.lng}`, wp = p => p.address ? fullAddr(p.address) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
+  const ll = p => `${p.lat},${p.lng}`, wp = p => p.address ? (storeQuery(p.name, p.address) || fullAddr(p.address)) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
   for (let i = 0; i < seq.length - 1; i += 10) {
     const part = seq.slice(i, i + 11); if (part.length < 2) break;
     const w = part.slice(1, -1).map(wp).join("|");
@@ -358,10 +358,16 @@ export function renderRoute(view, api) {
   const mapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
   // a stop's own link searches Google for the printed address (its own business / lot data); the open-map coordinate is often only the street
   const addrLink = s => s.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr(s.address))}` : mapLink(s);
+  // the store number + name ("99 Speedmart 1954 (NS) Nusari Biz") is how Google lists a shop: when the document carries it, that is the main link
+  // (confirmed more accurate than the address on real stops), the full printed address the second
+  const viewLinks = s => {
+    const sq = storeQuery(s.name, s.address), a = `<a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t(sq ? "rt_view_addr" : "rt_view")}</a>`;
+    return sq ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(sq))}" title="${esc(sq)}">${t("rt_view")}</a> ${a}` : " " + a;
+  };
   // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified
   const precise = s => !!s.web || !!s.manual || !!parseLatLng(s.address) || (!s.approx && (s.rank || 0) >= 28);
-  const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>${storeQuery(s.name, s.address) ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(storeQuery(s.name, s.address)))}" title="${esc(storeQuery(s.name, s.address))}">${t("rt_view_store")}</a>` : ""}` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
-    : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? ` <a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t("rt_view")}</a>${storeQuery(s.name, s.address) ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(storeQuery(s.name, s.address)))}" title="${esc(storeQuery(s.name, s.address))}">${t("rt_view_store")}</a>` : ""}` : "");
+  const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` ${viewLinks(s)}` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
+    : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? viewLinks(s) : "");
   // Fix by pin: a Leaflet map (loaded on first use, OpenStreetMap tiles) where a click or a drag sets the exact position of a stop
   let draft = null;
   const LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
