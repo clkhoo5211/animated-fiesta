@@ -24,7 +24,7 @@ test("SerpApi: asked through the proxy (X-Target-Base) with the store name first
     calls.push({ path: u.pathname, q: Object.fromEntries(u.searchParams), target: req.headers()["x-target-base"] });
     return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*" }, body: JSON.stringify(SERP_OK) });
   });
-  await preset(page, { extra: { serpapi_key: "s-key", serp_proxy: "https://proxy.test", locate_service: "serpapi" } });
+  await preset(page, { extra: { serpapi_key: "s-key", serp_proxy: "https://proxy.test", locate_service: "serpapi" }, route: { brand: "99" } });
   await open(page);
   await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
   expect(calls).toHaveLength(1);
@@ -39,7 +39,7 @@ test("SerpApi without a proxy says so instead of calling serpapi.com from the pa
   let direct = 0;
   await serve(context, { model: doc, geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }] });
   await context.route("https://serpapi.com/**", (route) => { direct++; return route.abort(); });
-  await preset(page, { extra: { serpapi_key: "s-key", locate_service: "serpapi" } });
+  await preset(page, { extra: { serpapi_key: "s-key", locate_service: "serpapi" }, route: { brand: "99" } });
   await open(page);
   await expect(page.locator("#rt-msg")).toContainText("proxy", { timeout: 20000 });
   expect(direct).toBe(0);
@@ -50,7 +50,7 @@ test("automatic order: Google Places first; when it finds nothing SerpApi answer
   await serve(context, { model: doc, geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }] });
   await context.route("https://places.googleapis.com/**", (route) => { order.push("google"); return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [] }) }); });
   await context.route("https://proxy.test/**", (route) => { order.push("serpapi"); return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(SERP_OK) }); });
-  await preset(page, { extra: { google_key: "g", serpapi_key: "s", serp_proxy: "https://proxy.test", locate_service: "auto" } });
+  await preset(page, { extra: { google_key: "g", serpapi_key: "s", serp_proxy: "https://proxy.test", locate_service: "auto" }, route: { brand: "99" } });
   await open(page);
   await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
   expect(order[0]).toBe("google");
@@ -60,7 +60,7 @@ test("automatic order: Google Places first; when it finds nothing SerpApi answer
 test("a SerpApi 'no results' answer is a miss, not an error that stops the batch", async ({ page, context }) => {
   await serve(context, { model: doc, geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }] });
   await context.route("https://proxy.test/**", (route) => route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ error: "Google Maps hasn't returned any results for this query." }) }));
-  await preset(page, { extra: { serpapi_key: "s", serp_proxy: "https://proxy.test", locate_service: "serpapi" } });
+  await preset(page, { extra: { serpapi_key: "s", serp_proxy: "https://proxy.test", locate_service: "serpapi" }, route: { brand: "99" } });
   await open(page);
   await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
   await expect(page.locator("#rt-msg")).not.toContainText("stopped");
@@ -70,7 +70,7 @@ test("settings: 'Check SerpApi key' reads the free account endpoint through the 
   const seen = [];
   await serve(context);
   await context.route("https://proxy.test/**", (route) => { seen.push(new URL(route.request().url()).pathname); return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*" }, body: JSON.stringify({ total_searches_left: 247 }) }); });
-  await preset(page, { extra: { serpapi_key: "s", serp_proxy: "https://proxy.test" } });
+  await preset(page, { extra: { serpapi_key: "s", serp_proxy: "https://proxy.test" }, route: { brand: "99" } });
   await page.goto("/");
   await page.click("#open-settings");
   await page.click("#test-serp");

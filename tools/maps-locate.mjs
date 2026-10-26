@@ -10,7 +10,7 @@
 // small, the delay long, and use it for your own deliveries only.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { postcodeOf, addrWords, judgePlace, storeQuery } from "../site/route.js";
+import { postcodeOf, addrWords, judgePlace, placeQueries, brandOf, brandRegex } from "../site/route.js";
 
 export const MY_BOX = { lat: [0.8, 7.5], lng: [99, 119.7] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -26,7 +26,7 @@ export function pinFromUrl(u) {
 
 export const words = addrWords;
 /** decide whether a place Google found is the delivery address (same rules as the app's Google Places option) */
-export const judge = judgePlace;
+export const judge = (wanted, found, brand) => judgePlace(wanted, found, brand === undefined ? undefined : brandRegex(brand));
 
 const searchUrl = q => `https://www.google.com/maps/search/?api=1&hl=en&query=${encodeURIComponent(q)}`;
 const full = a => String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
@@ -54,9 +54,9 @@ async function readPlace(page) {
 }
 
 /** locate one address; returns {ok, lat, lng, place, found_address, url, confidence, reason} */
-export async function locateOne(page, address, { debug = false, tag = "", name = "" } = {}) {
+export async function locateOne(page, address, { debug = false, tag = "", name = "", brand = brandOf("99") } = {}) {
   // the store number + name is how Google lists the shop, so it is asked first; then the printed address; then the brand + area
-  const queries = [...new Set([storeQuery(name, address), full(address), brandQuery(address)].filter(Boolean))];
+  const queries = [...new Set([...placeQueries(brand, name, address), ...(brand.mode === "99" ? [brandQuery(address)] : [])])];
   let best = { ok: false, reason: "nothing found" };
   for (const q of queries) {
     await page.goto(searchUrl(q), { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
@@ -69,7 +69,7 @@ export async function locateOne(page, address, { debug = false, tag = "", name =
       for (const href of links) { await page.goto(href, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {}); cands.push(await readPlace(page)); await sleep(1200) }
     }
     for (const c of cands) {
-      const v = judge(address, c);
+      const v = judge(address, c, brand);
       if (v.ok) return { ok: true, lat: c.lat, lng: c.lng, place: c.name, found_address: c.address, url: c.url, confidence: v.confidence, reason: v.reason, query: q };
       if (!best.ok && (best.reason === "nothing found" || best.reason === "no place page")) best = { ok: false, reason: v.reason, place: c.name, found_address: c.address, url: c.url };
     }
@@ -78,7 +78,7 @@ export async function locateOne(page, address, { debug = false, tag = "", name =
   return best;
 }
 
-export async function locateAddresses(items, { show = false, debug = false, delay = 4, hook, onResult } = {}) {
+export async function locateAddresses(items, { brand: defaultBrand = "99", show = false, debug = false, delay = 4, hook, onResult } = {}) {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: !show });
   const ctx = await browser.newContext({ locale: "en-GB", viewport: { width: 1280, height: 900 } });
@@ -88,7 +88,7 @@ export async function locateAddresses(items, { show = false, debug = false, dela
   try {
     for (const [i, it] of items.entries()) {
       const address = typeof it === "string" ? it : it.address;
-      const res = await locateOne(page, address, { debug, tag: String(i + 1), name: typeof it === "object" ? it.name || "" : "" });
+      const res = await locateOne(page, address, { debug, tag: String(i + 1), name: typeof it === "object" ? it.name || "" : "", brand: brandOf(typeof it === "object" && it.brand ? it.brand : defaultBrand) });
       const row = { ...(typeof it === "object" ? { key: it.key } : {}), address, ...res };
       out.push(row); onResult?.(row, i, items.length);
       if (i < items.length - 1) await sleep((delay + Math.random() * delay * 0.8) * 1000);
@@ -109,7 +109,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const todo = items.filter(i => !byAddr.has(i.address));
   console.error(`${items.length} addresses, ${items.length - todo.length} already located in ${outFile}, ${todo.length} to look up`);
   const rows = await locateAddresses(todo, {
-    show: args.includes("--show"), debug: args.includes("--debug"), delay: +(opt("--delay") || 4),
+    brand: opt("--brand") || "99", show: args.includes("--show"), debug: args.includes("--debug"), delay: +(opt("--delay") || 4),
     onResult: (r, i, n) => console.error(`${i + 1}/${n} ${r.ok ? `OK ${r.confidence} ${r.lat},${r.lng} ${r.place}` : `no: ${r.reason}`}`),
   });
   const all = items.map(i => rows.find(r => r.address === i.address) || byAddr.get(i.address)).filter(Boolean);

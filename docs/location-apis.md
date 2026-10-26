@@ -12,6 +12,22 @@ Status words: **tested** = covered by an automated test against a mocked server;
 | 4 | Fix by pin: Leaflet + OpenStreetMap tiles | nothing | app | tested, tiles live-unverified |
 | nav | Google Maps URLs (search / directions) | nothing | links | live: used by the owner |
 
+## What the deliveries are for (required before any paid / keyed lookup)
+
+The route tab asks "What are these deliveries for?": **99 Speedmart** or **Other / manual input** (type the shop or brand name, e.g. Tesco). Until one is chosen, **nothing is sent to Google Places, SerpApi or the model web search** (the tab says so). The choice decides:
+
+- **queries**: 99 Speedmart -> `99 Speedmart <store no> (NS) <name>`, then the full address; Other -> `<brand> <shop name> <postcode>`, then the full address;
+- **the check** (`judgePlace`): 99 Speedmart -> the place must be a Speed Mart (or the street / area words must agree); Other -> the place must carry the typed brand (without a typed name only the street / area words count, which gives "medium" confidence at best);
+- **links**: the "by store name" main link and the route waypoints use the store number form only for 99 Speedmart; for Other they use `<brand> <shop name>` when one is known, otherwise the address;
+- **the web-search prompt** of the model step, and the `brand` field in `stops-to-check.json` (the local scripts read it; `--brand 99` or `--brand "Tesco"` sets the default).
+Changing the choice asks the stops the lookup missed again.
+
+## The provider chain (how to add a search source later)
+
+Every place lookup is a function `(address, shopName, nearPosition, brand) -> { ok, lat, lng, place, found_address, url, confidence, reason }` and is checked by the same `judgePlace()` before a coordinate counts. In `site/index.html` the providers are collected in `provs` (Google Places, SerpApi) and tried in the order of the setting "Place lookup service"; the model web search (`locateMany`, the user's own model, verified by `verifyWebPos()` with a Google-link coordinate and a postcode check) runs after them for the stops still not exact. To add a source (for example a model API that can search the web and returns place data, or another geocoder with a free tier): write one function with the signature above (use `placeQueries(brand, name, address)` for the queries and `judgePlace(addr, candidate, brandRegex(brand))` for the check), add it to `order`, add a setting for its key, add one test with a mocked endpoint. Nothing else in the route tab needs to change.
+
+Candidates considered: a model with built-in web search (the settings button "Test web search" proves it can open a live page; most chat APIs cannot), Tavily (no coordinates in results, about 4 of 22 correct store pages: not built), HERE (no usable free plan for the owner), Geoapify (open data, expected to be like OpenStreetMap; benchmark with `GEOAPIFY_KEY=... node tools/geo-bench.mjs`).
+
 Order inside the app: OpenStreetMap -> (model rewrite) -> place lookup service(s) -> model web search -> manual Fix. A place lookup answer is accepted only when `judgePlace()` agrees (same postcode, and the place is a Speed Mart or street/area words match). Anything else stays "Street / area only".
 
 ## 1. OpenStreetMap Nominatim

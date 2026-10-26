@@ -51,7 +51,7 @@ async function serve(ctx, { model, geo } = {}) {
 }
 
 /** Preload settings/language into localStorage (only on first load, so reload tests keep state). */
-async function preset(page, { lang = "en", a = {}, b = null, enhance = false, tiles = false, timeout, extra = {} } = {}) {
+async function preset(page, { lang = "en", a = {}, b = null, enhance = false, tiles = false, timeout, extra = {}, route = null } = {}) {
   const settings = {
     a_prov: "custom", a_type: "openai", a_base: "https://relay.test/v1", a_model: "model-a", a_key: "test-key-a", a_json: true,
     b_prov: "custom", b_type: "openai", b_base: b ? "https://relay.test/v1" : "", b_model: b ? "model-b" : "", b_key: b ? "test-key-b" : "", b_json: true,
@@ -60,6 +60,8 @@ async function preset(page, { lang = "en", a = {}, b = null, enhance = false, ti
     ...(b ? Object.fromEntries(Object.entries(b).map(([k, v]) => ["b_" + k, v])) : {}),
     ...extra,
   };
+  // route-tab state (e.g. { brand: "99" }: what the deliveries are for, chosen before any Google / SerpApi / model web-search lookup)
+  if (route) await page.addInitScript((r) => { try { if (!localStorage.getItem("invoicelens.route")) localStorage.setItem("invoicelens.route", JSON.stringify(r)); } catch {} }, route);
   await page.addInitScript(([s, l, t]) => {
     try {
       if (!localStorage.getItem("invoicelens.settings.v1")) localStorage.setItem("invoicelens.settings.v1", JSON.stringify(s));

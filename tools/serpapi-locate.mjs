@@ -2,12 +2,13 @@
 //   1. in the app, Delivery route tab, "Export stops to check" -> stops-to-check.json
 //   2. SERPAPI_KEY=... node tools/serpapi-locate.mjs stops-to-check.json            (--limit 2 --debug first)
 //   3. in the app, Delivery route tab, "Import coordinates" -> locations.json
+// --brand: what the documents are for ("99" = Speedmart, the default; or the shop / brand name). The app writes it into stops-to-check.json too.
 // Per stop it asks for the store number + name first ("99 Speedmart 1954 (NS) Nusari Biz"), then the full printed address, biased towards the
 // street position the app already knows (ll). A result is kept only when the postcode matches and the place is a Speed Mart or the street / area
 // words agree (the same check as the app). Free plan: 250 searches a month, 50 an hour: every query is one search, cached in .serpapi-cache.json.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { judgePlace, storeQuery, fullAddr } from "../site/route.js";
+import { judgePlace, placeQueries, brandOf, brandRegex } from "../site/route.js";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -16,9 +17,9 @@ export function serpCandidates(j) {
   const rows = [...(j?.place_results ? [j.place_results] : []), ...(Array.isArray(j?.local_results) ? j.local_results : [])];
   return rows.slice(0, 5).map(p => ({ name: p.title || "", address: p.address || "", lat: p.gps_coordinates?.latitude, lng: p.gps_coordinates?.longitude, place_id: p.place_id || "", link: p.link || "" }));
 }
-export function serpQueries(address, name = "") { return [...new Set([storeQuery(name, address), fullAddr(address)].filter(Boolean))] }
+export function serpQueries(address, name = "", brand = brandOf("99")) { return placeQueries(brand, name, address) }
 
-export async function locateWithSerp(items, { key, delay = 2, debug = false, fetchImpl = fetch, cacheFile = ".serpapi-cache.json", onResult } = {}) {
+export async function locateWithSerp(items, { brand: args99 = "99", key, delay = 2, debug = false, fetchImpl = fetch, cacheFile = ".serpapi-cache.json", onResult } = {}) {
   const cache = cacheFile && fs.existsSync(cacheFile) ? JSON.parse(fs.readFileSync(cacheFile, "utf8")) : {};
   const call = async (params) => {
     const qs = new URLSearchParams({ engine: "google_maps", type: "search", hl: "en", gl: "my", ...params }), ck = qs.toString();
@@ -38,12 +39,12 @@ export async function locateWithSerp(items, { key, delay = 2, debug = false, fet
   };
   const out = [];
   for (const [i, it] of items.entries()) {
-    const address = typeof it === "string" ? it : it.address, name = typeof it === "object" ? it.name || "" : "", near = typeof it === "object" ? it.near : null;
+    const brand = brandOf((typeof it === "object" && it.brand) || args99), address = typeof it === "string" ? it : it.address, name = typeof it === "object" ? it.name || "" : "", near = typeof it === "object" ? it.near : null;
     let row = { ...(typeof it === "object" && it.key ? { key: it.key } : {}), address, ok: false, reason: "no result" };
-    for (const q of serpQueries(address, name)) {
+    for (const q of serpQueries(address, name, brand)) {
       const j = await call({ q, ...(near ? { ll: `@${(+near.lat).toFixed(5)},${(+near.lng).toFixed(5)},16z` } : {}) });
       for (const c of serpCandidates(j)) {
-        const v = judgePlace(address, c);
+        const v = judgePlace(address, c, brandRegex(brand));
         if (v.ok) { row = { ...row, ok: true, lat: c.lat, lng: c.lng, place: c.name, found_address: c.address, url: c.place_id ? `https://www.google.com/maps/place/?q=place_id:${c.place_id}` : c.link, confidence: v.confidence, reason: v.reason, query: q }; break }
         row.reason = v.reason;
       }
@@ -58,14 +59,14 @@ export async function locateWithSerp(items, { key, delay = 2, debug = false, fet
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const args = process.argv.slice(2), file = args.find(a => !a.startsWith("--")), opt = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null };
   const key = process.env.SERPAPI_KEY;
-  if (!file || !key) { console.error("usage: SERPAPI_KEY=... node tools/serpapi-locate.mjs stops-to-check.json [--out locations.json] [--limit N] [--delay 2] [--debug]"); process.exit(1) }
+  if (!file || !key) { console.error("usage: SERPAPI_KEY=... node tools/serpapi-locate.mjs stops-to-check.json [--out locations.json] [--limit N] [--delay 2] [--debug] [--brand 99 or the shop name]"); process.exit(1) }
   const outFile = opt("--out") || "locations.json";
   let items = JSON.parse(fs.readFileSync(file, "utf8")).map(a => (typeof a === "string" ? { address: a } : a));
   if (opt("--limit")) items = items.slice(0, +opt("--limit"));
   const done = fs.existsSync(outFile) ? JSON.parse(fs.readFileSync(outFile, "utf8")) : [], have = new Map(done.filter(r => r.ok).map(r => [r.address, r]));
   const todo = items.filter(i => !have.has(i.address));
   console.error(`${items.length} addresses, ${items.length - todo.length} already located in ${outFile}, ${todo.length} to look up`);
-  const rows = await locateWithSerp(todo, { key, delay: +(opt("--delay") || 2), debug: args.includes("--debug"), onResult: (r, i, n) => console.error(`${i + 1}/${n} ${r.ok ? `OK ${r.confidence} ${r.lat},${r.lng} ${r.place}` : `no: ${r.reason}`}`) });
+  const rows = await locateWithSerp(todo, { brand: opt("--brand") || "99", key, delay: +(opt("--delay") || 2), debug: args.includes("--debug"), onResult: (r, i, n) => console.error(`${i + 1}/${n} ${r.ok ? `OK ${r.confidence} ${r.lat},${r.lng} ${r.place}` : `no: ${r.reason}`}`) });
   const all = items.map(i => rows.find(r => r.address === i.address) || have.get(i.address)).filter(Boolean);
   fs.writeFileSync(outFile, JSON.stringify(all, null, 1));
   console.error(`\n${all.filter(r => r.ok).length} / ${items.length} located. Written to ${outFile}`);

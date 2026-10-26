@@ -47,17 +47,17 @@ const STOPWORDS = new Set(["jalan", "taman", "pusat", "bandar", "persiaran", "lo
 /** distinctive words (street / area names) of an address, to compare it with the address a place service returns */
 export const addrWords = a => [...new Set(String(a ?? "").toLowerCase().replace(/\(.*?\)/g, " ").split(/[^a-z]+/).filter(w => w.length >= 5 && !STOPWORDS.has(w)))];
 /** is the place a service found the delivery address? found: {name, address, lat, lng}. Same postcode, and the place is a Speed Mart or the street / area words agree. */
-export function judgePlace(wanted, found) {
+export function judgePlace(wanted, found, brandRe = /speed\s*mart/i) {
   if (!found || found.lat == null || found.lng == null) return { ok: false, reason: "no place" };
   if (!found.address) return { ok: false, reason: "place has no address to compare" };
   const wantPc = postcodeOf(wanted), foundPc = postcodeOf(found.address);
   if (wantPc && foundPc && wantPc !== foundPc) return { ok: false, reason: `postcode ${foundPc} is not ${wantPc}` };
   if (wantPc && !foundPc) return { ok: false, reason: "place address has no postcode" };
-  const brand = /speed\s*mart/i.test(found.name || "") || /speed\s*mart/i.test(found.address);
+  const brand = !!brandRe && (brandRe.test(found.name || "") || brandRe.test(found.address || ""));
   const fw = new Set(addrWords(found.address + " " + (found.name || ""))), common = addrWords(wanted).filter(w => fw.has(w));
-  if (brand && common.length >= 1) return { ok: true, confidence: "high", reason: `Speed Mart, postcode ${foundPc}, words: ${common.join(" ")}` };
+  if (brand && common.length >= 1) return { ok: true, confidence: "high", reason: `brand, postcode ${foundPc}, words: ${common.join(" ")}` };
   if (common.length >= 2) return { ok: true, confidence: "medium", reason: `postcode ${foundPc}, words: ${common.join(" ")}` };
-  if (brand && foundPc === wantPc) return { ok: true, confidence: "medium", reason: `Speed Mart in postcode ${foundPc}` };
+  if (brand && foundPc === wantPc) return { ok: true, confidence: "medium", reason: `brand in postcode ${foundPc}` };
   return { ok: false, reason: `different place: ${found.name || "?"} (${common.length} shared words)` };
 }
 export function similarity(a, b) {
@@ -209,12 +209,26 @@ export function storeQuery(...texts) {
   }
   return "";
 }
-export function mapsLinks(start, stops, back) {
+// What the uploaded documents are for, chosen by the user before any Google / SerpApi lookup: "99" (Speedmart: store number + name queries, Speed Mart check)
+// or "other" (the shop / brand name typed by hand: brand + shop name queries, that name as the check). brand = { mode: "99" | "other" | "", name }.
+export const brandOf = v => { const s = String(v ?? "").trim(); return !s || s === "99" ? { mode: "99", name: "" } : s === "other" ? { mode: "other", name: "" } : { mode: "other", name: s } };
+export function brandRegex(brand) {
+  if (!brand || brand.mode !== "other") return /speed\s*mart/i;
+  const w = String(brand.name || "").trim().split(/\s+/).filter(x => x.length >= 2).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return w.length ? new RegExp(w.join("\\s*"), "i") : null;
+}
+/** the name a place is listed under: the store number form for Speedmart, "<brand> <shop name>" for anything else; "" when there is nothing to add to the address */
+export function nameQuery(brand, name, address) {
+  if (brand && brand.mode === "other") return [brand.name, name].map(x => String(x ?? "").trim()).filter(Boolean).join(" ");
+  return storeQuery(name, address);
+}
+export const placeQueries = (brand, name, address) => [...new Set([[nameQuery(brand, name, address), brand?.mode === "other" ? postcodeOf(address) : ""].filter(Boolean).join(" "), fullAddr(address)].filter(Boolean))];
+export function mapsLinks(start, stops, back, brand) {
   // Google Maps takes up to 9 waypoints per link: long routes are split into consecutive legs
   // stops at the same spot (two invoices for one shop) are one waypoint
   // a stop is sent to Google as its full printed address (as in the Address column): Google's own search knows Malaysian shops and lots far better
   // than a coordinate from the open map, which can land on a neighbouring business. Coordinates only when there is no address.
-  const ll = p => `${p.lat},${p.lng}`, wp = p => p.address ? (storeQuery(p.name, p.address) || fullAddr(p.address)) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
+  const ll = p => `${p.lat},${p.lng}`, wp = p => p.address ? (nameQuery(brand, p.name, p.address) || fullAddr(p.address)) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
   for (let i = 0; i < seq.length - 1; i += 10) {
     const part = seq.slice(i, i + 11); if (part.length < 2) break;
     const w = part.slice(1, -1).map(wp).join("|");
@@ -281,12 +295,17 @@ export async function geocode(addr, cc, rewrite, pre = []) {
 
 // With a model that can search the web: it looks up the exact premises (Google Maps place) of every stop the map service only found at street /
 // estate level. Its coordinates are never taken on trust: verifyWebPos() below must confirm them.
-export const LOCATE_PROMPT = `You can search the web. Each numbered line is a delivery address in Malaysia, printed on a delivery order (usually a 99 Speed Mart store, with a store code and branch name).
-For each, find the EXACT premises on Google Maps (search the store name + street + postcode) and report the coordinates that the page you found shows (a Google Maps place page or link: "@lat,lng" / "!3dLAT!4dLNG"), with 6 decimals.
+// the web-search prompt follows what the user chose the deliveries are for (see brandOf)
+export const locatePrompt = brand => {
+  const other = brand && brand.mode === "other", shop = other ? (brand.name ? `a ${brand.name} shop` : "a shop") : "usually a 99 Speed Mart store, with a store code and branch name";
+  return `You can search the web. Each numbered line is a delivery address in Malaysia, printed on a delivery order (${shop}).
+For each, find the EXACT premises on Google Maps (search the ${other ? "shop name" : "store name"} + street + postcode) and report the coordinates that the page you found shows (a Google Maps place page or link: "@lat,lng" / "!3dLAT!4dLNG"), with 6 decimals.
 Never estimate, interpolate or guess coordinates, and never give the centre of a street or estate. If you cannot find the exact premises, set found to false.
 Return JSON only: {"results":[{"n":1,"found":true,"place_name":"...","address_found":"full address as shown","lat":1.234567,"lng":103.123456,"maps_url":"the Google Maps URL you used","evidence":"one short sentence"}]}
 Addresses:
 `;
+};
+export const LOCATE_PROMPT = locatePrompt({ mode: "99" });
 async function nominatimReverse(lat, lng) {
   const wait = 1100 - (Date.now() - lastGeo); if (wait > 0) await sleep(wait); lastGeo = Date.now();
   const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { "Accept-Language": "en" } });
@@ -346,7 +365,7 @@ export async function roadMatrix(pts) {
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
   const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, placeLocate, dl } = api;
-  const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
+  const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", brand: "", brandName: "", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const allStops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
     .map(s => ({ ...s, ...(st.over[s.key] || {}) }));
@@ -361,7 +380,7 @@ export function renderRoute(view, api) {
   // the store number + name ("99 Speedmart 1954 (NS) Nusari Biz") is how Google lists a shop: when the document carries it, that is the main link
   // (confirmed more accurate than the address on real stops), the full printed address the second
   const viewLinks = s => {
-    const sq = storeQuery(s.name, s.address), a = `<a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t(sq ? "rt_view_addr" : "rt_view")}</a>`;
+    const sq = nameQuery({ mode: st.brand, name: st.brandName }, s.name, s.address), a = `<a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t(sq ? "rt_view_addr" : "rt_view")}</a>`;
     return sq ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(sq))}" title="${esc(sq)}">${t("rt_view")}</a> ${a}` : " " + a;
   };
   // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified
@@ -431,6 +450,7 @@ export function renderRoute(view, api) {
     // ---- side panel: setup, plan, result
     let h = `<div class="rt-main">${stopsHtml}</div><aside class="rt-side">
       <details class="how"><summary>${t("rt_how_h")}</summary><p class="sub">${t("rt_intro")}</p><p class="sub">${t("rt_how")}</p></details>
+      <div class="rt-brand"><div class="rt-lab">${t("rt_brand_q")}</div><div class="rt-radios"><label class="chk"><input type="radio" name="rt-brand" value="99" ${st.brand === "99" ? "checked" : ""}> ${t("rt_brand_99")}</label><label class="chk"><input type="radio" name="rt-brand" value="other" ${st.brand === "other" ? "checked" : ""}> ${t("rt_brand_other")}</label></div>${st.brand === "other" ? `<input id="rt-brandname" value="${esc(st.brandName)}" placeholder="${esc(t("rt_brand_ph"))}">` : ""}${placeLocate && !st.brand ? `<p class="rt-hint rt-need">${t("rt_brand_wait")}</p>` : ""}</div>
       <h3 class="rt-title">${t("rt_setup")}</h3>
       <div class="rt-form">
         <div class="rt-f rt-wide"><label for="rt-start">${t("rt_start")}</label><div class="rt-inline"><input id="rt-start" value="${esc(st.start)}" placeholder="${esc(t("rt_start_ph"))}"><button class="lnk" id="rt-here" type="button">${t("rt_here")}</button></div>${st.startLL ? `<span class="rt-hint">${t("rt_start_ok")} <a target="_blank" rel="noopener" href="${esc(mapLink(st.startLL))}">${st.startLL.lat.toFixed(5)}, ${st.startLL.lng.toFixed(5)}</a></span>` : ""}</div>
@@ -457,7 +477,7 @@ export function renderRoute(view, api) {
     for (const [id, v, focused, pos] of keep) { const el = view.querySelector("#" + id); if (!el) continue; el.value = v; if (focused) { el.focus(); try { el.setSelectionRange(pos, pos) } catch {} } }
     // the local helper (tools/maps-locate.mjs) looks the stops that are not exact up on Google Maps and writes locations.json: export the list, import the result
     view.querySelector("#rt-export")?.addEventListener("click", () => {
-      const todo = stops().filter(s => !s.skip && !placed(s)).map(s => ({ key: s.key, name: s.name || "", address: s.address, ...(s.lat != null ? { near: { lat: s.lat, lng: s.lng } } : {}) }));
+      const todo = stops().filter(s => !s.skip && !placed(s)).map(s => ({ key: s.key, name: s.name || "", address: s.address, ...(st.brand ? { brand: st.brand === "other" ? (st.brandName || "other") : "99" } : {}), ...(s.lat != null ? { near: { lat: s.lat, lng: s.lng } } : {}) }));
       dl("stops-to-check.json", JSON.stringify(todo, null, 1), "application/json");
     });
     view.querySelector("#rt-import")?.addEventListener("change", async e => {
@@ -478,8 +498,11 @@ export function renderRoute(view, api) {
     view.querySelector("[data-pin-save]")?.addEventListener("click", () => view.querySelector("[data-ll]")?.dispatchEvent(new Event("change")));
     view.querySelector("[data-pin-cancel]")?.addEventListener("click", () => { editing = null; draft = null; draw() });
     view.querySelector("#rt-onlyfix")?.addEventListener("change", e => { st.onlyFix = e.target.checked; persist(); draw() });
+    // a different brand means different queries and a different check: stops the place lookup missed are asked again
+    const resetLookups = () => { for (const k of Object.keys(st.over)) if (!st.over[k].web && !st.over[k].manual) delete st.over[k].gTried };
+    view.querySelectorAll("input[name=rt-brand]").forEach(el => el.addEventListener("change", () => { st.brand = el.value; resetLookups(); persist(); draw() }));
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
-    const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
+    const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; const bn = view.querySelector("#rt-brandname"); if (bn && bn.value.trim() !== st.brandName) { st.brandName = bn.value.trim(); resetLookups() } persist() };
     view.querySelectorAll("input[id^=rt-]:not(#rt-new)").forEach(el => el.onchange = () => { const had = st.start; sync(); if (had !== st.start) { st.startLL = null; persist(); locateStart() } draw() });
     view.querySelector("#rt-here").onclick = () => {
       if (!navigator.geolocation) { msg = t("rt_here_fail"); return draw() }
@@ -514,7 +537,7 @@ export function renderRoute(view, api) {
   // look up every stop that has no location yet (results are cached, so this is quick the second time)
   // every stop without a location is looked up as soon as it appears. With a model configured, model A first rewrites all
   // pending addresses in one call into clean search text; the map service then finds the coordinates.
-  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!placeLocate && !s.gTried && !precise(s)) || (!!locateMany && !s.webTried && !precise(s)));
+  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!placeLocate && !!st.brand && !s.gTried && !precise(s)) || (!!locateMany && !!st.brand && !s.webTried && !precise(s)));
   let locating = null;
   const locate = () => locating || (locating = locateAll(stops().filter(needs)).catch(e => { msg = String(e.message || e) }).finally(() => { locating = null; draw() }));
   const locateAll = async S => {
@@ -546,10 +569,10 @@ export function renderRoute(view, api) {
     }
     // optional: Google Places / SerpApi (the user's own API key) looks up every stop that is still not exact; accepted only after judgePlace() confirms it
     if (placeLocate) {
-      const G = S.filter(s => !s.gTried && !precise(s) && !parseLatLng(s.address));
+      const G = st.brand ? S.filter(s => !s.gTried && !precise(s) && !parseLatLng(s.address)) : [];
       for (const [k, s] of G.entries()) {
         show(t("rt_g_prog", { i: k + 1, n: G.length }));
-        const res = await placeLocate(s.address, s.name, s.lat != null ? { lat: s.lat, lng: s.lng } : null).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
+        const res = await placeLocate(s.address, s.name, s.lat != null ? { lat: s.lat, lng: s.lng } : null, { mode: st.brand, name: st.brandName }).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
         if (res.fatal) { fatalMsg = t("rt_g_err", { e: res.reason }); show(fatalMsg); for (const x of G.slice(k)) { st.over[x.key] = { ...(st.over[x.key] || {}), gTried: true }; Object.assign(x, { gTried: true }) } persist(); break }
         const patch = res.ok ? { lat: +res.lat, lng: +res.lng, label: [res.place, res.found_address].filter(Boolean).join(", "), approx: false, fail: undefined, web: true, rank: 30, webSrc: res.url || "", webConf: res.confidence === "high" ? "high" : "medium" } : { webWhy: "Google: " + res.reason };
         st.over[s.key] = { ...(st.over[s.key] || {}), ...patch, gTried: true }; Object.assign(s, patch, { gTried: true }); persist();
@@ -557,11 +580,11 @@ export function renderRoute(view, api) {
     }
     // a model that can search the web finds the exact premises of every stop that is still only street / estate level (or not found);
     // its coordinates count only after verifyWebPos() confirms them
-    if (locateMany) {
+    if (locateMany && st.brand) {
       const W = S.filter(s => !s.webTried && !precise(s) && !parseLatLng(s.address));
       for (let k = 0; k < W.length; k += 5) {
         const chunk = W.slice(k, k + 5); show(t("rt_web_prog", { i: Math.min(k + 5, W.length), n: W.length }));
-        const r = await locateMany(chunk.map(s => s.address)).catch(() => null);
+        const r = await locateMany(chunk.map(s => s.address), { mode: st.brand, name: st.brandName }).catch(() => null);
         for (const [j, s] of chunk.entries()) {
           const m = Array.isArray(r) ? (r.find(x => +x?.n === j + 1) || r[j]) : null, near = s.lat != null ? { lat: s.lat, lng: s.lng } : null;
           const v = r ? await verifyWebPos(s.address, m, near).catch(() => ({ ok: false, reason: "check failed" })) : { ok: false, reason: "no answer" };
@@ -595,7 +618,7 @@ export function renderRoute(view, api) {
     const [hh, mm] = st.time.split(":").map(Number), t0 = hh * 60 + (mm || 0);
     const routes = planRoutes(pts, M.dur, { lorries: st.lorries, back: st.back, maxStops: st.maxStops }).map(r => {
       const s = routeStats(r, M, st.back, st.service, t0), stopsR = r.map(x => pts[x]);
-      return { stops: stopsR, ...s, links: mapsLinks(st.startLL, stopsR, st.back) };
+      return { stops: stopsR, ...s, links: mapsLinks(st.startLL, stopsR, st.back, { mode: st.brand, name: st.brandName }) };
     });
     plan = { routes, unplaced, source: M.source, t0, km: routes.reduce((a, r) => a + r.km, 0), min: routes.reduce((a, r) => a + r.min, 0), far: new Map(farStops(ok).map(x => [x.p.key, x.km])) };
     review = null; msg = ""; draw();
