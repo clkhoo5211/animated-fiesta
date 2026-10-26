@@ -340,7 +340,7 @@ export function renderRoute(view, api) {
     let stopsHtml = `<div class="sec"><h3>${t("rt_step3", { n: on.length, m: S.length })}</h3>`;
     if (!S.length) stopsHtml += `<div class="box"><p class="sub" style="margin:0">${t("rt_none")}</p></div>`;
     else stopsHtml += `<div class="rt-bar"><span class="sub">${t("rt_sum", { n: S.length, p: S.filter(placed).length, q: S.filter(s => !placed(s)).length })}</span><label class="chk"><input type="checkbox" id="rt-onlyfix" ${st.onlyFix ? "checked" : ""}> ${t("rt_only")}</label></div>`;
-    stopsHtml += `<div class="rt-add f"><input id="rt-new" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div>`;
+    stopsHtml += `<div class="rt-add f"><input id="rt-new" placeholder="${esc(t("rt_add_ph"))}"><button class="btn sm" id="rt-add" type="button">${t("rt_add")}</button><button class="btn sm" id="rt-export" type="button">${t("rt_export")}</button><label class="btn sm">${t("rt_import")}<input type="file" id="rt-import" accept=".json,application/json" hidden></label>${S.length ? `<button class="btn sm" id="rt-locate" type="button">${t("rt_locate")}</button>` : ""}${hidden ? `<button class="btn sm" id="rt-restore" type="button">${t("rt_restore", { n: hidden })}</button>` : ""}</div>`;
     if (S.length) stopsHtml += `<div class="rt-scroll"><table class="rt-stops"><thead><tr><th style="width:28px"></th><th>${t("rt_addr")}</th><th>${t("rt_coord")}</th></tr></thead><tbody>${S.map((s, i) => (st.onlyFix && placed(s) && !s.suspect) ? "" : `<tr${s.skip ? ' style="opacity:.5"' : ""}>
       <td><input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}"></td>
       <td>${s.name ? `<b>${esc(s.name)}</b> ` : ""}${s.refs.length ? `<span class="sub">${esc(s.refs.join(", "))}</span>` : ""}<div class="rt-addr">${esc(s.address)}</div>${s.variants ? `<br><span class="badge" style="background:var(--soft);color:var(--mut)" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</td>
@@ -371,6 +371,24 @@ export function renderRoute(view, api) {
     const act = document.activeElement, keep = [...view.querySelectorAll("input[id]:not([type=checkbox])")].filter(el => el.id === "rt-new" || el === act).map(el => [el.id, el.value, el === act, el.selectionStart]);
     view.innerHTML = h;
     for (const [id, v, focused, pos] of keep) { const el = view.querySelector("#" + id); if (!el) continue; el.value = v; if (focused) { el.focus(); try { el.setSelectionRange(pos, pos) } catch {} } }
+    // the local helper (tools/maps-locate.mjs) looks the stops that are not exact up on Google Maps and writes locations.json: export the list, import the result
+    view.querySelector("#rt-export")?.addEventListener("click", () => {
+      const todo = stops().filter(s => !s.skip && !placed(s)).map(s => ({ key: s.key, name: s.name || "", address: s.address }));
+      dl("stops-to-check.json", JSON.stringify(todo, null, 1), "application/json");
+    });
+    view.querySelector("#rt-import")?.addEventListener("change", async e => {
+      const f = e.target.files?.[0]; if (!f) return;
+      try {
+        const rows = JSON.parse(await f.text()); let n = 0; const byKey = new Map(allStops().map(s => [s.key, s]));
+        for (const r of Array.isArray(rows) ? rows : []) {
+          if (!r || !r.ok || !Number.isFinite(+r.lat) || !Number.isFinite(+r.lng)) continue;
+          const key = r.key && byKey.has(r.key) ? r.key : normAddr(r.address || ""); if (!byKey.has(key)) continue;
+          st.over[key] = { ...(st.over[key] || {}), lat: +r.lat, lng: +r.lng, label: [r.place, r.found_address].filter(Boolean).join(", "), approx: false, fail: undefined, web: true, rank: 30, webSrc: r.url || "", webConf: r.confidence === "high" ? "high" : "medium", webTried: true, aiTried: true };
+          n++;
+        }
+        persist(); msg = t("rt_imported", { n }); draw();
+      } catch { msg = t("rt_import_bad"); draw() }
+    });
     view.querySelector("#rt-onlyfix")?.addEventListener("change", e => { st.onlyFix = e.target.checked; persist(); draw() });
     const num = (id, d) => { const v = parseInt(view.querySelector(id).value); return Number.isFinite(v) ? v : d };
     const sync = () => { st.start = view.querySelector("#rt-start").value.trim(); st.lorries = Math.max(1, num("#rt-lorries", 1)); st.time = view.querySelector("#rt-time").value || "08:00"; st.service = Math.max(0, num("#rt-service", 10)); st.maxStops = Math.max(0, num("#rt-max", 0)); st.cc = view.querySelector("#rt-cc").value.trim(); st.back = view.querySelector("#rt-back").checked; persist() };
