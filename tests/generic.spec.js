@@ -26,10 +26,13 @@ test("generic checks: totals block, tax rate, statement balance; tables CSV has 
   await expect(page.locator("#view")).toContainText("Totals add up");
   await expect(page.locator("#view")).toContainText("SST 8% matches the rate");
   await expect(page.locator("#view")).toContainText("SST 8% charged, but no tax registration number on the document");
+  await page.click(".exp summary");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#csv")]);
   const csv = fs.readFileSync(await dl.path(), "utf8").replace(/^﻿/, "").split("\n");
   expect(csv[0]).toBe('"file","page","document_number","table","row","Description","Quantity","Price"');
   expect(csv[1]).toContain('"#IN2100113","Items","1"');
+
+  await page.click(".exp summary");
 
   const [dl2] = await Promise.all([page.waitForEvent("download"), page.click("#csvall")]);
   const all = fs.readFileSync(await dl2.path(), "utf8");

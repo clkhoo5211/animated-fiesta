@@ -41,6 +41,7 @@ test("manual review: A/B pick, inline edit keeps focus, rows add/delete/undo, re
   await page.click("#tg-edit");
   await page.click("#tg-rev");
   expect(await statuses(page)).toEqual(["invoice.jpg=rev"]);
+  await page.click(".exp summary");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#dl")]);
   const out = JSON.parse(fs.readFileSync(await dl.path(), "utf8"));
   expect(out.segments[0].final_result.parties[1].tax_id).toBe("C10000000001");

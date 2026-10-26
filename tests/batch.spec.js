@@ -27,6 +27,8 @@ test("batch queue: skips unsupported, max 2 concurrent, failure then retry, summ
   await waitIdle(page);
   expect((await statuses(page)).some((s) => s.endsWith("=err"))).toBe(false);
 
+  await page.click(".exp summary");
+
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#csvsum")]);
   const csv = fs.readFileSync(await dl.path(), "utf8");
   expect(csv.split("\n")).toHaveLength(4); // header + 3 files
