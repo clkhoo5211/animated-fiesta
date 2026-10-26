@@ -312,3 +312,17 @@ test("without a Google key the route tab never calls Google Places", async ({ pa
   await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
   expect(called).toBe(0);
 });
+
+test("storeQuery turns the printed branch name into the name Google lists the shop under", async ({ page, context }) => {
+  await serve(context);
+  await page.goto("/");
+  const r = await page.evaluate(async () => {
+    const { storeQuery } = await import("/route.js");
+    return [storeQuery("1954 NS NUSARI BIZ (DD)"), storeQuery("", "1988 NS TMN GADONG INDAH (DD) NO 1 (SINGLE STOREY), JLN GADONG INDAH 3"), storeQuery("3036 NS Tmn Mikamas (01)"), storeQuery("NS TIARA SENDAYAN (DD)", "NO. 13 (GF), JLN TIARA"), storeQuery("GO SPEED MART SDN. BHD.", "LOT PT 2811, JALAN ANGGSA")];
+  });
+  expect(r[0]).toBe("99 Speedmart 1954 (NS) Nusari Biz");
+  expect(r[1]).toBe("99 Speedmart 1988 (NS) Taman Gadong Indah");
+  expect(r[2]).toBe("99 Speedmart 3036 (NS) Taman Mikamas");
+  expect(r[3]).toBe("");
+  expect(r[4]).toBe("");
+});
