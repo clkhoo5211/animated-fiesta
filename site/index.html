@@ -5,10 +5,10 @@
 <title>InvoiceLens</title>
 <meta name="description" content="In-browser document extraction: multi-model extraction, arithmetic checks, cross-verification">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f5bd3'/%3E%3Cpath d='M9 8h11l4 4v12H9z' fill='white'/%3E%3Cpath d='M12 15h9M12 19h6' stroke='%232f5bd3' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
 <style>
 /* Hallmark: floor+reflex applied; tokens in :root, no tracked caps, no dots/gradients/blur */
-:root{--bg:#f4f2ec;--panel:#fbfaf6;--fg:#1f1d18;--mut:#6a665c;--line:#dedacd;--soft:#ece9e0;--ac:#17605a;--ac-soft:#dfece8;--ok:#1d6b45;--ok-soft:#e1efe6;--warn:#8f4a0c;--warn-soft:#f6e9d6;--bad:#a8321a;--bad-soft:#f7e3dd;--r:6px;--sh:none;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--font:"IBM Plex Sans","PingFang SC","Microsoft YaHei",sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+:root{--bg:#f4f2ec;--panel:#fbfaf6;--fg:#1f1d18;--mut:#6a665c;--line:#dedacd;--soft:#ece9e0;--ac:#17605a;--ac-soft:#dfece8;--ok:#1d6b45;--ok-soft:#e1efe6;--warn:#8f4a0c;--warn-soft:#f6e9d6;--bad:#a8321a;--bad-soft:#f7e3dd;--r:6px;--sh:none;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--font:"IBM Plex Sans","PingFang SC","Microsoft YaHei",sans-serif;--serif:"Newsreader","Songti SC","Noto Serif CJK SC",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#171611;--panel:#1e1d17;--fg:#ece9df;--mut:#a29e90;--line:#35332a;--soft:#27261e;--ac:#6fbfb4;--ac-soft:#1d2f2c;--ok:#6fc596;--ok-soft:#18281f;--warn:#e0a35a;--warn-soft:#2d2314;--bad:#f08a6e;--bad-soft:#2e1a15}}
 *{box-sizing:border-box}html,body{margin:0;overflow-x:clip}body{background:var(--bg);color:var(--fg);font:14px/1.6 var(--font)}
 :focus-visible{outline:2px solid var(--ac);outline-offset:2px;transition:none}
@@ -21,7 +21,7 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .btn:hover{background:var(--soft)}.btn:active{transform:translateY(1px)}.btn.pri{background:var(--ac);border-color:var(--ac);color:var(--bg);font-weight:600}.btn.pri:hover{background:color-mix(in srgb,var(--ac) 88%,var(--fg))}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}.btn.sm{padding:5px 10px;font-size:13px}
 main{max-width:1280px;margin:0 auto;padding:20px 16px 48px;display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
 main>*{min-width:0}
-@media (max-width:900px){main{grid-template-columns:1fr}}
+
 @media (max-width:640px){.tabs{flex-wrap:wrap}.tools{margin-left:0;width:100%;overflow-x:auto}.bar .sub{display:none}.kpi.big b{font-size:19px}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
 .card h2{font-size:14px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
@@ -84,7 +84,7 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .job.running{border-color:var(--ac);background:var(--ac-soft)}
 #saved{order:9;flex-basis:100%;font-weight:400;font-size:12px}.card h2{flex-wrap:wrap;row-gap:2px}
 dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}dialog>form{display:flex;flex-direction:column;min-height:0;max-height:100%}dialog .db{flex:1;min-height:0;max-height:none}
-@media (max-width:640px){.bar{gap:8px;padding:10px 12px}.logo{font-size:15px}#open-settings span{display:none}#open-settings{padding:8px 10px}#lang{max-width:120px;padding:7px 4px!important}
+@media (max-width:640px){.bar{gap:8px;padding:10px 12px}.logo{font-size:15px}#lang{max-width:120px;padding:7px 4px!important}
   .pad{padding:12px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.big{grid-column:span 2}.tab{padding:10px 8px}.tools .btn{flex:1 1 auto;justify-content:center}
   .editbar .btn{flex:1 1 auto;justify-content:center}.grid2{grid-template-columns:1fr}.job{grid-template-columns:40px 1fr;}.job .acts{grid-column:1/-1;justify-content:flex-end}
   dialog{width:calc(100vw - 16px)}.kpi b{font-size:15px}.kpi.big b{font-size:20px}.dh,.df{padding:12px 14px}.db{padding:4px 14px 8px}}
@@ -94,6 +94,39 @@ dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}d
 #view a{color:var(--ac);text-decoration:none;font-weight:600}#view a:hover{text-decoration:underline}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:var(--r);font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100vw - 32px))}#zoom img{width:100%;display:block}
+
+/* layout pass: open page instead of boxed cards */
+main{grid-template-columns:340px minmax(0,1fr);gap:48px;padding:40px 24px 80px}
+.bar{padding:16px 24px}.logo{font-family:var(--serif);font-size:22px;font-weight:500}
+header{border-bottom:1px solid var(--line)}
+main>section:first-child .card{background:none;border:0;border-radius:0}
+main>section:first-child .card h2{padding:0 0 var(--s3);font-family:var(--serif);font-size:20px;font-weight:500}
+main>section:first-child .pad{padding:0}
+#results.card{background:var(--panel);border:1px solid var(--line);min-height:70vh}
+.drop{background:none;padding:var(--s5) var(--s4);text-align:left}
+.drop b{font-family:var(--serif);font-size:18px;font-weight:500}
+.chips{display:block;margin-top:var(--s3);font-size:12px;color:var(--mut);line-height:1.8}
+.chip,.chip.on,.chip.off{display:inline;background:none;border:0;padding:0;color:var(--mut);font-size:12px}.chip.on{color:var(--fg)}.chip::after{content:", "}.chip:last-child::after{content:""}
+.tabs{padding:0 var(--s5);gap:var(--s4);border-bottom:1px solid var(--line)}
+.tab{padding:var(--s4) 0;font-size:14px}
+.tools{width:100%;margin:0;padding:var(--s3) 0;justify-content:flex-end;border-top:1px solid var(--line)}
+.tools .btn{border:0;background:none;color:var(--mut);padding:2px var(--s2);text-decoration:underline;text-underline-offset:3px}.tools .btn:hover{color:var(--fg);background:none}.tools .btn:disabled{display:none}.tools:not(:has(.btn:not(:disabled))){display:none}
+#results>.pad{padding:var(--s5)}
+.empty{text-align:left;padding:var(--s5) 0;font-family:var(--serif);font-size:20px;color:var(--mut);max-width:44ch}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border-top:1px solid var(--fg);border-bottom:1px solid var(--line)}
+.kpi{border:0;border-radius:0;padding:var(--s4) var(--s4) var(--s4) 0;min-width:0}
+.kpi>span{font-size:12px}.kpi b{font-family:var(--serif);font-size:24px;font-weight:500;line-height:1.2}
+.kpi.big b{font-size:28px}.kpi .badge{font-family:var(--font);font-size:12px}.kpi b{font-size:22px;overflow-wrap:anywhere}
+.sec{margin-top:var(--s5)}.sec h3{font-family:var(--serif);font-size:18px;font-weight:500}
+.box{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0 0}.box h4{font-size:14px}
+.grid2{gap:var(--s5)}
+.item{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0}
+.tw{border-radius:0;border-left:0;border-right:0}
+th{background:none;color:var(--fg);border-bottom:1px solid var(--fg)}
+.job{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0}.job.sel{box-shadow:none;border-top-color:var(--ac)}.job,.job.running{background:none}
+.help{background:none;border-left:0;padding:0}
+@media (min-width:761px) and (max-width:1100px){main{grid-template-columns:260px minmax(0,1fr);gap:var(--s5);padding:var(--s5) var(--s4) 64px}.bar{padding:var(--s3) var(--s4)}}
+@media (max-width:760px){main{grid-template-columns:minmax(0,1fr);gap:var(--s5);padding:var(--s4) var(--s4) 48px}.tabs{padding:0 var(--s3);gap:var(--s3)}.tabs .tab{padding:var(--s3) 0}.tools{justify-content:flex-start;overflow:visible}#results>.pad{padding:var(--s4)}}
 </style>
 </head>
 <body>
