@@ -345,7 +345,7 @@ export async function roadMatrix(pts) {
 
 /* ---------- UI ---------- */
 export function renderRoute(view, api) {
-  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, googleLocate, dl } = api;
+  const { t, esc, docs, askModel, rewriteAddr, rewriteMany, locateMany, placeLocate, dl } = api;
   const st = Object.assign({ start: "", startLL: null, lorries: 1, back: true, service: 10, time: "08:00", maxStops: 0, cc: "my", manual: [], over: {} }, load(KEY, {}));
   const persist = () => save(KEY, st);
   const allStops = () => [...collectStops(docs()), ...st.manual.map(m => ({ key: normAddr(m.address), address: m.address, name: m.name || "", refs: [], src: "manual" }))]
@@ -457,7 +457,7 @@ export function renderRoute(view, api) {
     for (const [id, v, focused, pos] of keep) { const el = view.querySelector("#" + id); if (!el) continue; el.value = v; if (focused) { el.focus(); try { el.setSelectionRange(pos, pos) } catch {} } }
     // the local helper (tools/maps-locate.mjs) looks the stops that are not exact up on Google Maps and writes locations.json: export the list, import the result
     view.querySelector("#rt-export")?.addEventListener("click", () => {
-      const todo = stops().filter(s => !s.skip && !placed(s)).map(s => ({ key: s.key, name: s.name || "", address: s.address }));
+      const todo = stops().filter(s => !s.skip && !placed(s)).map(s => ({ key: s.key, name: s.name || "", address: s.address, ...(s.lat != null ? { near: { lat: s.lat, lng: s.lng } } : {}) }));
       dl("stops-to-check.json", JSON.stringify(todo, null, 1), "application/json");
     });
     view.querySelector("#rt-import")?.addEventListener("change", async e => {
@@ -514,10 +514,11 @@ export function renderRoute(view, api) {
   // look up every stop that has no location yet (results are cached, so this is quick the second time)
   // every stop without a location is looked up as soon as it appears. With a model configured, model A first rewrites all
   // pending addresses in one call into clean search text; the map service then finds the coordinates.
-  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!googleLocate && !s.gTried && !precise(s)) || (!!locateMany && !s.webTried && !precise(s)));
+  const needs = s => !s.skip && ((s.lat == null && !s.fail) || (!!rewriteMany && !s.aiTried && (s.fail || s.approx)) || (!!placeLocate && !s.gTried && !precise(s)) || (!!locateMany && !s.webTried && !precise(s)));
   let locating = null;
   const locate = () => locating || (locating = locateAll(stops().filter(needs)).catch(e => { msg = String(e.message || e) }).finally(() => { locating = null; draw() }));
   const locateAll = async S => {
+    let fatalMsg = ""; // an error that stopped the place lookup stays visible after the run
     if (!S.length) return;
     const show = m => { msg = m; const el = view.querySelector("#rt-msg"); if (el) el.textContent = m };
     // 1) the printed address goes to the map service first (cleaned by rules only, no model)
@@ -543,13 +544,13 @@ export function renderRoute(view, api) {
         }
       }
     }
-    // optional: Google Places (the user's own API key) looks up every stop that is still not exact; accepted only after judgePlace() confirms it
-    if (googleLocate) {
+    // optional: Google Places / SerpApi (the user's own API key) looks up every stop that is still not exact; accepted only after judgePlace() confirms it
+    if (placeLocate) {
       const G = S.filter(s => !s.gTried && !precise(s) && !parseLatLng(s.address));
       for (const [k, s] of G.entries()) {
         show(t("rt_g_prog", { i: k + 1, n: G.length }));
-        const res = await googleLocate(s.address, s.name).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
-        if (res.fatal) { show(t("rt_g_err", { e: res.reason })); break }
+        const res = await placeLocate(s.address, s.name, s.lat != null ? { lat: s.lat, lng: s.lng } : null).catch(e => ({ ok: false, reason: String(e?.message || e), fatal: true }));
+        if (res.fatal) { fatalMsg = t("rt_g_err", { e: res.reason }); show(fatalMsg); for (const x of G.slice(k)) { st.over[x.key] = { ...(st.over[x.key] || {}), gTried: true }; Object.assign(x, { gTried: true }) } persist(); break }
         const patch = res.ok ? { lat: +res.lat, lng: +res.lng, label: [res.place, res.found_address].filter(Boolean).join(", "), approx: false, fail: undefined, web: true, rank: 30, webSrc: res.url || "", webConf: res.confidence === "high" ? "high" : "medium" } : { webWhy: "Google: " + res.reason };
         st.over[s.key] = { ...(st.over[s.key] || {}), ...patch, gTried: true }; Object.assign(s, patch, { gTried: true }); persist();
       }
@@ -569,7 +570,7 @@ export function renderRoute(view, api) {
         }
       }
     }
-    msg = "";
+    msg = fatalMsg;
   };
   const locateStart = async () => {
     if (!st.start || st.startLL) return;

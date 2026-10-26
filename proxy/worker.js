@@ -1,7 +1,7 @@
-// CORS proxy for OpenAI-compatible APIs.
-// The page sends the request here with header X-Target-Base (e.g. https://api.deepseek.com/v1);
-// this worker forwards path + body + Authorization to that base and adds CORS headers.
-// API keys pass through and are never stored or logged.
+// CORS proxy for OpenAI-compatible APIs and other key-based REST APIs that browsers cannot call directly (e.g. SerpApi).
+// The page sends the request here with header X-Target-Base (e.g. https://api.deepseek.com/v1 or https://serpapi.com);
+// this worker forwards path + query string + body + Authorization to that base and adds CORS headers.
+// API keys pass through (header or query string) and are never stored or logged.
 
 const DEFAULT_ORIGINS = "https://clkhoo5211.github.io,https://lapis-bloom-hav8.here.now";
 
@@ -42,8 +42,8 @@ export default {
     const hosts = (env.ALLOWED_TARGET_HOSTS || "").split(",").map((s) => s.trim()).filter(Boolean);
     if (hosts.length && !hosts.includes(base.hostname)) return err(`target host ${base.hostname} not allowed`, 403);
 
-    const path = new URL(req.url).pathname; // e.g. /chat/completions
-    const target = base.href.replace(/\/+$/, "") + path;
+    const reqUrl = new URL(req.url);
+    const target = base.href.replace(/\/+$/, "") + reqUrl.pathname + reqUrl.search; // e.g. /chat/completions, or /search.json?engine=google_maps&q=...
     const headers = new Headers();
     for (const h of ["Authorization", "Content-Type"]) if (req.headers.get(h)) headers.set(h, req.headers.get(h));
 
