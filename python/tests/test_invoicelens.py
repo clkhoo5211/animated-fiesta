@@ -539,3 +539,55 @@ def test_apply_copies_corrects_the_odd_copy():
     f = segs[1]["final_result"]
     assert f["document_number"] == "A261001216" and f["parties"][0]["name"] == "NS TMN LUKUT MAKMUR (DD)"
     assert {c["path"] for c in segs[1]["consensus"]} == {"document_number", "parties.ship_to.name"} and "consensus" not in segs[0]
+
+
+ROWS = [["1", "BL P", "8076 BUTTERLITE", "20.00 UNIT", "4.91", "98.20"], ["2", "AH", "8092 AYAMAS HOT", "6.00 UNIT", "20.86", "125.16"], ["3", "FP7.5", "8104 FRIZZ POPIA", "10.00 UNIT", "4.96", "49.60"],
+        ["4", "RBB", "8436 RAMLY BEEF BURGER", "12.00 UNIT", "7.75", "93.00"], ["5", "ACF", "9150 AYAMAS FRANKFURTERS", "16.00 UNIT", "5.27", "84.32"], ["6", "ACFC", "9153 AYAMAS CRISPY", "6.00 UNIT", "20.10", "120.60"], ["7", "MYFF", "9251 MYDIBEL FRIES", "1.00 CTN", "80.00", "80.00"]]
+COLS = [{"name": "No", "role": "id"}, {"name": "Item Code", "role": "text"}, {"name": "Description", "role": "text"}, {"name": "Qty", "role": "qty"}, {"name": "Price", "role": "unit_price"}, {"name": "Total", "role": "amount"}]
+STREETS = ["LORONG LUKUT MAKMUR 1", "JALAN BUKIT EKA BIZ", "JLN PUSAT DAGANGAN SENDAYAN 3/3", "JALAN NUSARI BAYU 7/1", "PERSIARAN METRO SENDAYAN 1", "JLN SPRINGHILL 9/1"]
+
+
+def _inv(no, date, total, ship, street, rows=ROWS):
+    return {"document_number": no, "document_date": date, "grand_total": total, "tables": [{"columns": COLS, "rows": json.loads(json.dumps(rows)), "row_kinds": ["line"] * len(rows)}],
+            "stamps_and_chops": [{"text": "99 SPEED MART (3420) NS TMN"}],
+            "parties": [{"role": "ship_to", "name": ship, "address": f"NO. 4 & 5 (GF), {street}, 71010 PORT DICKSON"}]}
+
+
+def _seg(n, a, b=None):
+    return {"segment_identifier": f"Page_{n}", "final_result": json.loads(json.dumps(a)), "provider_responses": {"model_a": a, "model_b": b or a}, "cross_verification": {"agreement_rate": 0.9}}
+
+
+def test_batch_fix_date_number_store_and_copy_lines():
+    wrong = json.loads(json.dumps(ROWS))
+    wrong[1] = ["2", "AH", "8092 AYAMAS HOT", "5.00 UNIT", "20.85", "104.25"]
+    wrong[6] = ["7", "MYFF", "9251 MYDIBEL FRIES", "1.00 CTN", "90.00", "90.00"]
+    segs = [
+        _seg(1, _inv("A261001101", "7/10/2026", "652.88", "3420 NS TMN", STREETS[0])),
+        _seg(2, _inv("A261001101", "7/10/2026", "650.88", "3420 NS TMN", STREETS[0], wrong)),
+        _seg(3, _inv("A261001103", "7/10/2026", "650.88", "7420 NS TMN", STREETS[2]), _inv("A261001103", "7/10/2026", "650.88", "3420 NS TMN", STREETS[2])),
+        _seg(4, _inv("A2636612270", "7/10/2026", "650.88", "3420 NS TMN", STREETS[3]), _inv("A261001104", "7/10/2026", "650.88", "3420 NS TMN", STREETS[3])),
+        _seg(5, _inv("A2636612271", "7/10/2026", "650.88", "3420 NS TMN", STREETS[4])),
+        _seg(6, _inv("A261001106", "7/15/2025", "650.88", "3420 NS TMN", STREETS[5])),
+    ]
+    il.apply_copies(segs)
+    f = [s["final_result"] for s in segs]
+    assert f[0]["grand_total"] == "650.88"
+    assert f[1]["tables"][0]["rows"][1][3:] == ["6.00 UNIT", "20.86", "125.16"] and f[1]["tables"][0]["rows"][6][3:] == ["1.00 CTN", "80.00", "80.00"]
+    assert f[2]["parties"][0]["name"] == "3420 NS TMN"
+    assert f[3]["document_number"] == "A261001104"
+    assert "docno" in segs[4]["suspects"]
+    assert f[5]["document_date"] == "7/10/2026"
+
+
+def test_parse_json_repairs_bare_quotes_and_missing_commas():
+    r = il.parse_json('{"a":"FP7.5" (20PKT)","r":[["1","x"] ["2","y"],],"n":null}')
+    assert r["a"] == 'FP7.5" (20PKT)' and r["r"] == [["1", "x"], ["2", "y"]] and r["n"] is None
+
+
+def test_fix_row_shape_merges_columns_and_glues_units():
+    cols = [{"name": n, "role": r} for n, r in [("No", "number"), ("Item Code", "id"), ("Description", "text"), ("Qty", "qty"), ("Price", "unit_price"), ("Discount", "text"), ("Total", "amount")]]
+    short = il.normalize_result({"tables": [{"columns": json.loads(json.dumps(cols)), "rows": [["1", "ABD 8091 DRUMMET", "6.00 UNIT", "20.00", "", "120.00"], ["2", "RBB 8436 BURGER", "12.00 UNIT", "15.00", "", "180.00"]]}]})
+    t = short["tables"][0]
+    assert all(len(r) == len(t["columns"]) for r in t["rows"]) and not any(not c["ok"] and not c.get("warn") for c in il.verify(short)["checks"])
+    long = il.normalize_result({"tables": [{"columns": json.loads(json.dumps(cols)), "rows": [["1", "ABD", "8091 DRUMMET", "6.00", "UNIT", "20.00", "", "120.00"]]}]})
+    assert long["tables"][0]["rows"][0] == ["1", "ABD", "8091 DRUMMET", "6.00 UNIT", "20.00", "", "120.00"]
