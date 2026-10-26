@@ -185,7 +185,7 @@ async function webCase(page, context, found, revPc) {
     },
     geo: (url) => url.includes("/reverse") ? { display_name: "somewhere", address: { postcode: revPc } } : [{ lat: "1.687", lon: "103.523", place_rank: 26, display_name: "Jalan Scientex Utama, Kulai" }],
   });
-  await preset(page);
+  await preset(page, { route: { brand: "99" } });
   await page.goto("/");
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
@@ -222,7 +222,7 @@ test("the printed address goes to the map first; the model is only asked to rewr
     },
     geo: (url) => url.includes("nominatim") ? [{ lat: "1.535", lon: "103.657", place_rank: 30 }] : [],
   });
-  await preset(page);
+  await preset(page, { route: { brand: "99" } });
   await page.goto("/");
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
@@ -281,7 +281,7 @@ test("Google Maps API key (optional): without it nothing is sent to Google; with
         { id: "P2", displayName: { text: "99 Speed Mart" }, formattedAddress: "7, Jalan Sendayan Indah 1, Taman Sendayan Indah, 71900 Labu, Negeri Sembilan", location: { latitude: 2.61234, longitude: 101.81234 } },
       ] }) });
     });
-    await preset(page, { extra: key ? { google_key: key } : {} });
+    await preset(page, { extra: key ? { google_key: key } : {}, route: { brand: "99" } });
     await page.goto("/");
     await page.setInputFiles("#f", FIX("invoice.jpg"));
     await page.click("#go");
@@ -338,7 +338,7 @@ test("Google Places is asked for the store number + name first, then the printed
     queries.push(JSON.parse(route.request().postData()).textQuery);
     return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [{ id: "P9", displayName: { text: "99 Speedmart 1954 (NS) Nusari Biz" }, formattedAddress: "1780, Jalan Nusari Bayu 7/1, Nusari Biz, 71950 Bandar Sri Sendayan, Negeri Sembilan", location: { latitude: 2.66, longitude: 101.87 } }] }) });
   });
-  await preset(page, { extra: { google_key: "g" } });
+  await preset(page, { extra: { google_key: "g" }, route: { brand: "99" } });
   await page.goto("/");
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
@@ -368,4 +368,50 @@ test("with a store number the main map link searches the store name, the address
     return m.mapsLinks({ lat: 0, lng: 0 }, [{ lat: 1, lng: 1, name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN X, 71950 BDR SRI SENDAYAN" }], false);
   });
   expect(decodeURIComponent(links[0])).toContain("99 Speedmart 1954 (NS) Nusari Biz");
+});
+
+
+test("nothing is sent to Google / SerpApi / the model web search until the user has chosen what the deliveries are for", async ({ page, context }) => {
+  const asked = [];
+  await serve(context, {
+    model: ({ text }) => { if (/You can search the web/.test(text)) asked.push("model"); return { json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN NUSARI BAYU 7/1 NUSARI BIZ, 71950 BDR SRI SENDAYAN NEGERI SEMBILAN" }], tables: [] } } },
+    geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }],
+  });
+  await context.route("https://places.googleapis.com/**", (route) => { asked.push("google:" + JSON.parse(route.request().postData()).textQuery); return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [{ id: "P", displayName: { text: "99 Speedmart 1954 (NS) Nusari Biz" }, formattedAddress: "1780, Jalan Nusari Bayu 7/1, 71950 Bandar Sri Sendayan", location: { latitude: 2.66, longitude: 101.87 } }] }) }); });
+  await preset(page, { extra: { google_key: "g" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator("#view")).toContainText("Choose what these deliveries are for", { timeout: 20000 });
+  await expect(page.locator("#view")).toContainText("Street / area only");
+  expect(asked).toEqual([]);
+  await page.check("input[name=rt-brand][value='99']");
+  await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
+  expect(asked[0]).toBe("google:99 Speedmart 1954 (NS) Nusari Biz");
+});
+
+test("'Other / manual input': the typed brand + shop name is the query, the Speedmart store link is not shown, the typed brand is what the place must match", async ({ page, context }) => {
+  const queries = [];
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A1", parties: [{ role: "ship_to", name: "KLANG JAYA", address: "NO 5, JALAN RAYA 1, TAMAN KLANG JAYA, 41000 KLANG SELANGOR" }], tables: [] } }),
+    geo: () => [{ lat: "3.0", lon: "101.4", place_rank: 26 }],
+  });
+  await context.route("https://places.googleapis.com/**", (route) => {
+    queries.push(JSON.parse(route.request().postData()).textQuery);
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [
+      { id: "A", displayName: { text: "Kedai Lain" }, formattedAddress: "Jalan Lain, 41000 Klang", location: { latitude: 3.1, longitude: 101.1 } },
+      { id: "B", displayName: { text: "Tesco Klang Jaya" }, formattedAddress: "5, Jalan Raya 1, Taman Klang Jaya, 41000 Klang, Selangor", location: { latitude: 3.04567, longitude: 101.44567 } } ] }) });
+  });
+  await preset(page, { extra: { google_key: "g" }, route: { brand: "other", brandName: "Tesco" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
+  expect(queries[0]).toBe("Tesco KLANG JAYA 41000");
+  await expect(page.locator("#view")).toContainText("Tesco Klang Jaya, 5, Jalan Raya 1");
+  await expect(page.locator("a:has-text('by address')")).toHaveCount(1);
 });
