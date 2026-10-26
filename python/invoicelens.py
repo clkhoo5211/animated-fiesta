@@ -13,6 +13,7 @@ Outputs in --out: results.json, summary.csv, fields.csv (every value), tables.cs
 """
 from __future__ import annotations
 
+import re
 import argparse, asyncio, base64, csv, hashlib, io, json, os, re, sys, time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -313,6 +314,7 @@ class ModelConfig:
     timeout: float = MODEL_TIMEOUT
     max_tokens: int = 32000
     temperature: float | None = None  # 0 = the same page reads the same way every run
+    tok_param: str = ""               # "" = pick: newer OpenAI models want max_completion_tokens instead of max_tokens
 
     @property
     def enabled(self):
@@ -357,12 +359,28 @@ async def call_model(client: httpx.AsyncClient, c: ModelConfig, text: str, image
             await asyncio.sleep(RETRY_DELAYS[i])
 
 
+_TOK_PARAM: dict = {}  # (base, model) -> the parameter name this endpoint accepted
+
+
 async def _call_model_once(client: httpx.AsyncClient, c: ModelConfig, text: str, images: list[str] | None, max_tokens: int):
+    key = (c.base, c.model)
+    if not c.tok_param:
+        guess = "max_completion_tokens" if re.match(r"(o\d|gpt-5)", c.model or "", re.I) and "openai.com" in (c.base or "") else "max_tokens"
+        c = replace(c, tok_param=_TOK_PARAM.get(key, guess))
     try:
         return await _call_model_raw(client, c, text, images, max_tokens)
-    except HTTPStatusError as e:  # a model/relay that refuses temperature is asked again without it
-        if c.temperature is not None and 400 <= e.status < 500 and "temperature" in str(e).lower():
-            return await _call_model_raw(client, replace(c, temperature=None), text, images, max_tokens)
+    except HTTPStatusError as e:
+        msg = str(e).lower()
+        if 400 <= e.status < 500 and c.type != "anthropic":
+            if c.tok_param == "max_tokens" and "max_completion_tokens" in msg:
+                _TOK_PARAM[key] = "max_completion_tokens"
+                return await _call_model_once(client, replace(c, tok_param="max_completion_tokens"), text, images, max_tokens)
+            if c.tok_param == "max_completion_tokens" and "max_tokens" in msg.replace("max_completion_tokens", ""):
+                _TOK_PARAM[key] = "max_tokens"
+                return await _call_model_once(client, replace(c, tok_param="max_tokens"), text, images, max_tokens)
+        # a model/relay that refuses temperature is asked again without it
+        if c.temperature is not None and 400 <= e.status < 500 and "temperature" in msg:
+            return await _call_model_once(client, replace(c, temperature=None), text, images, max_tokens)
         raise
 
 
@@ -386,7 +404,7 @@ async def _call_model_raw(client: httpx.AsyncClient, c: ModelConfig, text: str, 
             raise RuntimeError(OUT_OF_TOKENS.format(n=max_tokens))
         return _with_usage(parse_json(txt), u.get("input_tokens"), u.get("output_tokens"))
     content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{d}", "detail": "high"}} for d in images]
-    body = {"model": c.model, "max_tokens": max_tokens, **temp, "messages": [{"role": "user", "content": content}]}
+    body = {"model": c.model, c.tok_param or "max_tokens": max_tokens, **temp, "messages": [{"role": "user", "content": content}]}
     if c.json_mode:
         body["response_format"] = {"type": "json_object"}
     r = await client.post(clean_base(c.base) + "/chat/completions", timeout=c.timeout,

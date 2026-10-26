@@ -33,7 +33,7 @@ async function serve(ctx, { model, geo } = {}) {
       const imgParts = Array.isArray(content) ? content.filter((c) => c.type === "image_url" || c.type === "image") : [];
       const images = imgParts.length, imageUrls = imgParts.map((c) => c.image_url?.url || `data:${c.source?.media_type};base64,${c.source?.data}`);
       const doc = (text.match(/<<<DOCUMENT\n([\s\S]*?)\nDOCUMENT>>>/) || [])[1] || null;
-      const call = { model: body.model, images, imageUrls, doc, text, maxTokens: body.max_tokens, temperature: body.temperature, anthropic: url.includes("anthropic") };
+      const call = { model: body.model, images, imageUrls, doc, text, maxTokens: body.max_tokens, completionTokens: body.max_completion_tokens, temperature: body.temperature, anthropic: url.includes("anthropic") };
       calls.push(call);
       const out = model ? await model(call) : { json: {} };
       if (out.delay) await new Promise((r) => setTimeout(r, out.delay));
