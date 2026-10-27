@@ -12,6 +12,13 @@ Status words: **tested** = covered by an automated test against a mocked server;
 | 4 | Fix by pin: Leaflet + OpenStreetMap tiles | nothing | app | tested, tiles live-unverified |
 | nav | Google Maps URLs (search / directions) | nothing | links | live: used by the owner |
 
+## Detected from the billing party (customer observation)
+
+On 99 Speedmart delivery orders the billing party ("Billing Address") is 99 SPEED MART SDN. BHD. (`isSpeedmartName`). When the user has not chosen anything, each stop whose documents are billed to 99 Speedmart is treated as **99 Speedmart** automatically (the route tab says "The billing address says 99 Speedmart for n of m stops"); stops billed to anyone else still wait for the choice below. The user's own choice, when made, applies to all stops. For a stop known to be 99 Speedmart:
+
+- the destination is the 99 Speedmart at that address: searches carry the keyword ("99 Speedmart <address>", and "99 Speedmart <store no> (NS) <name>" or "99 Speedmart (NS) <name>" from the printed branch name);
+- a place is accepted **only if it is a Speed Mart** (plus the same postcode and street/area words); another shop on the same street, or any Speed Mart that only shares the postcode, is refused.
+
 ## What the deliveries are for (required before any paid / keyed lookup)
 
 The route tab asks "What are these deliveries for?": **99 Speedmart** or **Other / manual input** (type the shop or brand name, e.g. Tesco). Until one is chosen, **nothing is sent to Google Places, SerpApi or the model web search** (the tab says so). The choice decides:

@@ -293,7 +293,7 @@ test("Google Maps API key (optional): without it nothing is sent to Google; with
   await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
   expect(places).toHaveLength(1);
   expect(places[0].key).toBe("g-test-key");
-  expect(places[0].body.textQuery).toBe(ADDR + ", Malaysia");
+  expect(places[0].body.textQuery).toBe("99 Speedmart (NS) Sendayan Indah"); // the (NS) name printed in the address, with the 99 Speedmart keyword
   await expect(page.locator("#view")).toContainText("99 Speed Mart, 7, Jalan Sendayan Indah 1");
 });
 
@@ -324,7 +324,7 @@ test("storeQuery turns the printed branch name into the name Google lists the sh
   expect(r[0]).toBe("99 Speedmart 1954 (NS) Nusari Biz");
   expect(r[1]).toBe("99 Speedmart 1988 (NS) Taman Gadong Indah");
   expect(r[2]).toBe("99 Speedmart 3036 (NS) Taman Mikamas");
-  expect(r[3]).toBe("");
+  expect(r[3]).toBe("99 Speedmart (NS) Tiara Sendayan"); // no store number printed: the (NS) name form
   expect(r[4]).toBe("");
 });
 
@@ -414,4 +414,47 @@ test("'Other / manual input': the typed brand + shop name is the query, the Spee
   expect(queries[0]).toBe("Tesco KLANG JAYA 41000");
   await expect(page.locator("#view")).toContainText("Tesco Klang Jaya, 5, Jalan Raya 1");
   await expect(page.locator("a:has-text('by address')")).toHaveCount(1);
+});
+
+
+test("billing address '99 SPEED MART SDN. BHD.' = 99 Speedmart: looked up without asking, with the keyword, and only a Speed Mart is accepted; stops billed to someone else still wait for a choice", async ({ page, context }) => {
+  const queries = [];
+  let n = 0;
+  await serve(context, {
+    model: () => ({ json: { document_type: "delivery_order", document_number: "A" + (++n), parties: [
+      { role: "bill_to", name: n === 1 ? "99 SPEED MART SDN. BHD." : "OTHER TRADING SDN BHD" },
+      { role: "ship_to", name: "NS TMN VISTA JAYA (DD)", address: n === 1 ? "NO. 1, JLN VISTA JAYA, TMN VISTA JAYA, 71010 PORT DICKSON" : "NO. 9, JLN LAIN 2, TMN LAIN, 71000 PORT DICKSON" } ], tables: [] } }),
+    geo: () => [{ lat: "2.6", lon: "101.8", place_rank: 26 }],
+  });
+  await context.route("https://places.googleapis.com/**", (route) => {
+    queries.push(JSON.parse(route.request().postData()).textQuery);
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ places: [
+      { id: "R", displayName: { text: "Restoran Vista Jaya" }, formattedAddress: "1, Jalan Vista Jaya, Taman Vista Jaya, 71010 Port Dickson", location: { latitude: 2.1, longitude: 101.1 } },
+      { id: "S", displayName: { text: "99 Speedmart 2479 (NS) Taman Vista Jaya" }, formattedAddress: "1, Jalan Vista Jaya, Taman Vista Jaya, 71010 Port Dickson", location: { latitude: 2.57431, longitude: 101.85862 } } ] }) });
+  });
+  await preset(page, { extra: { google_key: "g" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", [FIX("invoice.jpg"), FIX("rotated.jpg")]);
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await expect(page.locator(".badge.ok")).toContainText("Located by web search", { timeout: 20000 });
+  await expect(page.locator("#view")).toContainText("billing address says 99 Speedmart for 1 of 2 stops");
+  await expect(page.locator("#view")).toContainText("Choose what these deliveries are for");
+  expect(queries[0]).toBe("99 Speedmart (NS) Taman Vista Jaya");
+  await expect(page.locator("#view")).toContainText("99 Speedmart 2479 (NS) Taman Vista Jaya");
+  expect(queries.every((q) => /Vista Jaya/i.test(q))).toBe(true); // the second stop (other billing party) was not looked up
+});
+
+test("a confirmed 99 Speedmart stop refuses a place that is not a Speed Mart even with matching street words", async () => {
+  const { spawnSync } = require("node:child_process");
+  const out = spawnSync("node", ["--input-type=module", "-e", `
+    import * as m from "./tools/maps-locate.mjs";
+    const wanted = "NO. 1, JLN VISTA JAYA, TMN VISTA JAYA, 71010 PORT DICKSON";
+    const found = { name: "Restoran Vista Jaya", address: "1, Jalan Vista Jaya, Taman Vista Jaya, 71010 Port Dickson", lat: 2.5, lng: 101.8 };
+    console.log(JSON.stringify({ is99: m.judge(wanted, found, { mode: "99", name: "" }), other: m.judge(wanted, found, { mode: "other", name: "" }) }));`], { cwd: require("node:path").resolve(__dirname, ".."), encoding: "utf8" }).stdout;
+  const r = JSON.parse(out);
+  expect(r.is99.ok).toBe(false);
+  expect(r.is99.reason).toContain("not a");
+  expect(r.other.ok).toBe(true); // an unknown brand only needs the street words
 });
