@@ -1026,20 +1026,22 @@ def fix_delivery_block(r):
             continue
         n0, a0 = str(p.get("name") or "").strip(), str(p.get("address") or "").strip()
         n, a = n0, a0
+        # name stays as read (the copies of a document vote on it); only the address is completed
         if re.fullmatch(r"\d{3,4}", n):
-            a, n = f"{n} {a}".strip(), ""
+            if not a.startswith(n):
+                a = f"{n} {a}".strip()
         elif _BRANCH_LINE.match(n) and n.upper() not in a.upper():
-            a, n = f"{n} {a}".strip(), ""
+            a = f"{n} {a}".strip()
         m = re.match(r"(?:NS|RS)\s+(.+?)\s*\(\s*[A-Za-z0-9]{1,2}\s*\)", a, re.I)
         if m:
             no = _stamp_no_for(r, m.group(1))
             if no:
                 a = f"{no} {a}"
-        if (n, a) == (n0, a0):
+        if a == a0:
             out.append(p)
             continue
         changed = True
-        out.append({**p, "name": n or None, "address": a})
+        out.append({**p, "address": a})
     return {**r, "parties": out} if changed else r
 
 

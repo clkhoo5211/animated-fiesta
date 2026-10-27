@@ -428,7 +428,7 @@ export function renderRoute(view, api) {
     // ---- stops: one flat list, one block per stop (name, documents, address | location state | actions)
     const rowHtml = (s, i) => `<li class="rt-row${s.skip ? " off" : ""}" data-key="${esc(s.key)}">
         <input type="checkbox" data-skip="${i}" ${s.skip ? "" : "checked"} aria-label="${esc(t("rt_use"))}">
-        <div class="rt-info"><div class="rt-name">${s.name ? `<b>${esc(s.name)}</b>` : ""}${s.refs.length ? `<span class="rt-docs">${esc(s.refs.join(", "))}</span>` : ""}</div>
+        <div class="rt-info"><div class="rt-name">${s.name && !normAddr(s.address).startsWith(normAddr(s.name)) ? `<b>${esc(s.name)}</b>` : ""}${s.refs.length ? `<span class="rt-docs">${esc(s.refs.join(", "))}</span>` : ""}</div>
           <div class="rt-addr">${esc(s.address)}</div>${s.variants ? `<span class="rt-note" title="${esc(s.variants.join("\n"))}">${t("rt_merged", { n: s.variants.length + 1 })}</span>` : ""}</div>
         <div class="rt-loc">${status(s)}${s.suspect ? `<span class="badge warn" title="${esc(t("rt_check_d"))}">${t("rt_check")}</span>` : ""}</div>
         <div class="rt-acts"><button class="lnk" data-edit="${i}" type="button">${t("rt_edit")}</button><button class="lnk" data-del="${i}" type="button" title="${esc(t("rt_del"))}" aria-label="${esc(t("rt_del"))}">&times;</button></div>

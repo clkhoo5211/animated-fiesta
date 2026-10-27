@@ -713,11 +713,12 @@ function fixDeliveryBlock(r){
   if(!r||typeof r!=="object"||!Array.isArray(r.parties))return r;let changed=false;
   const parties=r.parties.map(p=>{
     if(!p||p.role!=="ship_to")return p;const n0=String(p.name??"").trim(),a0=String(p.address??"").trim();if(!n0&&!a0)return p;let n=n0,a=a0;
-    if(/^\d{3,4}$/.test(n)){a=`${n} ${a}`.trim();n=""}
-    else if(BRANCH_LINE.test(n)&&!a.toUpperCase().includes(n.toUpperCase())){a=`${n} ${a}`.trim();n=""}
+    // name stays as read (the copies of a document vote on it); only the address is completed
+    if(/^\d{3,4}$/.test(n)){if(!a.startsWith(n))a=`${n} ${a}`.trim()}
+    else if(BRANCH_LINE.test(n)&&!a.toUpperCase().includes(n.toUpperCase())){a=`${n} ${a}`.trim()}
     const m=/^(?:NS|RS)\s+(.+?)\s*\(\s*[A-Za-z0-9]{1,2}\s*\)/i.exec(a);
     if(m){const no=stampNoFor(r,m[1]);if(no)a=`${no} ${a}`}
-    if(n===n0&&a===a0)return p;changed=true;return{...p,name:n||null,address:a}});
+    if(a===a0)return p;changed=true;return{...p,address:a}});
   return changed?{...r,parties}:r}
 function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;r=fixDeliveryBlock(r);
   if(Array.isArray(r.tables))r.tables=r.tables.filter(t=>t&&Array.isArray(t.columns)&&t.columns.length&&
