@@ -337,7 +337,7 @@ section.l0,section.l1,section.l2,section.l3,section.l4,section.l5{stroke:none;fi
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import {fullAddr,judgePlace,brandRegex,placeQueries,renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,locatePrompt,similarity} from "./route.js";
+import {fullAddr,judgePlace,placeRank,brandRegex,placeQueries,renderRoute,ROUTE_REVIEW_PROMPT,ADDRESS_PROMPT,ADDRESS_BATCH_PROMPT,locatePrompt,similarity} from "./route.js";
 const I18N={
 en:{
  meta_desc:"In-browser document extraction: multi-model extraction, arithmetic checks, cross-verification",
@@ -1250,8 +1250,10 @@ function renderRouteTab(){
     for(const q of queries){
       const r=await fetch("https://places.googleapis.com/v1/places:searchText",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gk,"X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location"},body:JSON.stringify({textQuery:q,regionCode:"MY",languageCode:"en",maxResultCount:3})});
       const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||`HTTP ${r.status}`);
+      const hits=[];
       for(const p of j.places||[]){const c={name:p.displayName?.text||"",address:p.formattedAddress||"",lat:p.location?.latitude,lng:p.location?.longitude},v=judgePlace(addr,c,brandRegex(brand),brand?.mode==="99");
-        if(v.ok)return{ok:true,...c,place:c.name,found_address:c.address,url:`https://www.google.com/maps/place/?q=place_id:${p.id}`,confidence:v.confidence,reason:v.reason};why=v.reason}}
+        if(v.ok)hits.push({rank:placeRank(v),res:{ok:true,...c,place:c.name,found_address:c.address,url:`https://www.google.com/maps/place/?q=place_id:${p.id}`,confidence:v.confidence,reason:v.reason}});else why=v.reason}
+      if(hits.length)return hits.sort((a,b)=>a.rank-b.rank)[0].res}
     return{ok:false,reason:why}}:null;
   // optional SerpApi lookup (Google Maps engine): SerpApi cannot be called from a web page, so it goes through the CORS proxy (X-Target-Base)
   const sk=S.serpapi_key,sbase=(S.serp_proxy||S.proxy||"").replace(/\/+$/,"");
@@ -1265,8 +1267,10 @@ function renderRouteTab(){
     const queries=placeQueries(brand,name,addr);let why="no result";
     for(const q of queries){
       const j=await serpCall("/search.json",{engine:"google_maps",type:"search",q,hl:"en",gl:"my",...(near?{ll:`@${near.lat.toFixed(5)},${near.lng.toFixed(5)},16z`}:{})});
+      const hits=[];
       for(const p of [...(j.place_results?[j.place_results]:[]),...(j.local_results||[])].slice(0,5)){const c={name:p.title||"",address:p.address||"",lat:p.gps_coordinates?.latitude,lng:p.gps_coordinates?.longitude},v=judgePlace(addr,c,brandRegex(brand),brand?.mode==="99");
-        if(v.ok)return{ok:true,...c,place:c.name,found_address:c.address,url:p.place_id?`https://www.google.com/maps/place/?q=place_id:${p.place_id}`:(p.link||""),confidence:v.confidence,reason:v.reason};why=v.reason}}
+        if(v.ok)hits.push({rank:placeRank(v),res:{ok:true,...c,place:c.name,found_address:c.address,url:p.place_id?`https://www.google.com/maps/place/?q=place_id:${p.place_id}`:(p.link||""),confidence:v.confidence,reason:v.reason}});else why=v.reason}
+      if(hits.length)return hits.sort((a,b)=>a.rank-b.rank)[0].res}
     return{ok:false,reason:why}}:null;
   // the services in the order the setting asks; a service that fails with an error is skipped when another one can still answer
   const order=S.locate_service==="google"?[googleLocate]:S.locate_service==="serpapi"?[serpLocate]:[googleLocate,serpLocate],provs=order.filter(Boolean);
