@@ -7,7 +7,7 @@
 // Speed Mart, street / area words: the same check as the app), prints the candidates and writes speedmart-places.json (all of them) that a branch
 // directory for the app could be built from. Attribution: Overture Maps Foundation data, see overturemaps.org for the license of the release you use.
 import fs from "node:fs";
-import { judgePlace, placeRank, postcodeOf, storeQuery } from "../site/route.js";
+import { judgePlace, brandRegex, brandOf, placeRank, postcodeOf, storeQuery } from "../site/route.js";
 
 const [geoFile, addrFile] = process.argv.slice(2);
 if (!geoFile || !addrFile) { console.error("usage: node tools/overture-bench.mjs places.geojson addresses.json"); process.exit(1) }
@@ -36,7 +36,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
   let withPc = 0, accepted = 0;
   for (const [i, it] of addrs.entries()) {
     const a = it.address, pc = postcodeOf(a);
-    const cands = places.map(p => ({ p, v: judgePlace(a, { name: p.name, address: p.address, lat: p.lat, lng: p.lng }, /speed\s*-?\s*mart/i, true) }));
+    const cands = places.map(p => ({ p, v: judgePlace(a, { name: p.name, address: p.address, lat: p.lat, lng: p.lng }, brandRegex(brandOf("99")), true) }));
     const same = cands.filter(c => pc && c.p.postcode && String(c.p.postcode).replace(/\s/g, "") === pc), ok = cands.filter(c => c.v.ok).sort((x, y) => placeRank(x.v) - placeRank(y.v));
     withPc += same.length > 0; accepted += ok.length > 0;
     out.push(`## ${i + 1}. ${a}\n\n- store name asked for: \`${storeQuery(it.name, a) || "(none)"}\``);

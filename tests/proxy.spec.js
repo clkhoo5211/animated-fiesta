@@ -107,3 +107,17 @@ test("judgePlace: the store number in the listing name settles it (equal accepts
   `], { cwd: ROOT, encoding: "utf8" }).stdout);
   expect(r).toEqual({ no: ["1577", "3420", ""], lots: ["1075", "1076"], right: [true, 0], other: false, wrongNo: false });
 });
+
+test("judgePlace: UU Speedmart is not 99 Speedmart; a unit before '(GF)' counts (Nusari Biz 1780 vs 186, Springhill 2 43A vs 8 & 9)", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { judgePlace, lotNumbers, brandRegex, brandOf } from "./site/route.js";
+    const re = brandRegex(brandOf("99"));
+    const uu = { name: "UU Speedmart", address: "Jalan Waterfront 5, Port Dickson, 71000", lat: 2.52, lng: 101.8 };
+    const nine = { name: "99 Speedmart", address: "Jalan Waterfront 5, Port Dickson, 71000", lat: 2.52, lng: 101.8 };
+    const w = "1687 NS TMN RIA (DD) NO: 5 & 6 (G), BT 2 1/2 JLN SEREMBAN, TMN RIA 71000 PORT DICKSON";
+    const nus = "1954 NS NUSARI BIZ (DD) 1780 (GF), JLN NUSARI BAYU 7/1 NUSARI BIZ, 71950 BDR SRI SENDAYAN";
+    const other = { name: "99 Speedmart", address: "Ground floor, No: 186, Jalan Pusat Dagangan Sendayan 3/3, Labu, 71950", lat: 2.68, lng: 101.86 };
+    console.log(JSON.stringify({ lots: [[...lotNumbers("1954 NS NUSARI BIZ (DD) 1780 (GF), JLN X")], [...lotNumbers("NS SPRINGHILL 2 (DD) 43A (GF), JLN")]], uu: judgePlace(w, uu, re, true).ok, nine: judgePlace(w, nine, re, true).ok, nus: judgePlace(nus, other, re, true).ok }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual({ lots: [["1780"], ["43"]], uu: false, nine: true, nus: false });
+});
