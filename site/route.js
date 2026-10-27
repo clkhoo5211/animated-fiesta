@@ -504,7 +504,7 @@ export function renderRoute(view, api) {
     stopsHtml += S.length ? `<ul class="rt-list">${S.map((s, i) => (st.onlyFix && placed(s) && !s.suspect) ? "" : rowHtml(s, i)).join("")}</ul>` : `<p class="sub">${t("rt_none")}</p>`;
 
     // ---- a schematic map (no tiles, no network): where the stops are, how the lorries run
-    const mapHtml = () => {
+    const svgMap = () => {
       const pts = S.filter(s => s.lat != null && !s.fail), start = st.startLL;
       if (!pts.length) return "";
       const all = [...pts.map(p => [p.lat, p.lng]), ...(start ? [[start.lat, start.lng]] : [])];
@@ -524,8 +524,33 @@ export function renderRoute(view, api) {
       return `<figure class="rt-fig"><svg class="rt-map" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t("rt_map_alt", { n: pts.length }))}">${g}</svg><figcaption><span class="lg ex"></span>${t("rt_leg_exact")}<span class="lg st"></span>${t("rt_leg_street")}<span class="lg sq"></span>${t("rt_leg_start")}</figcaption></figure>`;
     };
 
+    // the live map of every located stop (OpenStreetMap tiles through Leaflet); the drawn schematic below is the fallback when Leaflet cannot load
+    const mapHtml = () => { const f = svgMap(); return f ? f.replace(/<svg[\s\S]*<\/svg>/, `<div class="rt-lmap" role="img" aria-label="${esc(t("rt_map_alt", { n: S.filter(s => s.lat != null && !s.fail).length }))}"></div>`) : "" };
+    const initRouteMap = async host => {
+      let L; try { L = await leaflet() } catch { host.innerHTML = (svgMap().match(/<svg[\s\S]*<\/svg>/) || [""])[0]; return }
+      if (!host.isConnected) return;
+      const pts = S.filter(s => s.lat != null && !s.fail), start = st.startLL, map = L.map(host, { scrollWheelZoom: false });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+      const all = [...pts.map(p => [p.lat, p.lng]), ...(start ? [[start.lat, start.lng]] : [])], mks = {};
+      if (plan) plan.routes.forEach((rt, i) => L.polyline([...(start ? [start] : []), ...rt.stops, ...(st.back && start ? [start] : [])].map(p => [p.lat, p.lng]), { className: "rt-ll l" + (i % 6) }).addTo(map));
+      const seq = new Map(); if (plan) plan.routes.forEach(rt => rt.stops.forEach((s, k) => seq.set(s.key, k + 1)));
+      pts.forEach(s => {
+        const mk = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: "mk " + (precise(s) ? "ex" : "st"), html: seq.get(s.key) || "", iconSize: [24, 24], iconAnchor: [12, 12] }), keyboard: false }).addTo(map);
+        mk.bindTooltip(String(s.name || s.address).slice(0, 80));
+        mk.on("click", () => { const row = view.querySelector(`.rt-row[data-key="${CSS.escape(s.key)}"]`); if (row) { row.scrollIntoView({ block: "center" }); row.classList.add("hl"); setTimeout(() => row.classList.remove("hl"), 1600) } });
+        mks[s.key] = mk;
+      });
+      if (start) L.marker([start.lat, start.lng], { icon: L.divIcon({ className: "mk start", html: "", iconSize: [18, 18], iconAnchor: [9, 9] }), keyboard: false }).addTo(map);
+      map.fitBounds(L.latLngBounds(all), { padding: [28, 28], maxZoom: 16 });
+      view.querySelectorAll(".rt-row").forEach(row => {
+        row.onmouseenter = () => mks[row.dataset.key]?.getElement()?.classList.add("hl");
+        row.onmouseleave = () => mks[row.dataset.key]?.getElement()?.classList.remove("hl");
+      });
+      setTimeout(() => map.invalidateSize(), 0);
+    };
+
     // ---- side panel: setup, plan, result
-    let h = `<div class="rt-main">${stopsHtml}</div><aside class="rt-side">
+    let h = `<div class="rt-main">${mapHtml()}${stopsHtml}</div><aside class="rt-side">
       <details class="how"><summary>${t("rt_how_h")}</summary><p class="sub">${t("rt_intro")}</p><p class="sub">${t("rt_how")}</p></details>
       <div class="rt-brand"><div class="rt-lab">${t("rt_brand_q")}</div><div class="rt-radios"><label class="chk"><input type="radio" name="rt-brand" value="99" ${st.brand === "99" ? "checked" : ""}> ${t("rt_brand_99")}</label><label class="chk"><input type="radio" name="rt-brand" value="other" ${st.brand === "other" ? "checked" : ""}> ${t("rt_brand_other")}</label></div>${st.brand === "other" ? `<input id="rt-brandname" value="${esc(st.brandName)}" placeholder="${esc(t("rt_brand_ph"))}">` : ""}${(placeLocate || locateMany) && !st.brand ? `${S.some(s => isSpeedmartName(s.bill)) ? `<p class="rt-hint">${t("rt_brand_auto", { n: S.filter(s => isSpeedmartName(s.bill)).length, m: S.length })}</p>` : ""}${S.some(s => !isSpeedmartName(s.bill)) ? `<p class="rt-hint rt-need">${t("rt_brand_wait")}</p>` : ""}` : ""}</div>
       <h3 class="rt-title">${t("rt_setup")}</h3>
@@ -536,7 +561,7 @@ export function renderRoute(view, api) {
         ${[["rt-lorries", "rt_lorries", `type="number" min="1" max="50" value="${st.lorries}"`], ["rt-service", "rt_service", `type="number" min="0" max="240" value="${st.service}"`], ["rt-max", "rt_maxstops", `type="number" min="0" value="${st.maxStops}"`], ["rt-cc", "rt_cc", `value="${esc(st.cc)}" maxlength="20"`]].map(([id, k, at]) => fld(id, t(k), at).replace('class="f"', 'class="rt-f"')).join("")}
       </div>
       <div class="rt-plan"><button class="btn pri" id="rt-plan" ${need ? "disabled" : ""}>${t("rt_plan")}</button>${plan ? `<button class="lnk" id="rt-csv">${t("rt_csv")}</button>${askModel ? `<button class="lnk" id="rt-ai">${t("rt_ai")}</button>` : ""}` : ""}<span class="rt-msg" id="rt-msg">${esc(msg || need)}</span></div>
-      ${mapHtml()}`;
+      `;
     if (plan) {
       h += `<h3 class="rt-title">${t("rt_result", { k: plan.routes.length, km: plan.km.toFixed(1), h: (plan.min / 60).toFixed(1) })}</h3><p class="sub">${t(plan.source === "osrm" ? "rt_src_osrm" : "rt_src_est")}${plan.unplaced.length ? ", " + t("rt_unplaced", { n: plan.unplaced.length }) : ""}</p>`;
       if (plan.far.size) h += `<div class="rt-warn"><b>${t("rt_far_h", { n: plan.far.size })}</b><p class="sub">${t("rt_far_d")}</p><ul>${[...plan.far].map(([k, km]) => { const s = ok_(k); return `<li>${esc(s ? (s.name ? s.name + " — " : "") + s.address : k)} <span class="sub">(${t("rt_far_km", { km: km.toFixed(0) })}${s?.refs?.length ? ", " + esc(s.refs.join(", ")) : ""})</span></li>` }).join("")}</ul></div>`;
@@ -571,6 +596,7 @@ export function renderRoute(view, api) {
       } catch { msg = t("rt_import_bad"); draw() }
     });
     view.querySelectorAll(".rt-row").forEach(li => { const on = v => view.querySelector(`.rt-dot[data-key="${CSS.escape(li.dataset.key)}"]`)?.classList.toggle("hl", v); li.addEventListener("mouseenter", () => on(true)); li.addEventListener("mouseleave", () => on(false)) });
+    const mapHost = view.querySelector(".rt-lmap"); if (mapHost) initRouteMap(mapHost);
     const pinHost = view.querySelector(".rt-pin"); if (pinHost) initPin(pinHost, S[+pinHost.dataset.pin]);
     view.querySelector("[data-pin-save]")?.addEventListener("click", () => view.querySelector("[data-ll]")?.dispatchEvent(new Event("change")));
     view.querySelector("[data-pin-cancel]")?.addEventListener("click", () => { editing = null; draft = null; draw() });
