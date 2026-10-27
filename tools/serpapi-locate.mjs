@@ -8,7 +8,7 @@
 // words agree (the same check as the app). Free plan: 250 searches a month, 50 an hour: every query is one search, cached in .serpapi-cache.json.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { judgePlace, placeQueries, brandOf, brandRegex } from "../site/route.js";
+import { judgePlace, placeRank, placeQueries, brandOf, brandRegex } from "../site/route.js";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -43,11 +43,13 @@ export async function locateWithSerp(items, { brand: args99 = "99", key, delay =
     let row = { ...(typeof it === "object" && it.key ? { key: it.key } : {}), address, ok: false, reason: "no result" };
     for (const q of serpQueries(address, name, brand)) {
       const j = await call({ q, ...(near ? { ll: `@${(+near.lat).toFixed(5)},${(+near.lng).toFixed(5)},16z` } : {}) });
+      const hits = [];
       for (const c of serpCandidates(j)) {
         const v = judgePlace(address, c, brandRegex(brand), brand.mode === "99");
-        if (v.ok) { row = { ...row, ok: true, lat: c.lat, lng: c.lng, place: c.name, found_address: c.address, url: c.place_id ? `https://www.google.com/maps/place/?q=place_id:${c.place_id}` : c.link, confidence: v.confidence, reason: v.reason, query: q }; break }
-        row.reason = v.reason;
+        if (v.ok) hits.push({ rank: placeRank(v), row: { ...row, ok: true, lat: c.lat, lng: c.lng, place: c.name, found_address: c.address, url: c.place_id ? `https://www.google.com/maps/place/?q=place_id:${c.place_id}` : c.link, confidence: v.confidence, reason: v.reason, query: q } });
+        else row.reason = v.reason;
       }
+      if (hits.length) row = hits.sort((a, b) => a.rank - b.rank)[0].row;
       if (row.ok) break;
     }
     out.push(row); onResult?.(row, i, items.length);

@@ -94,3 +94,16 @@ test("judgePlace: a different unit number is a different shop even when street a
   `], { cwd: ROOT, encoding: "utf8" }).stdout);
   expect(r).toEqual({ lots: ["20", "21"], other: false, same: true, nolot: true });
 });
+
+test("judgePlace: the store number in the listing name settles it (equal accepts, different rejects); PT lots count; placeRank puts the store-number match first", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { judgePlace, placeRank, storeNoOf, lotNumbers, brandRegex, brandOf } from "./site/route.js";
+    const re = brandRegex(brandOf("99")), want = "1577 NS TANAH MERAH (DD) PT 1075 & PT 1076, JLN MELUR 1, TMN JIMAH JAYA, TANAH MERAH, SITE C, 71960 PORT DICKSON";
+    const right = { name: "99 Speedmart 1577 Tanah Merah", address: "PT 1075 & PT 1976 (Ground Floor), Jalan Melur 1 Taman Jimah Jaya, Jimah, 71960", lat: 2.6, lng: 101.8 };
+    const other = { name: "99 Speedmart", address: "No: 23 & 24, Jalan Bayan Indah 1, Taman Bayan Indah, Jimah, 71960", lat: 2.64, lng: 101.74 };
+    const wrongNo = { name: "99 Speedmart 1578 Jimah", address: "Jalan Melur 1, Jimah, 71960", lat: 2.6, lng: 101.8 };
+    const a = judgePlace(want, right, re, true), b = judgePlace(want, other, re, true), c = judgePlace(want, wrongNo, re, true);
+    console.log(JSON.stringify({ no: [storeNoOf(want), storeNoOf("NS X (DD) 3420 NS Y (DD)"), storeNoOf("NS X (DD) NO 5")], lots: [...lotNumbers("PT 1075 & PT 1076")], right: [a.ok, placeRank(a)], other: b.ok, wrongNo: c.ok }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual({ no: ["1577", "3420", ""], lots: ["1075", "1076"], right: [true, 0], other: false, wrongNo: false });
+});

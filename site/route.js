@@ -52,9 +52,13 @@ const STOPWORDS = new Set(["jalan", "taman", "pusat", "bandar", "persiaran", "lo
 /** distinctive words (street / area names) of an address, to compare it with the address a place service returns */
 export const addrWords = a => [...new Set(String(a ?? "").toLowerCase().replace(/\(.*?\)/g, " ").split(/[^a-z]+/).filter(w => w.length >= 5 && !STOPWORDS.has(w)))];
 /** is the place a service found the delivery address? found: {name, address, lat, lng}. Same postcode, and the place is a Speed Mart or the street / area words agree. */
+/** the store number printed before the branch name: "1577 NS TANAH MERAH (DD)" or "NS X (DD) 3420 NS X" -> "1577" / "3420" */
+export function storeNoOf(a) { return /(?:^|[\s,(])(\d{3,4})\)?\s+(?:NS|RS)\b/.exec(String(a || ""))?.[1] || "" }
+/** order for several accepted places: the store number match first, then high before medium */
+export const placeRank = v => (/^store number/.test(v.reason || "") ? 0 : v.confidence === "high" ? 1 : 2);
 /** the lot / unit numbers an address states after "No": "NO: 8 & 9 (GF)" -> {8, 9}; "No. 20-G & 21-G" -> {20, 21} */
 export function lotNumbers(a) {
-  const out = new Set(), re = /\bNO\s*[.:]?\s*(\d+(?:-?[A-Z](?![A-Z]))?(?:\s*(?:&|,|-|AND)\s*\d+(?:-?[A-Z](?![A-Z]))?)*)/gi;
+  const out = new Set(), re = /\b(?:NO|PT|LOT)\s*[.:]?\s*(\d+(?:-?[A-Z](?![A-Z]))?(?:\s*(?:&|,|-|AND)\s*\d+(?:-?[A-Z](?![A-Z]))?)*)/gi;
   for (const m of String(a || "").matchAll(re)) for (const n of m[1].match(/\d+/g) || []) out.add(String(+n));
   return out;
 }
@@ -65,11 +69,14 @@ export function judgePlace(wanted, found, brandRe = /speed\s*mart/i, requireBran
   if (wantPc && foundPc && wantPc !== foundPc) return { ok: false, reason: `postcode ${foundPc} is not ${wantPc}` };
   if (wantPc && !foundPc) return { ok: false, reason: "place address has no postcode" };
   const brand = !!brandRe && (brandRe.test(found.name || "") || brandRe.test(found.address || ""));
+  // when the documents are known to be for one brand (99 Speedmart by the billing party or the user's choice) the place MUST be that brand: another shop on the same street is not the destination
+  if (requireBrand && brandRe && !brand) return { ok: false, reason: `not a ${brandRe === undefined ? "Speed Mart" : "match for the brand"}: ${found.name || "?"}` };
+  // the printed store number ("1577 NS TANAH MERAH") against the number in the listing's name ("99 Speedmart 1577 Tanah Merah"): equal settles it, different rejects
+  const wn = storeNoOf(wanted), fn = /\b(\d{3,4})\b/.exec(found.name || "")?.[1];
+  if (wn && fn) return wn === fn ? { ok: true, confidence: "high", reason: `store number ${fn}, postcode ${foundPc}` } : { ok: false, reason: `different store number: ${fn} is not ${wn}` };
   // both addresses name a lot / unit ("NO: 8 & 9", "No. 31") and the numbers differ: a neighbouring branch or shop, however well the street words agree
   const lw = lotNumbers(wanted), lf = lotNumbers(found.address);
   if (lw.size && lf.size && ![...lw].some(n => lf.has(n))) return { ok: false, reason: `different unit: ${[...lf].join(" & ")} is not ${[...lw].join(" & ")}` };
-  // when the documents are known to be for one brand (99 Speedmart by the billing party or the user's choice) the place MUST be that brand: another shop on the same street is not the destination
-  if (requireBrand && brandRe && !brand) return { ok: false, reason: `not a ${brandRe === undefined ? "Speed Mart" : "match for the brand"}: ${found.name || "?"}` };
   const fw = new Set(addrWords(found.address + " " + (found.name || ""))), common = addrWords(wanted).filter(w => fw.has(w));
   if (brand && common.length >= 1) return { ok: true, confidence: "high", reason: `brand, postcode ${foundPc}, words: ${common.join(" ")}` };
   if (common.length >= 2) return { ok: true, confidence: "medium", reason: `postcode ${foundPc}, words: ${common.join(" ")}` };
