@@ -93,6 +93,8 @@ const short = h => h ? `${(h.display_name || "").split(",").slice(0, 3).join(","
 
 const full = a => String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
 const out = [];
+// an "exact" hit whose pin is also given to another address is the same shop returned for several branches: it is counted separately
+const pins = {}, pinOf = (name, i, lat, lng) => { if (lat != null && lng != null) (pins[name] ||= []).push({ i, k: `${(+lat).toFixed(4)},${(+lng).toFixed(4)}` }) };
 const score = Object.fromEntries(Object.keys(VARIANTS).map(k => [k, 0]));
 out.push(`# Geocoding bench, ${addrs.length} addresses\n`);
 for (const [i, item] of addrs.entries()) {
@@ -104,7 +106,7 @@ for (const [i, item] of addrs.entries()) {
     if (DRY) { out.push(`- ${name}: ${qs.map(q => "`" + q + "`").join(" | ")}`); continue }
     let best = null, used = "";
     for (const q of qs) { const hs = await nominatim(q).catch(e => { out.push(`  - error: ${e.message}`); return [] }); const h = hs.find(x => !pc || !x.address?.postcode || String(x.address.postcode).replace(/\s/g, "") === pc) || null; if (h && (!best || (exact(h) && !exact(best)))) { best = h; used = q } if (exact(best)) break }
-    if (exact(best)) score[name]++;
+    if (exact(best)) { score[name]++; pinOf(name, i, best.lat, best.lon) }
     out.push(`- ${name}: ${exact(best) ? "EXACT" : best ? "area only" : "none"}: ${short(best)}${best ? ` (${Number(best.lat).toFixed(5)}, ${Number(best.lon).toFixed(5)}) via \`${used}\`` : ""}`);
   }
   if (!DRY) {
@@ -115,7 +117,7 @@ for (const [i, item] of addrs.entries()) {
       const h = rows.find(x => x.lat != null && (!pc || !x.pc || String(x.pc).replace(/\s/g, "") === pc)) || null;
       if (h && (!best || (h.exact && !best.exact))) { best = h; used = q } if (best?.exact) break;
     }
-    score.photon = (score.photon || 0) + (best?.exact ? 1 : 0);
+    score.photon = (score.photon || 0) + (best?.exact ? 1 : 0); if (best?.exact) pinOf("photon", i, best.lat, best.lng);
     out.push(`- PHOTON: ${best?.exact ? "EXACT" : best ? "area only" : "none"}: ${best ? `${best.text} [${best.type}] (${Number(best.lat).toFixed(5)}, ${Number(best.lng).toFixed(5)}) via \`${used}\`` : "no hit"}`);
   }
   if (!DRY) for (const name of Object.keys(KEYS).filter(n => KEYS[n])) {
@@ -125,14 +127,18 @@ for (const [i, item] of addrs.entries()) {
       const h = rows.find(x => x.lat != null && (!pc || !x.pc || String(x.pc).replace(/\s/g, "") === pc)) || null;
       if (h && (!best || (h.exact && !best.exact))) { best = h; used = q } if (best?.exact) break;
     }
-    score[name] = (score[name] || 0) + (best?.exact ? 1 : 0);
+    score[name] = (score[name] || 0) + (best?.exact ? 1 : 0); if (best?.exact) pinOf(name, i, best.lat, best.lng);
     out.push(`- ${name.toUpperCase()}: ${best?.exact ? "EXACT" : best ? "area only" : "none"}: ${best ? `${best.text} [${best.type}] (${Number(best.lat).toFixed(5)}, ${Number(best.lng).toFixed(5)}) via \`${used}\`` : "no hit"}`);
   }
   out.push("");
 }
 if (!DRY) {
   out.push("## Summary: exact hits per variant\n");
-  for (const [k, v] of Object.entries(score)) out.push(`- ${k}: ${v} / ${addrs.length}`);
+  for (const [k, v] of Object.entries(score)) {
+    const P = pins[k] || [], count = new Map(); for (const x of P) count.set(x.k, (count.get(x.k) || 0) + 1);
+    const alone = P.filter(x => count.get(x.k) === 1).length;
+    out.push(`- ${k}: ${v} / ${addrs.length} flagged exact, of which ${alone} have a pin no other address shares (the rest: the same pin for several addresses, so at most one of them is right)`);
+  }
   try {
     const els = await overpassBrand();
     out.push(`\n## OpenStreetMap 99 Speed Mart POIs in the Negeri Sembilan box: ${els.length}\n`);
