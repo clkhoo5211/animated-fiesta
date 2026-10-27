@@ -47,3 +47,25 @@ test("tools/serpapi-locate.mjs: store name first, ll bias, place id link, a wron
   expect(r.urls[0]).toMatchObject({ q: "99 Speedmart 1954 (NS) Nusari Biz", ll: "@2.66000,101.87000,16z", engine: "google_maps", key: "KEY" });
   expect(r.cands[0]).toMatchObject({ name: "A", lat: 1, lng: 2 });
 });
+
+test("tools/overture-bench.mjs: keeps Speed Mart places, matches them to an address by postcode + Speed Mart + street words, reads both GeoJSON layouts", ({}, testInfo) => {
+  const fs = require("node:fs");
+  const dir = testInfo.outputPath("overture"); fs.mkdirSync(dir, { recursive: true });
+  const feat = (name, freeform, postcode, lng, lat, extra = {}) => ({ type: "Feature", geometry: { type: "Point", coordinates: [lng, lat] }, properties: { id: name, names: { primary: name }, addresses: [{ freeform, locality: "Bandar Sri Sendayan", postcode }], ...extra } });
+  const feats = [
+    feat("99 Speedmart 1954 (NS) Nusari Biz", "1780, Jalan Nusari Bayu 7/1, Nusari Biz", "71950", 101.87456, 2.66123),
+    feat("Restoran Nusari", "Jalan Nusari Bayu 7/2", "71950", 101.8, 2.6),
+    feat("99 Speedmart 2445 (NS) Pusat Dagangan Sendayan", "Jalan Pusat Dagangan Sendayan 3/3", "71950", 101.86, 2.68),
+    feat("Kedai Runcit", "Jalan Lain", "71950", 101.9, 2.7, { brand: { names: { primary: "99 Speedmart" } } }),
+  ];
+  fs.writeFileSync(`${dir}/places.geojson`, JSON.stringify({ type: "FeatureCollection", features: feats }));
+  fs.writeFileSync(`${dir}/places.geojsonseq`, feats.map((f) => "\u001e" + JSON.stringify(f)).join("\n"));
+  fs.writeFileSync(`${dir}/addr.json`, JSON.stringify(["1954 NS NUSARI BIZ (DD) 1780 (GF), JLN NUSARI BAYU 7/1 NUSARI BIZ, 71950 BDR SRI SENDAYAN NEGERI SEMBILAN", "NO 9, JLN ZZZ 1, 71900 LABU"]));
+  for (const file of ["places.geojson", "places.geojsonseq"]) {
+    const res = spawnSync("node", [path.join(ROOT, "tools/overture-bench.mjs"), `${dir}/${file}`, `${dir}/addr.json`], { cwd: dir, encoding: "utf8", timeout: 60000 }).stdout;
+    expect(res).toContain("3 Speed Mart places");               // the restaurant is dropped, the brand-only record is kept
+    expect(res).toContain("ACCEPTED high: 99 Speedmart 1954 (NS) Nusari Biz");
+    expect(res).toContain("- addresses with a place that passes the app's check: 1 / 2");
+  }
+  expect(JSON.parse(fs.readFileSync(`${dir}/speedmart-places.json`, "utf8"))).toHaveLength(3);
+});

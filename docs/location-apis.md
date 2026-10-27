@@ -12,6 +12,26 @@ Status words: **tested** = covered by an automated test against a mocked server;
 | 4 | Fix by pin: Leaflet + OpenStreetMap tiles | nothing | app | tested, tiles live-unverified |
 | nav | Google Maps URLs (search / directions) | nothing | links | live: used by the owner |
 
+## Free options when no Google / SerpApi key is set (research, 2026-10)
+
+Figures below come from search results and third-party summaries; confirm them on the provider's page before relying on them.
+
+| Source | Free terms | Data | Verdict |
+|---|---|---|---|
+| OpenStreetMap Nominatim | 1 request/s, no key | OSM | in use; measured: street level at best, 0/22 exact |
+| Photon (photon.komoot.io) | no key, polite use | OSM, fuzzier search | benchmark: `node tools/geo-bench.mjs` (Photon is compared automatically) |
+| Overture Maps places | open dataset (GeoParquet on S3, `overturemaps` CLI), no key, no request limits | merged POI sources (not OSM only) | **most promising**: benchmark `tools/overture-bench.mjs`; if it knows the branches, ship a branch directory file instead of calling any API |
+| Foursquare Open Source Places | Apache 2.0, Parquet; Hugging Face copy needs accepting terms | Foursquare POIs | backup to Overture |
+| Geoapify | 3,000 credits/day | OSM + open data | expected like OSM (`GEOAPIFY_KEY=... node tools/geo-bench.mjs`) |
+| LocationIQ | ~5,000/day, attribution link (third-party figure) | OSM | expected like OSM, not benchmarked |
+| OpenCage | ~2,500/day (third-party figure) | OSM + others | not benchmarked |
+| Mapbox | ~100,000 temporary geocodes/month (third-party figure) | own data | card requirement unclear, not benchmarked |
+| HERE | no usable free plan for the owner | own data | dropped |
+| Tavily | 1,000 credits/month | web pages, no coordinates | measured 4 of 22 correct store pages, not built |
+| GeoNames scripts / geopy | n/a | place names / client library only | no store-level data, not integrated |
+
+Idea if Overture knows the branches: `tools/overture-bench.mjs` already writes `speedmart-places.json` (name, address, postcode, position); a directory of the 99 Speedmart branches built from it can be matched in the app by store number / name / postcode with the same `judgePlace()` check, with no key, no network call and no quota. Keep the Overture attribution with the file.
+
 ## Detected from the billing party (customer observation)
 
 On 99 Speedmart delivery orders the billing party ("Billing Address") is 99 SPEED MART SDN. BHD. (`isSpeedmartName`). When the user has not chosen anything, each stop whose documents are billed to 99 Speedmart is treated as **99 Speedmart** automatically (the route tab says "The billing address says 99 Speedmart for n of m stops"); stops billed to anyone else still wait for the choice below. The user's own choice, when made, applies to all stops. For a stop known to be 99 Speedmart:

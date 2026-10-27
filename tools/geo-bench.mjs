@@ -2,10 +2,11 @@
 // and which query shape works best? Run on your own computer (needs internet, Node 18+):
 //   node tools/geo-bench.mjs addresses.json > bench.md          (addresses.json: ["address 1", "address 2", ...])
 //   node tools/geo-bench.mjs addresses.json --dry               (only print the queries, no network)
+//   (Photon, free and keyless, is always compared too)
 //   HERE_KEY=... GEOAPIFY_KEY=... node tools/geo-bench.mjs addresses.json > bench.md   (also compare HERE and Geoapify, free keys; either may be left out)
 // Nominatim policy: one request per second, identifying User-Agent. Results are cached in .geo-bench-cache.json.
 import fs from "node:fs";
-import { geoQueries, postcodeOf } from "../site/route.js";
+import { geoQueries, postcodeOf, storeQuery } from "../site/route.js";
 
 const [file, ...flags] = process.argv.slice(2);
 if (!file) { console.error("usage: node tools/geo-bench.mjs addresses.json [--dry]"); process.exit(1) }
@@ -76,6 +77,17 @@ async function keyed(name, q) {
     : (j.results || []).map(i => ({ text: i.formatted, lat: i.lat, lng: i.lon, type: i.result_type, pc: i.postcode, exact: ["building", "amenity"].includes(i.result_type) }));
   cache[k] = rows; fs.writeFileSync(CACHE, JSON.stringify(cache)); return rows;
 }
+
+// Photon (photon.komoot.io): free, no key, OpenStreetMap data with a fuzzier search than Nominatim; asked at most one request per second like Nominatim
+async function photon(q) {
+  const k = "P|" + q; if (cache[k]) return cache[k];
+  const wait = 1100 - (Date.now() - last); if (wait > 0) await sleep(wait); last = Date.now();
+  const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=en&bbox=99,0.8,119.7,7.5`, { signal: AbortSignal.timeout(30000), headers: { "User-Agent": UA } });
+  if (!r.ok) throw new Error("photon HTTP " + r.status);
+  const j = await r.json();
+  const rows = (j.features || []).map(f => ({ text: [f.properties?.name, f.properties?.street, f.properties?.housenumber, f.properties?.city].filter(Boolean).join(", "), lat: f.geometry?.coordinates?.[1], lng: f.geometry?.coordinates?.[0], type: `${f.properties?.osm_key}/${f.properties?.osm_value}`, pc: f.properties?.postcode, exact: ["shop", "amenity", "building", "office"].includes(f.properties?.osm_key) || !!f.properties?.housenumber }));
+  cache[k] = rows; fs.writeFileSync(CACHE, JSON.stringify(cache)); return rows;
+}
 const exact = h => h && (Number(h.place_rank) >= 28 || ["shop", "amenity", "building", "office"].includes(h.category || h.class));
 const short = h => h ? `${(h.display_name || "").split(",").slice(0, 3).join(",")} [${h.category || h.class}/${h.type}, rank ${h.place_rank}]` : "no hit";
 
@@ -94,6 +106,17 @@ for (const [i, item] of addrs.entries()) {
     for (const q of qs) { const hs = await nominatim(q).catch(e => { out.push(`  - error: ${e.message}`); return [] }); const h = hs.find(x => !pc || !x.address?.postcode || String(x.address.postcode).replace(/\s/g, "") === pc) || null; if (h && (!best || (exact(h) && !exact(best)))) { best = h; used = q } if (exact(best)) break }
     if (exact(best)) score[name]++;
     out.push(`- ${name}: ${exact(best) ? "EXACT" : best ? "area only" : "none"}: ${short(best)}${best ? ` (${Number(best.lat).toFixed(5)}, ${Number(best.lon).toFixed(5)}) via \`${used}\`` : ""}`);
+  }
+  if (!DRY) {
+    // Photon: the store name form, the spelled-out street form, then brand + area
+    let best = null, used = "";
+    for (const q of [storeQuery(a), tidy(a), ...brandQueries(a)].filter(Boolean)) {
+      const rows = await photon(q).catch(e => { out.push(`  - photon error: ${e.message}`); return [] });
+      const h = rows.find(x => x.lat != null && (!pc || !x.pc || String(x.pc).replace(/\s/g, "") === pc)) || null;
+      if (h && (!best || (h.exact && !best.exact))) { best = h; used = q } if (best?.exact) break;
+    }
+    score.photon = (score.photon || 0) + (best?.exact ? 1 : 0);
+    out.push(`- PHOTON: ${best?.exact ? "EXACT" : best ? "area only" : "none"}: ${best ? `${best.text} [${best.type}] (${Number(best.lat).toFixed(5)}, ${Number(best.lng).toFixed(5)}) via \`${used}\`` : "no hit"}`);
   }
   if (!DRY) for (const name of Object.keys(KEYS).filter(n => KEYS[n])) {
     let best = null, used = "";
