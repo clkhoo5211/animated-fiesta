@@ -1,0 +1,56 @@
+# Every merge to main gets a version tag and a GitHub Release, so any state can be restored with "git checkout <tag>".
+# Run it by hand with "backfill" ticked once to label the merges that happened before this workflow existed (rel-65 ... rel-78).
+name: Tag release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Tag the earlier merges (rel-65 to rel-78)"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Backfill earlier merges
+        if: ${{ inputs.backfill }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          while read -r tag sha; do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then echo "$tag exists"; continue; fi
+            git tag "$tag" "$sha" && git push origin "$tag"
+          done <<'LIST'
+          rel-65 87938f99a6efd8688cb4f75edfed1acf4b421427
+          rel-66 735c0fe7646b61f20cecf90ae46348712e385f65
+          rel-67 e27e5543ae088ad3c8a03a5580a713391b789fa2
+          rel-68 a33b2874634b1e65aa313be87f8aefa8d362668d
+          rel-69 344aea5b04cd885b3304a533c7e06385a449c8f3
+          rel-70 401ad96865ef0b9f2347bb37b3f05cee353a8101
+          rel-71 994025ae729ff1b24e97e4ff84532e02b72d416e
+          rel-72 c3d6c2ab85e3301cba366c958e211a9662e5b5f0
+          rel-73 639e7e687f7508e1b28b204c15d4217be45e2ac8
+          rel-74 5991ca4507c6c29ea3aa9eb9ae5cbc30945ab6a8
+          rel-75 2ddc3563214c173f3b8da7ff97315e94bdfb61bd
+          rel-76 e83c6f51f82d58ee80e41b962db6f932f91707c2
+          rel-77 53a624c950a0d2d7251f65f9a3f83b47feda8fb8
+          rel-78 6766543684aff62a4055414f383259b55804dcd4
+          LIST
+      - name: Tag this merge and publish a release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          tag="v$(date -u +%Y.%m.%d).${GITHUB_RUN_NUMBER}"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
