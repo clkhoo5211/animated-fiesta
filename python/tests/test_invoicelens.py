@@ -606,3 +606,15 @@ def test_fix_row_shape_merges_columns_and_glues_units():
     assert all(len(r) == len(t["columns"]) for r in t["rows"]) and not any(not c["ok"] and not c.get("warn") for c in il.verify(short)["checks"])
     long = il.normalize_result({"tables": [{"columns": json.loads(json.dumps(cols)), "rows": [["1", "ABD", "8091 DRUMMET", "6.00", "UNIT", "20.00", "", "120.00"]]}]})
     assert long["tables"][0]["rows"][0] == ["1", "ABD", "8091 DRUMMET", "6.00 UNIT", "20.00", "", "120.00"]
+
+
+def test_fix_delivery_block_brings_the_branch_number_back_into_the_address():
+    rest = "NO 1 (SINGLE STOREY), JLN GADONG INDAH 3, TMN GADONG INDAH 1, 71900 LABU"
+    stamp = [{"text": "99 SPEED MART SDN. BHD. (519537-X) (1988) NS Tmn Gadong Indah"}]
+    r = il.fix_delivery_block({"parties": [{"role": "ship_to", "name": "1988", "address": "NS TMN GADONG INDAH (DD) " + rest}], "stamps_and_chops": stamp})
+    assert r["parties"][0]["address"] == "1988 NS TMN GADONG INDAH (DD) " + rest and r["parties"][0]["name"] is None
+    r = il.fix_delivery_block({"parties": [{"role": "ship_to", "name": "NS TMN GADONG INDAH (DD)", "address": rest}], "stamps_and_chops": stamp})
+    assert r["parties"][0]["address"] == "1988 NS TMN GADONG INDAH (DD) " + rest
+    whole = {"parties": [{"role": "ship_to", "name": None, "address": "1988 NS TMN GADONG INDAH (DD) " + rest}], "stamps_and_chops": stamp}
+    assert il.fix_delivery_block(whole) is whole
+    assert il.normalize_result({"parties": [{"role": "ship_to", "name": "3912", "address": "NS TMN BKT EKA (TD) NO 20"}]})["parties"][0]["address"] == "3912 NS TMN BKT EKA (TD) NO 20"

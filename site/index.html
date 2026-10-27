@@ -594,6 +594,7 @@ Rules:
 - Grouped reports (a group/customer header row, its lines, then a subtotal row such as "Total for X"): keep header, line and subtotal rows in rows, in printed order, and mark each in row_kinds. Aging reports: bucket columns (Current, 1-30, 31-60 ... 90+) are number and the outstanding/total column is row_total.
 - Handwriting and tick marks: transcribe literally ONLY in handwritten_notes and list them in low_confidence_fields. If handwriting or a signature cannot be read with confidence, write "[illegible]" or "[signature]" - never guess names or words. Printed stamp text that overlaps handwriting belongs to stamps_and_chops. Never put handwriting into fields, parties, tables or totals: a printed label whose space is blank, or only has handwriting written over/next to it, gets value null.
 - Letter O vs digit 0, I/l vs 1, S vs 5, B vs 8: decide from context (account numbers, IDs and phone numbers are mostly digits; email domains are real words such as jaring.my, gmail.com).
+- A Delivery Address / Billing Address block is copied line by line, in order, ALL lines, into the party's address: that includes a first line that is only a number (a branch / store number such as "1988") and a branch-name line such as "NS TMN GADONG INDAH (DD)". Never leave those lines out and never move the lone number into name or fields. When the block has no real company name, name is null and the whole block is the address.
 - A party's name is the name only: a registration or tax number printed next to it goes in registration_no / tax_id, not in name.
 - registration_no is only a company registration number printed as such (e.g. "(279018-W)", "Co. No.", "Reg. No.", "SSM"). Branch, store, outlet or customer codes are not registration numbers: put them in fields.
 - Parties come only from printed letterheads / address blocks (e.g. "Billing Address", "Delivery Address", "Bill To"). A rubber stamp, company chop or "Received by" stamp is NOT a party: put it only in stamps_and_chops.
@@ -702,7 +703,23 @@ function fixRowShape(r){for(const t of r?.tables||[]){const cols=t.columns,rows=
   for(let i=0;i<n-1;i++){if(!kind(i)||!kind(i+1)||cols[i].role==="number"&&cols[i+1].role==="number")continue;
     const nc=[...cols.slice(0,i),{name:`${cols[i].name} ${cols[i+1].name}`,role:"text"},...cols.slice(i+2)],h=hits(nc);if(h>bh){best=nc;bh=h}}
   if(best){t.columns=best;t.shape_fixed=true}}}
-function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;
+/* A delivery address block starts with the branch number on a line of its own ("1988" / "NS TMN GADONG INDAH (DD)" / "NO 1 (SINGLE STOREY), JLN ..."):
+   the whole block, number included, is the address. A lone number in "name", or the branch line in "name", is moved back into the address; a branch line
+   printed without its number takes the number of the delivery stamp ("(1988) NS Tmn Gadong Indah ..."). Returns r itself when nothing changes. */
+const BRANCH_LINE=/^(?:\d{3,4}\s+)?(?:NS|RS)\s+.+\(\s*[A-Za-z0-9]{1,2}\s*\)\s*$/i;
+function stampNoFor(r,branch){const words=String(branch||"").toLowerCase().split(/[^a-z]+/).filter(w=>w.length>=4&&!["taman","jalan","pusat","bandar"].includes(w));
+  for(const x of (r?.stamps_and_chops||[]).map(z=>z?.text)){const m=/\((\d{3,4})\)/.exec(String(x||""));if(m&&(!words.length||words.some(w=>String(x).toLowerCase().includes(w))))return m[1]}return null}
+function fixDeliveryBlock(r){
+  if(!r||typeof r!=="object"||!Array.isArray(r.parties))return r;let changed=false;
+  const parties=r.parties.map(p=>{
+    if(!p||p.role!=="ship_to")return p;const n0=String(p.name??"").trim(),a0=String(p.address??"").trim();if(!n0&&!a0)return p;let n=n0,a=a0;
+    if(/^\d{3,4}$/.test(n)){a=`${n} ${a}`.trim();n=""}
+    else if(BRANCH_LINE.test(n)&&!a.toUpperCase().includes(n.toUpperCase())){a=`${n} ${a}`.trim();n=""}
+    const m=/^(?:NS|RS)\s+(.+?)\s*\(\s*[A-Za-z0-9]{1,2}\s*\)/i.exec(a);
+    if(m){const no=stampNoFor(r,m[1]);if(no)a=`${no} ${a}`}
+    if(n===n0&&a===a0)return p;changed=true;return{...p,name:n||null,address:a}});
+  return changed?{...r,parties}:r}
+function normalizeResult(r){if(!r||typeof r!=="object"||r.error)return r;r=fixDeliveryBlock(r);
   if(Array.isArray(r.tables))r.tables=r.tables.filter(t=>t&&Array.isArray(t.columns)&&t.columns.length&&
     !(Array.isArray(t.row_kinds)&&t.row_kinds.length&&t.row_kinds.every(k=>k==="other"))); // the model itself says none of its rows are table rows // "tables" without columns are stray text, not tables
   // IDs printed in brackets, e.g. "(1340607-U)": keep the ID itself so it matches across documents
@@ -1214,7 +1231,7 @@ $("#go").onclick=()=>{if(!running)runQueue()};
 
 /* ---------- delivery route planning (site/route.js) ---------- */
 function renderRouteTab(){
-  const docs=()=>JOBS.filter(j=>j.result).flatMap(j=>j.result.segments.map(sg=>{best(sg);return{file:j.file.name,result:sg.final_result,suspect:(sg.suspects||[]).some(c=>["addr","store","rotation","lowagree"].includes(c))}}));
+  const docs=()=>JOBS.filter(j=>j.result).flatMap(j=>j.result.segments.map(sg=>{best(sg);return{file:j.file.name,result:fixDeliveryBlock(sg.final_result),suspect:(sg.suspects||[]).some(c=>["addr","store","rotation","lowagree"].includes(c))}}));
   const a=slot("a");
   // the model only reviews the finished plan; the optimiser computes it
   const askModel=a.key?async plan=>{const r=await callModel({...a,temperature:0},[{type:"text",text:ROUTE_REVIEW_PROMPT.replace("{lang}",{zh:"Chinese",ms:"Malay"}[LANG]||"English")+"\n\nPLAN:\n"+JSON.stringify(plan)}],null);return r&&typeof r==="object"?r:{summary:String(r??"")}}:null;
