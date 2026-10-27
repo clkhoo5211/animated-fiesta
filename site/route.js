@@ -60,9 +60,13 @@ export const placeRank = v => (/^store number/.test(v.reason || "") ? 0 : v.conf
 export function lotNumbers(a) {
   const out = new Set(), re = /\b(?:NO|PT|LOT)\s*[.:]?\s*(\d+(?:-?[A-Z](?![A-Z]))?(?:\s*(?:&|,|-|AND)\s*\d+(?:-?[A-Z](?![A-Z]))?)*)/gi;
   for (const m of String(a || "").matchAll(re)) for (const n of m[1].match(/\d+/g) || []) out.add(String(+n));
+  // a number straight before the floor note names the unit too: "1780 (GF)", "43A (GF)"
+  for (const m of String(a || "").matchAll(/\b(\d+)[A-Z]?\s*\(\s*(?:GF|G|GROUND FLOOR)\s*\)/gi)) out.add(String(+m[1]));
   return out;
 }
-export function judgePlace(wanted, found, brandRe = /speed\s*mart/i, requireBrand = false) {
+// "UU Speedmart" is another chain: only 99 Speedmart / Speed Mart count
+const SPEEDMART_RE = /(?<!\bUU\s*)speed\s*-?\s*mart/i;
+export function judgePlace(wanted, found, brandRe = SPEEDMART_RE, requireBrand = false) {
   if (!found || found.lat == null || found.lng == null) return { ok: false, reason: "no place" };
   if (!found.address) return { ok: false, reason: "place has no address to compare" };
   const wantPc = postcodeOf(wanted), foundPc = postcodeOf(found.address);
@@ -237,7 +241,7 @@ export function storeQuery(...texts) {
 // or "other" (the shop / brand name typed by hand: brand + shop name queries, that name as the check). brand = { mode: "99" | "other" | "", name }.
 export const brandOf = v => { const s = String(v ?? "").trim(); return !s || s === "99" ? { mode: "99", name: "" } : s === "other" ? { mode: "other", name: "" } : { mode: "other", name: s } };
 export function brandRegex(brand) {
-  if (!brand || brand.mode !== "other") return /speed\s*mart/i;
+  if (!brand || brand.mode !== "other") return SPEEDMART_RE;
   const w = String(brand.name || "").trim().split(/\s+/).filter(x => x.length >= 2).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return w.length ? new RegExp(w.join("\\s*"), "i") : null;
 }
