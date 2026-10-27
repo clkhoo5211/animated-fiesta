@@ -100,3 +100,9 @@ Facts read from public sources (SerpApi's own documentation site could not be op
 2. Local script first: `git pull`, then `SERPAPI_KEY=<key> node tools/serpapi-locate.mjs stops-to-check.json --limit 2 --debug`. Send `serpapi-debug.json` (it contains no key) if a field name differs.
 3. In-app: deploy the proxy, put the worker URL in Settings, paste the key, press "Check SerpApi key" (shows searches left), then open the route tab.
 4. Compare with the "by store name" link on a few stops before trusting the result.
+
+## Route apps and the exported CSV
+
+"Export routes CSV" lists the stops of every lorry in the planned order: `lorry, seq, eta, name, address, zip, documents, lat, lng`. Spoke (Circuit) route planner imports CSV / XLS files with a header row; per its help pages `Address Line 1` and `Zip` are required and extra columns become notes. Whether it reads latitude / longitude columns, and which app a customer actually uses, is **not verified**: map `address` to Address Line 1 and `zip` to Zip at import and check one route first.
+
+Road distances: up to 100 points are asked from the public OSRM server in one request; up to 300 in blocks of 50 + 50 points (9 requests for 124 points); above that a straight-line estimate is used.

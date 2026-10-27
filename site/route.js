@@ -388,15 +388,30 @@ Answer as ONE JSON object: {"queries":["...","..."]}. Raw JSON only.
 ADDRESS:
 `;
 export async function roadMatrix(pts) {
-  if (pts.length > 100) return estimateMatrix(pts);   // the public OSRM server answers up to ~100 points per table
+  const est = estimateMatrix(pts), N = pts.length, B = 50;
+  if (N > 300) return est;   // too many requests for the public server: straight-line estimate
+  const fix = (m, e) => m.map((row, i) => row.map((v, k) => v ?? e[i][k]));
+  const ll = p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`;
   try {
-    const u = `https://router.project-osrm.org/table/v1/driving/${pts.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(";")}?annotations=duration,distance`;
-    const r = await fetch(u); const j = await r.json();
-    if (j.code !== "Ok" || !j.durations) throw new Error(j.code || "OSRM");
-    const fix = (m, e) => m.map((row, i) => row.map((v, k) => v ?? e[i][k]));
-    const est = estimateMatrix(pts);
-    return { dist: fix(j.distances, est.dist), dur: fix(j.durations, est.dur), source: "osrm" };
-  } catch { return estimateMatrix(pts) }
+    // the public OSRM server answers up to ~100 points per request: bigger sets are asked block by block (sources x destinations, 50 + 50 points)
+    if (N <= 100) {
+      const r = await fetch(`https://router.project-osrm.org/table/v1/driving/${pts.map(ll).join(";")}?annotations=duration,distance`), j = await r.json();
+      if (j.code !== "Ok" || !j.durations) throw new Error(j.code || "OSRM");
+      return { dist: fix(j.distances, est.dist), dur: fix(j.durations, est.dur), source: "osrm" };
+    }
+    const dist = est.dist.map(r => r.slice()), dur = est.dur.map(r => r.slice());
+    for (let i = 0; i < N; i += B) for (let k = 0; k < N; k += B) {
+      const S = pts.slice(i, i + B), D = i === k ? S : pts.slice(k, k + B), coords = i === k ? S : [...S, ...D];
+      const src = S.map((_, x) => x).join(";"), dst = i === k ? src : D.map((_, x) => S.length + x).join(";");
+      const r = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords.map(ll).join(";")}?sources=${src}&destinations=${dst}&annotations=duration,distance`), j = await r.json();
+      if (j.code !== "Ok" || !j.durations) throw new Error(j.code || "OSRM");
+      for (let x = 0; x < S.length; x++) for (let y = 0; y < D.length; y++) {
+        if (j.durations[x][y] != null) dur[i + x][k + y] = j.durations[x][y];
+        if (j.distances?.[x]?.[y] != null) dist[i + x][k + y] = j.distances[x][y];
+      }
+    }
+    return { dist, dur, source: "osrm" };
+  } catch { return est }
 }
 
 /* ---------- UI ---------- */
@@ -564,8 +579,8 @@ export function renderRoute(view, api) {
     if (!locating && S.some(needs)) setTimeout(locate, 0);
     const pb = view.querySelector("#rt-plan"); if (pb) pb.onclick = () => run().catch(e => { msg = String(e.message || e); draw() });
     const cb = view.querySelector("#rt-csv"); if (cb) cb.onclick = () => {
-      const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, L = [["lorry", "seq", "eta", "name", "address", "documents", "lat", "lng"].join(",")];
-      plan.routes.forEach((r, i) => r.stops.forEach((s, k) => L.push([i + 1, k + 1, fmtT(r.eta[k]), s.name, s.address, s.refs.join(" "), s.lat, s.lng].map(q).join(","))));
+      const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, L = [["lorry", "seq", "eta", "name", "address", "zip", "documents", "lat", "lng"].join(",")];
+      plan.routes.forEach((r, i) => r.stops.forEach((s, k) => L.push([i + 1, k + 1, fmtT(r.eta[k]), s.name, s.address, postcodeOf(s.address), s.refs.join(" "), s.lat, s.lng].map(q).join(","))));
       dl(`invoicelens_routes_${new Date().toISOString().slice(0, 10)}.csv`, "﻿" + L.join("\n"), "text/csv");
     };
     const ab = view.querySelector("#rt-ai"); if (ab) ab.onclick = async () => {

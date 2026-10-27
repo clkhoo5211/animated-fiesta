@@ -121,3 +121,21 @@ test("judgePlace: UU Speedmart is not 99 Speedmart; a unit before '(GF)' counts 
   `], { cwd: ROOT, encoding: "utf8" }).stdout);
   expect(r).toEqual({ lots: [["1780"], ["43"]], uu: false, nine: true, nus: false });
 });
+
+test("roadMatrix: 123 points are asked from the public OSRM server in blocks of at most 100 points and assembled; over 300 points no request is made", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { roadMatrix } from "./site/route.js";
+    const calls = [];
+    globalThis.fetch = async url => {
+      const u = new URL(String(url)), n = u.pathname.split("/").pop().split(";").length;
+      const sc = (u.searchParams.get("sources") || "").split(";").filter(Boolean).length || n, dc = (u.searchParams.get("destinations") || "").split(";").filter(Boolean).length || n;
+      calls.push(n);
+      const m = v => Array.from({ length: sc }, () => Array.from({ length: dc }, () => v));
+      return new Response(JSON.stringify({ code: "Ok", durations: m(60), distances: m(1000) }));
+    };
+    const pts = n => Array.from({ length: n }, (_, i) => ({ lat: 1.4 + i * 0.001, lng: 103.6 + i * 0.001 }));
+    const M = await roadMatrix(pts(123)), n1 = calls.length, big = await roadMatrix(pts(301));
+    console.log(JSON.stringify({ source: M.source, calls: n1, maxPoints: Math.max(...calls), size: [M.dur.length, M.dur[0].length], cell: M.dur[0][122], far: big.source, after: calls.length }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual({ source: "osrm", calls: 9, maxPoints: 100, size: [123, 123], cell: 60, far: "estimate", after: 9 });
+});
