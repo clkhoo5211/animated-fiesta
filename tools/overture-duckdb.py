@@ -35,12 +35,22 @@ def main():
     print(f"release {rel}, box {a.bbox}", file=sys.stderr)
     con = duckdb.connect()
     con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; SET s3_region='us-west-2';")
+    src = f"read_parquet('s3://{BUCKET}/release/{rel}/theme=places/type=place/*', hive_partitioning=1)"
+    have = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()}
+    print("columns: " + ", ".join(have), file=sys.stderr)
+    def opt(col, expr, alias):
+        return f"{expr} AS {alias}" if col in have else f"NULL AS {alias}"
+    cat = next((c for c in ("categories", "taxonomy") if c in have), None)
+    cat_expr = {"categories": "categories.primary", "taxonomy": "taxonomy.primary"}.get(cat, "NULL")
+    brand_hit = " OR brand.names.primary ILIKE '%speed%mart%'" if "brand" in have else ""
     sql = f"""
       SELECT id, names.primary AS name, ST_Y(geometry) AS lat, ST_X(geometry) AS lng,
-             addresses, categories.primary AS category, confidence, brand.names.primary AS brand
-      FROM read_parquet('s3://{BUCKET}/release/{rel}/theme=places/type=place/*', hive_partitioning=1)
+             {opt("addresses", "addresses", "addresses")}, {cat_expr} AS category,
+             {opt("confidence", "confidence", "confidence")},
+             {opt("brand", "brand.names.primary", "brand")}
+      FROM {src}
       WHERE bbox.xmin BETWEEN {w} AND {e} AND bbox.ymin BETWEEN {s} AND {n}
-        AND (names.primary ILIKE '%speed%mart%' OR brand.names.primary ILIKE '%speed%mart%')
+        AND (names.primary ILIKE '%speed%mart%'{brand_hit})
     """
     cur = con.execute(sql)
     cols = [c[0] for c in cur.description]
