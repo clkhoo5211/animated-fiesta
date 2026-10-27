@@ -224,7 +224,14 @@ export function cleanAddr(a) {
   return /malaysia/i.test(t) ? t : t + ", Malaysia";
 }
 // the full address exactly as printed (nothing removed; only line breaks and runs of spaces collapsed, and the country added so Google does not look abroad): what Google gets for a stop, so it matches the Address column
-export const fullAddr = a => { const t = String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim(); return /malaysia/i.test(t) ? t : t + ", Malaysia" };
+// the printed address as a place search / route waypoint: abbreviations spelled out (Google reads "JLN KEBUDAYAAN 21" as house 21 of a street "Kebudayaan"),
+// a lone leading number before a street is marked as the house number ("6, JLN X" -> "No. 6, Jalan X"), country added
+export const fullAddr = a => {
+  let t = String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
+  for (const [re, to] of ABBR) t = t.replace(re, to);
+  t = t.replace(/^(\d+(?:-?[A-Za-z])?(?:\s*(?:&|-)\s*\d+(?:-?[A-Za-z])?)*)\s*,\s*(?=(?:Jalan|Lorong|Persiaran|Lebuh|Lebuhraya|Jln|Lrg)\b)/i, "No. $1, ");
+  return /malaysia/i.test(t) ? t : t + ", Malaysia";
+};
 // The branch identity printed on the document ("1954 NS NUSARI BIZ (DD)") is how Google lists the shop: "99 Speedmart 1954 (NS) Nusari Biz".
 // Much more unique than a street address; returns "" when the text carries no store number.
 export function storeQuery(...texts) {

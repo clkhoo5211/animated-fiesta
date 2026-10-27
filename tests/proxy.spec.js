@@ -139,3 +139,11 @@ test("roadMatrix: 123 points are asked from the public OSRM server in blocks of 
   `], { cwd: ROOT, encoding: "utf8" }).stdout);
   expect(r).toEqual({ source: "osrm", calls: 9, maxPoints: 100, size: [123, 123], cell: 60, far: "estimate", after: 9 });
 });
+
+test("fullAddr (view on map, route waypoints): abbreviations are spelled out and a lone leading number becomes 'No.' (Google read '6, JLN KEBUDAYAAN 21' as house 21 of street 6)", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { fullAddr } from "./site/route.js";
+    console.log(JSON.stringify([fullAddr("6, JLN KEBUDAYAAN 21, TMN UNIVERSITI, 81300 SKUDAI, JOHOR"), fullAddr("1988\\nNS TMN GADONG INDAH (DD)\\nNO 1, JLN GADONG INDAH 3\\n71900 LABU"), fullAddr("12-A, LRG ABC 3, KG BARU, 81300 SKUDAI, Malaysia")]));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual(["No. 6, Jalan KEBUDAYAAN 21, Taman UNIVERSITI, 81300 SKUDAI, JOHOR, Malaysia", "1988, NS Taman GADONG INDAH (DD), NO 1, Jalan GADONG INDAH 3, 71900 LABU, Malaysia", "No. 12-A, Lorong ABC 3, Kampung BARU, 81300 SKUDAI, Malaysia"]);
+});

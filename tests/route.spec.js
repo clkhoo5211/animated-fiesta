@@ -95,7 +95,7 @@ test("as soon as the stops appear, model A reads the addresses and the map locat
   expect(prompts[0]).toContain("JLN KEINDAHAN 1");
   // the stop's link searches the printed address (cleaned), not the open-map coordinate
   const href = decodeURIComponent(await page.locator("a:has-text('view on map')").getAttribute("href"));
-  expect(href).toContain("query=JH TMN SKUDAI INDAH");
+  expect(href).toContain("query=JH Taman SKUDAI INDAH");
   expect(href).not.toContain("1.535");
 });
 
@@ -171,7 +171,7 @@ test("a map hit that is only a street / estate is not shown as located, and the 
   await expect(page.locator("#view")).toContainText("Street / area only", { timeout: 20000 });
   await expect(page.locator("#view")).not.toContainText("✓ Located");
   const href = decodeURIComponent(await page.locator("a:has-text('view on map')").getAttribute("href"));
-  expect(href).toContain("SCIENTEX 10 TMN SCIENTEX");
+  expect(href).toContain("SCIENTEX 10 Taman SCIENTEX");
   expect(href).not.toContain("1.687");
 });
 
@@ -246,7 +246,7 @@ test("view on map and the Google route use the complete printed address (store n
   await page.click(".tab[data-tab=route]");
   // this address starts with a store number, so the main link searches the store name and the address is the second link
   const href = decodeURIComponent(await page.locator("a:has-text('by address')").first().getAttribute("href"));
-  expect(href).toContain("query=" + ADDR);
+  expect(href).toContain("query=1988 NS Taman GADONG INDAH (DD) NO 1 (SINGLE STOREY), Jalan GADONG INDAH 3 Taman GADONG INDAH 1, 71900 LABU NEGERI SEMBILAN"); // abbreviations spelled out, branch number kept
 });
 
 test("tidyAddr drops the branch name, unit numbers and state suffix and spells out abbreviations", async ({ page, context }) => {
@@ -362,7 +362,7 @@ test("with a store number the main map link searches the store name, the address
   const main = decodeURIComponent(await page.locator("a:has-text('view on map')").first().getAttribute("href"));
   expect(main).toContain("query=99 Speedmart 1954 (NS) Nusari Biz");
   const second = decodeURIComponent(await page.locator("a:has-text('by address')").first().getAttribute("href"));
-  expect(second).toContain("1780 (GF), JLN NUSARI BAYU 7/1");
+  expect(second).toContain("1780 (GF), Jalan NUSARI BAYU 7/1");
   const links = await page.evaluate(async () => {
     const m = await import("/route.js");
     return m.mapsLinks({ lat: 0, lng: 0 }, [{ lat: 1, lng: 1, name: "1954 NS NUSARI BIZ (DD)", address: "1780 (GF), JLN X, 71950 BDR SRI SENDAYAN" }], false);
