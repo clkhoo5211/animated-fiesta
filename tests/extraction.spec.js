@@ -5,11 +5,9 @@ test("empty states, extraction and all four result tabs", async ({ page, context
   const calls = await serve(context, { model: () => ({ json: invoice() }) });
   await preset(page);
   await page.goto("/");
-  for (const [tab, text] of [["overview", "Upload files"], ["items", "every table"], ["checks", "arithmetic checks"], ["json", "raw JSON"]]) {
-    await page.click(`.tab[data-tab=${tab}]`);
-    await expect(page.locator("#view")).toContainText(text);
-  }
-  await page.click(".tab[data-tab=overview]");
+  // before the first file there is one intake panel: the drop zone and the start button, no empty result tabs
+  await expect(page.locator("#drop")).toBeVisible();
+  await expect(page.locator("#results")).toBeHidden();
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
   await waitIdle(page);

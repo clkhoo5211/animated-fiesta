@@ -5,192 +5,168 @@
 <title>InvoiceLens</title>
 <meta name="description" content="In-browser document extraction: multi-model extraction, arithmetic checks, cross-verification">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f5bd3'/%3E%3Cpath d='M9 8h11l4 4v12H9z' fill='white'/%3E%3Cpath d='M12 15h9M12 19h6' stroke='%232f5bd3' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<script>try{if(localStorage.getItem("invoicelens.theme")==="dark")document.documentElement.dataset.theme="dark"}catch{}</script>
 <style>
 /* Hallmark: floor+reflex applied; tokens in :root, no tracked caps, no dots/gradients/blur */
-:root{--bg:#f4f2ec;--panel:#fbfaf6;--fg:#1f1d18;--mut:#6a665c;--line:#dedacd;--soft:#ece9e0;--ac:#17605a;--ac-soft:#dfece8;--ok:#1d6b45;--ok-soft:#e1efe6;--warn:#8f4a0c;--warn-soft:#f6e9d6;--bad:#a8321a;--bad-soft:#f7e3dd;--r:6px;--sh:none;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--font:"IBM Plex Sans","PingFang SC","Microsoft YaHei",sans-serif;--serif:"Newsreader","Songti SC","Noto Serif CJK SC",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#171611;--panel:#1e1d17;--fg:#ece9df;--mut:#a29e90;--line:#35332a;--soft:#27261e;--ac:#6fbfb4;--ac-soft:#1d2f2c;--ok:#6fc596;--ok-soft:#18281f;--warn:#e0a35a;--warn-soft:#2d2314;--bad:#f08a6e;--bad-soft:#2e1a15}}
-*{box-sizing:border-box}html,body{margin:0;overflow-x:clip}body{background:var(--bg);color:var(--fg);font:14px/1.6 var(--font)}
+/* app screen, atmospheric genre: graphite surfaces stepped by lightness, silver type, one champagne accent for the primary action, the current selection and state */
+:root{--bg:#f3f4f6;--panel:#ffffff;--raise:#eceef1;--hover:#e1e4e9;--fg:#17191d;--mut:#5d6470;--line:#dfe2e7;--edge:#dfe2e7;--soft:#eceef1;--ac:#b8985a;--ac-ink:#7a5c19;--on-ac:#18130a;--ac-soft:#f1e9d6;--ok:#1d6b45;--ok-soft:#dcece3;--warn:#8a4b0a;--warn-soft:#f6e8d2;--bad:#a5301d;--bad-soft:#f7e1dc;--r:6px;--r2:10px;--sh:none;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:40px;--font:"IBM Plex Sans","PingFang SC","Microsoft YaHei",sans-serif;--serif:var(--font);--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--bar:52px}
+:root[data-theme=dark]{--bg:#131416;--panel:#1a1b1e;--raise:#222327;--hover:#2b2c31;--fg:#e7e6e2;--mut:#9b9a96;--line:#2c2d31;--edge:transparent;--soft:#222327;--ac:#c9ad72;--ac-ink:#c9ad72;--on-ac:#17130a;--ac-soft:#2a2519;--ok:#84c6a0;--ok-soft:#1a2a21;--warn:#dba75d;--warn-soft:#2e2515;--bad:#e8897c;--bad-soft:#331f1c}
+*{box-sizing:border-box}html,body{margin:0;overflow-x:clip}body{background:var(--bg);color:var(--fg);font:14px/1.55 var(--font);-webkit-font-smoothing:antialiased}
 :focus-visible{outline:2px solid var(--ac);outline-offset:2px;transition:none}
 button,input,select{font:inherit;color:inherit}
-header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
-.bar{max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
-.logo{font-weight:600;font-size:16px}.logo i{display:none}
+h1,h2,h3,h4{text-wrap:balance}
 .sub{color:var(--mut);font-size:13px}.sp{flex:1}
-.btn{border:1px solid var(--line);background:var(--panel);border-radius:var(--r);padding:var(--s2) 16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:background-color .12s,border-color .12s}
-.btn:hover{background:var(--soft)}.btn:active{transform:translateY(1px)}.btn.pri{background:var(--ac);border-color:var(--ac);color:var(--bg);font-weight:600}.btn.pri:hover{background:color-mix(in srgb,var(--ac) 88%,var(--fg))}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}.btn.sm{padding:4px 12px;font-size:13px}
-main{max-width:1280px;margin:0 auto;padding:20px 16px 48px;display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
-main>*{min-width:0}
-
-@media (max-width:640px){.tabs{flex-wrap:wrap}.tools{margin-left:0;width:100%;overflow-x:auto}.bar .sub{display:none}.kpi.big b{font-size:19px}}
-.card{color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
-.card h2{font-size:14px;margin:0;padding:16px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
-.pad{padding:16px}
-.drop{border:1px dashed var(--mut);border-radius:var(--r);padding:var(--s5) var(--s4);text-align:center;cursor:pointer;transition:background-color .12s,border-color .12s;background:var(--soft)}
-.drop:hover,.drop.on{border-color:var(--ac);background:var(--ac-soft)}.drop b{display:block;margin-bottom:4px}.drop .sub{font-size:12px}
-.file{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;word-break:break-all}
-.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-.chip{font-size:12px;padding:4px 8px;border-radius:4px;background:var(--soft);border:1px solid var(--line);color:var(--mut)}.chip.on{background:var(--ac-soft);color:var(--ac);border-color:transparent}.chip.off{text-decoration:line-through}
-.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:16px}.thumbs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
-.steps{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px;font-size:13px}.steps li{display:flex;gap:8px;align-items:center;color:var(--mut)}
-.steps li.run{color:var(--fg);font-weight:600}.steps li.done{color:var(--ok)}.steps li.err{color:var(--bad)}
-.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 8px 0;border-bottom:1px solid var(--line)}
-.tab{border:0;background:none;padding:12px 12px;cursor:pointer;color:var(--mut);border-bottom:2px solid transparent;white-space:nowrap;transition:color .12s}.tab:hover{color:var(--fg)}.tab.on{color:var(--fg);border-color:var(--ac);font-weight:600}
-.tools{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px;padding-bottom:8px}
-.empty{padding:64px 16px;text-align:center;color:var(--mut)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.kpi{border:1px solid var(--line);border-radius:var(--r);padding:var(--s3)}.kpi>span{font-size:12px;color:var(--mut)}.kpi b{display:block;font-size:17px;margin-top:4px;word-break:break-word}
-.kpi.big b{font-size:22px;font-weight:600}
-.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:4px 8px;border-radius:4px}.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.warn{background:var(--warn-soft);color:var(--warn)}.badge.bad{background:var(--bad-soft);color:var(--bad)}.badge.mut{background:var(--soft);color:var(--mut)}
-.sec{margin-top:20px}.sec h3{font-size:14px;color:var(--fg);font-weight:600;margin:0 0 var(--s2)}
-.kv{display:grid;grid-template-columns:72px 1fr;gap:8px 12px;font-size:13px}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-word}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.box{border:1px solid var(--line);border-radius:var(--r);padding:var(--s3)}.box h4{margin:0 0 8px;font-size:13px}
-.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r)}
-table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:var(--soft);font-weight:600;color:var(--mut);font-size:12px;white-space:nowrap}tr:last-child td{border-bottom:0}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.flag td{background:var(--bad-soft)}
-.list{display:grid;gap:8px}.item{display:flex;gap:12px;align-items:flex-start;padding:12px 12px;border:1px solid var(--line);border-radius:var(--r);font-size:13px}.item .badge{flex:none}
-pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.5 var(--mono);background:var(--soft);padding:16px;border-radius:var(--r);max-height:70vh;overflow:auto}
-.seg{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-/* settings */
-dialog{padding:0;border-radius:var(--r);width:min(640px,calc(100% - 32px));background:var(--panel);color:var(--fg);box-shadow:none;border:1px solid var(--line)}dialog::backdrop{background:color-mix(in srgb,var(--fg) 45%,transparent)}
-.dh{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}.dh h2{margin:0;font-size:16px}
-.db{padding:4px 20px 8px;max-height:70vh;overflow:auto}.df{display:flex;gap:8px;align-items:center;padding:16px 20px;border-top:1px solid var(--line)}
-fieldset{border:1px solid var(--line);border-radius:var(--r);padding:12px 16px 16px;margin:16px 0 0}legend{font-weight:600;font-size:13px;padding:0 8px}
-.f{display:grid;gap:4px;margin-top:12px}.f label{font-size:12px;color:var(--mut)}
-.f input,.f select{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media (max-width:560px){.row{grid-template-columns:1fr}}
-.pw{position:relative}.pw input{padding-right:56px}.pw button{position:absolute;right:4px;top:4px;bottom:4px;border:0;background:var(--soft);border-radius:6px;padding:0 8px;cursor:pointer;font-size:12px}
-.chk{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:12px}.chk input{width:auto}
-.note{font-size:12px;color:var(--mut);margin-top:8px}.note.warn{color:var(--warn)}
-.test{font-size:12px;margin-left:8px}
-.queue{display:grid;gap:8px;margin-top:16px}
-.job{border:1px solid var(--line);border-radius:var(--r);padding:12px;display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;cursor:pointer;background:var(--panel)}
-.job{transition:border-color .12s}.job:hover{border-color:var(--ac)}.job.sel{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac-soft)}
-.job .tn{width:44px;height:56px;border-radius:6px;background:var(--soft);object-fit:cover;border:1px solid var(--line);display:grid;place-items:center;font-size:11px;color:var(--mut)}
-.job .nm{font-size:13px;font-weight:600;word-break:break-all;line-height:1.3}.job .meta{font-size:12px;color:var(--mut);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.job .acts{display:flex;gap:4px}.job .acts button{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
-.job .acts button:hover{background:var(--soft)}
-tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
-.editbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
-.ev{display:inline-block;min-width:3ch;padding:1px 4px;margin:-4px -4px;border-radius:4px;outline:1px dashed var(--line);cursor:text}
-.ev:hover{outline-color:var(--ac)}.ev:focus{outline:2px solid var(--ac);background:var(--ac-soft)}
-.ed{background:var(--warn-soft);border-radius:3px;box-shadow:0 0 0 2px var(--warn-soft)}
-.acts2{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-.split{display:grid;grid-template-columns:minmax(220px,38%) 1fr;gap:16px;align-items:start}.split>*{min-width:0}
-.pv{position:sticky;top:76px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--soft);max-height:calc(100vh - 100px);overflow-y:auto}.pv img{width:100%;display:block;cursor:zoom-in}
-@media (max-width:900px){.split{grid-template-columns:1fr}.pv{position:static;max-height:300px}}
-.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--ac-soft);border-top-color:var(--ac);animation:sp .8s linear infinite;flex:none}
-@keyframes sp{to{transform:rotate(360deg)}}
-.prog{padding:8px 4px}.prog-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.prog .steps{margin-top:16px;font-size:14px;gap:12px}
-.job.running{border-color:var(--ac);background:var(--ac-soft)}
-#saved{order:9;flex-basis:100%;font-weight:400;font-size:12px}.card h2{flex-wrap:wrap;row-gap:4px}
-dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}dialog>form{display:flex;flex-direction:column;min-height:0;max-height:100%}dialog .db{flex:1;min-height:0;max-height:none}
-@media (max-width:640px){.bar{gap:8px;padding:12px 12px}.logo{font-size:15px}#lang{max-width:120px;padding:8px 4px!important}
-  .pad{padding:12px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.big{grid-column:span 2}.tab{padding:12px 8px}.tools .btn{flex:1 1 auto;justify-content:center}
-  .editbar .btn{flex:1 1 auto;justify-content:center}.grid2{grid-template-columns:1fr}.job{grid-template-columns:40px 1fr;}.job .acts{grid-column:1/-1;justify-content:flex-end}
-  dialog{width:calc(100% - 16px)}.kpi b{font-size:15px}.kpi.big b{font-size:20px}.dh,.df{padding:12px 16px}.db{padding:4px 16px 8px}}
 [hidden]{display:none!important}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.spin{animation:none;border-top-color:var(--ac);border-right-color:var(--ac)}}
-.help{margin-top:12px;padding:12px 12px;border-radius:var(--r);background:var(--ac-soft);font-size:13px;line-height:1.55}.help ol{margin:8px 0 0;padding-left:20px}.help a{color:var(--ac);font-weight:600}.help .warnline{color:var(--warn);margin-top:8px}
-#view a{color:var(--ac);text-decoration:none;font-weight:600}#view a:hover{text-decoration:underline}
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:var(--r);font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
+
+/* top bar: wordmark, where you are, language, settings */
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.bar{max-width:1560px;margin:0 auto;padding:0 var(--s5);height:var(--bar);display:flex;align-items:center;gap:var(--s4)}
+.logo{font-weight:600;font-size:15px;flex:none}.logo i{display:none}
+#crumbs{display:flex;align-items:center;gap:var(--s2);min-width:0;overflow:hidden;white-space:nowrap;font-size:13px;color:var(--mut)}
+#crumbs span{overflow:hidden;text-overflow:ellipsis}#crumbs span+span::before{content:"/";margin-right:var(--s2);color:var(--mut);opacity:.5}#crumbs span:last-child{color:var(--fg)}
+#status-pill{color:var(--warn);font-size:13px}
+
+/* controls */
+.btn{border:0;background:var(--raise);border-radius:var(--r);height:36px;padding:0 var(--s4);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);white-space:nowrap;transition:background-color .12s,color .12s}
+.btn:hover{background:var(--hover)}.btn:active{transform:translateY(1px)}.btn:disabled{background:var(--raise);color:var(--mut);opacity:.7;cursor:not-allowed;transform:none}
+.btn.pri{background:var(--ac);color:var(--on-ac);font-weight:600}.btn.pri:hover{background:color-mix(in srgb,var(--ac) 86%,var(--fg))}
+.btn.pri:disabled{background:var(--raise);color:var(--mut)}
+.btn.sm{height:30px;padding:0 var(--s3);font-size:13px}
+select.btn{padding:0 var(--s3);appearance:none}
+input[type=checkbox],input[type=radio]{accent-color:var(--ac-ink)}
+.lnk{border:0;background:none;color:var(--fg);padding:0;font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}.lnk:hover{color:var(--ac-ink)}
+#view a{color:var(--fg);text-decoration:underline;text-underline-offset:3px;font-weight:500}#view a:hover{color:var(--ac-ink)}
+.chk{display:flex;gap:var(--s2);align-items:center;font-size:13px;margin-top:var(--s3)}.chk input{width:auto}
+.note{font-size:12px;color:var(--mut);margin-top:var(--s2)}.note.warn{color:var(--warn)}
+.test{font-size:12px;margin-left:var(--s2)}.test.ok{color:var(--ok)}.test.bad{color:var(--bad)}
+.badge{display:inline-flex;align-items:center;gap:var(--s1);font-size:12px;font-weight:600;padding:2px var(--s2);border-radius:4px}.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.warn{background:var(--warn-soft);color:var(--warn)}.badge.bad{background:var(--bad-soft);color:var(--bad)}.badge.mut{background:var(--raise);color:var(--mut)}
+
+/* shell: a document rail on the left, the working surface on the right */
+main{max-width:1560px;margin:0 auto;padding:var(--s5);display:grid;grid-template-columns:292px minmax(0,1fr);gap:var(--s5);align-items:start}
+main>*{min-width:0}
+main>section:first-child{color:var(--fg);background:var(--panel);box-shadow:0 0 0 1px var(--edge);border-radius:var(--r2);padding:var(--s4);position:sticky;top:calc(var(--bar) + var(--s4));max-height:calc(100vh - var(--bar) - var(--s5));overflow:auto}
+main>section:first-child .card{background:none;border:0;border-radius:0}
+main>section:first-child .card h2{padding:0 0 var(--s3);font-size:15px}
+main>section:first-child .pad{padding:0}
+.card{color:var(--fg)}
+.card h2{font-size:14px;margin:0;font-weight:600;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);row-gap:var(--s1)}
+.pad{padding:var(--s4)}
+#saved{order:9;flex-basis:100%;font-weight:400;font-size:12px}
+.drop{background:var(--raise);border:1px dashed var(--mut);border-radius:var(--r2);padding:var(--s5) var(--s4);text-align:left;cursor:pointer;transition:background-color .12s,border-color .12s}
+.drop:hover,.drop.on{border-color:var(--ac-ink);background:var(--ac-soft)}.drop b{display:block;margin-bottom:var(--s1);font-size:14px;font-weight:600}.drop .sub{font-size:12px}
+.chips{display:block;margin-top:var(--s3);font-size:12px;color:var(--mut);line-height:1.8}
+.chip,.chip.on,.chip.off{display:inline;background:none;border:0;padding:0;color:var(--mut);font-size:12px}.chip.on{color:var(--fg)}.chip.off{text-decoration:line-through}.chip::after{content:", "}.chip:last-child::after{content:""}
+.mode{display:flex;gap:var(--s2);margin-top:var(--s3)}.mode .btn{flex:1 1 0;min-width:0;height:auto;min-height:32px;padding:var(--s2);font-size:13px;line-height:1.25;white-space:normal;text-align:center}.mode .btn:not(.pri){background:var(--raise)}.mode .btn.pri{background:var(--fg);color:var(--bg)}.mode .btn.pri:hover{background:var(--fg)}
+#mode-hint{margin:var(--s2) 0 0;font-size:12px}
+.file{margin-top:var(--s3);display:flex;align-items:center;gap:var(--s2);font-size:13px;word-break:break-all}
+.queue{display:grid;gap:0;margin-top:var(--s4)}
+.job{border-radius:var(--r);padding:var(--s3);display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:var(--s3);align-items:center;cursor:pointer;transition:background-color .12s}
+.job:hover{background:var(--raise)}.job.sel,.job.running{background:var(--raise)}.job.sel .nm{color:var(--ac-ink)}
+.job .tn{width:36px;height:48px;border-radius:4px;background:var(--raise);object-fit:cover;display:grid;place-items:center;font-size:11px;color:var(--mut)}
+.job .nm{font-size:13px;font-weight:600;overflow-wrap:anywhere;line-height:1.3}.job .meta{font-size:12px;color:var(--mut);margin-top:var(--s1);display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center}
+.job .acts{display:flex;gap:var(--s1)}.job .acts button{border:0;background:var(--hover);border-radius:4px;padding:var(--s1) var(--s2);font-size:12px;cursor:pointer}.job .acts button:hover{background:var(--line)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:var(--s2);margin-top:var(--s4)}.thumbs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:var(--r);cursor:zoom-in}
+.steps{list-style:none;margin:var(--s4) 0 0;padding:0;display:grid;gap:var(--s2);font-size:13px}.steps li{display:flex;gap:var(--s2);align-items:center;color:var(--mut)}
+.steps li.run{color:var(--fg);font-weight:600}.steps li.done{color:var(--ok)}.steps li.err{color:var(--bad)}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--ac-soft);border-top-color:var(--ac-ink);animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.prog{padding:var(--s2) 0}.prog-h{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap}.prog .steps{margin-top:var(--s4);font-size:14px;gap:var(--s3)}
+
+/* before the first file: one centred intake panel instead of an empty workspace */
+body.intake main{grid-template-columns:minmax(0,680px);justify-content:center;padding-top:12vh}
+body.intake #results{display:none}
+body.intake main>section:first-child{position:static;max-height:none;padding:var(--s5)}
+body.intake .drop{padding:var(--s6) var(--s5);text-align:center}
+body.intake .drop b{font-size:18px}
+body.intake .queue,body.intake #clearq{display:none}
+
+/* once there are files the rail is a ledger: the drop zone shrinks to a bar, the engine notes go */
+body:not(.intake) main>section:first-child .drop{padding:var(--s3) var(--s4)}
+body:not(.intake) .drop .sub,body:not(.intake) main>section:first-child .chips,body:not(.intake) #mode-hint{display:none}
+#intake-steps{margin:var(--s5) 0 0;color:var(--mut);font-size:13px;display:grid;gap:var(--s1)}#intake-steps p{margin:0}
+body:not(.intake) #intake-steps{display:none}
+
+/* working surface: tabs, then the page */
+#results{min-height:70vh}
+.tabs{display:flex;flex-direction:column;gap:2px;margin-bottom:var(--s5)}
+.navgrp{font-size:12px;color:var(--mut);padding:var(--s3) var(--s3) var(--s1)}.tabs .navgrp:first-child{padding-top:0}
+.tab{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);border:0;background:none;padding:var(--s2) var(--s3);border-radius:var(--r);cursor:pointer;color:var(--mut);white-space:nowrap;font-size:14px;text-align:left;transition:background-color .12s,color .12s}
+.tab:hover{background:var(--raise);color:var(--fg)}.tab.on{background:var(--raise);color:var(--ac-ink);font-weight:600}
+.exp{margin-top:var(--s3)}.exp>summary{background:var(--raise);border-radius:var(--r);padding:var(--s2) var(--s3);color:var(--fg);cursor:pointer;list-style:none;text-align:left}.exp>summary::before{content:none}.exp>summary:hover{background:var(--hover)}
+.exp .tools{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:var(--s1) 0 0;margin:0}
+.exp .tools .btn{justify-content:flex-start;background:none;width:100%;border-radius:var(--r)}.exp .tools .btn:hover{background:var(--raise)}.exp .tools .btn:disabled{display:none}
+.exp:not(:has(.btn:not(:disabled))){display:none}
+#pagehead{margin-bottom:var(--s4);padding-bottom:var(--s3);border-bottom:1px solid var(--line)}
+#pagehead h2{margin:0;font-size:22px;font-weight:600;line-height:1.25}#pagehead p{margin:var(--s1) 0 0;font-size:13px;color:var(--mut);overflow-wrap:anywhere}
+body.intake .tabs,body.intake #pagehead{display:none}
+#results>.pad{padding:0}
+.empty{text-align:left;padding:var(--s5) 0;font-size:18px;color:var(--mut);max-width:48ch}
+.empty .how{margin:var(--s5) 0 0;padding-left:var(--s5);font-size:14px;color:var(--fg);display:grid;gap:var(--s2)}
+.editbar{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-bottom:var(--s4)}
+
+/* figures and data */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--s2)}
+.kpi{background:var(--panel);box-shadow:0 0 0 1px var(--edge);border-radius:var(--r2);padding:var(--s4);min-width:0}.kpi>span{font-size:12px;color:var(--mut)}.kpi b{display:block;font-size:22px;font-weight:600;margin-top:var(--s1);overflow-wrap:anywhere;font-variant-numeric:tabular-nums;line-height:1.2}.kpi.big b{font-size:26px}.kpi .badge{font-size:12px}
+.sec{margin-top:var(--s5)}.sec h3{font-size:16px;font-weight:600;margin:0 0 var(--s3)}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:var(--s2) var(--s3);font-size:13px}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-word}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--s5)}
+.box{background:var(--panel);box-shadow:0 0 0 1px var(--edge);border-radius:var(--r2);padding:var(--s4)}.box h4{margin:0 0 var(--s3);font-size:14px;font-weight:600}
+.tw{overflow-x:auto;background:var(--panel);box-shadow:0 0 0 1px var(--edge);border-radius:var(--r2)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:var(--s2) var(--s4);border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:none;font-weight:500;color:var(--mut);font-size:12px;white-space:nowrap}
+tr:last-child td{border-bottom:0}td:first-child{font-weight:500}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.flag td{background:var(--bad-soft)}tr.click{cursor:pointer}tr:not(.flag):hover td{background:var(--raise)}
+.list{display:grid;gap:var(--s1)}.item{box-shadow:0 0 0 1px var(--edge);display:flex;gap:var(--s3);align-items:flex-start;padding:var(--s3) var(--s4);background:var(--panel);border-radius:var(--r);font-size:13px}.item .badge{flex:none}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.5 var(--mono);background:var(--panel);padding:var(--s4);border-radius:var(--r2);max-height:70vh;overflow:auto}
+.seg{display:flex;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s4)}.seg .btn.on{background:var(--fg);color:var(--bg)}
+.sumbar{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;margin:var(--s5) 0 var(--s3)}
+.sumbar input{flex:1 1 240px;min-width:0;height:36px;padding:0 var(--s3);border:0;border-radius:var(--r);background:var(--raise)}
+.sortb{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:inherit}.sortb:hover{text-decoration:underline}
+.pager{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin-bottom:var(--s4);padding:var(--s2) 0;border-bottom:1px solid var(--line)}
+.pager select{min-width:0;max-width:100%;height:30px;padding:0 var(--s2);border:0;border-radius:var(--r);background:var(--raise);color:var(--fg)}
+.pager .sub{margin:0 var(--s2)}.pager #seg-flag{margin-left:auto}
+.split{display:grid;grid-template-columns:minmax(220px,38%) 1fr;gap:var(--s5);align-items:start}.split>*{min-width:0}
+.pv{position:sticky;top:calc(var(--bar) + 56px);border-radius:var(--r2);overflow:hidden;background:var(--panel);max-height:calc(100vh - 140px);overflow-y:auto}.pv img{width:100%;display:block;cursor:zoom-in}
+.ev{display:inline-block;min-width:3ch;padding:1px var(--s1);margin:-4px -4px;border-radius:4px;outline:1px dashed var(--mut);cursor:text}
+.ev:hover{outline-color:var(--ac-ink)}.ev:focus{outline:2px solid var(--ac);background:var(--ac-soft)}
+.ed{background:var(--warn-soft);border-radius:3px;box-shadow:0 0 0 2px var(--warn-soft)}
+.acts2{display:flex;gap:var(--s2);margin-top:var(--s2);flex-wrap:wrap}
+.toast{position:fixed;bottom:var(--s5);left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:var(--s2) var(--s4);border-radius:var(--r);font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}.toast.on{opacity:1}
 #zoom{width:min(900px,calc(100% - 32px))}#zoom img{width:100%;display:block}
 
-/* layout pass: open page instead of boxed cards */
-main{grid-template-columns:340px minmax(0,1fr);gap:48px;padding:40px 24px 80px}
-.bar{padding:16px 24px}.logo{font-family:var(--serif);font-size:22px;font-weight:500}
-header{border-bottom:1px solid var(--line)}
-main>section:first-child .card{background:none;border:0;border-radius:0}
-main>section:first-child .card h2{padding:0 0 var(--s3);font-family:var(--serif);font-size:20px;font-weight:500}
-main>section:first-child .pad{padding:0}
-#results.card{color:var(--fg);background:var(--panel);border:1px solid var(--line);min-height:70vh}
-.drop{background:none;padding:var(--s5) var(--s4);text-align:left}
-.drop b{font-family:var(--serif);font-size:18px;font-weight:500}
-.chips{display:block;margin-top:var(--s3);font-size:12px;color:var(--mut);line-height:1.8}
-.chip,.chip.on,.chip.off{display:inline;background:none;border:0;padding:0;color:var(--mut);font-size:12px}.chip.on{color:var(--fg)}.chip::after{content:", "}.chip:last-child::after{content:""}
-.tabs{padding:0 var(--s5);gap:var(--s4);border-bottom:1px solid var(--line)}
-.tab{padding:var(--s4) 0;font-size:14px}
-.tools{width:100%;margin:0;padding:var(--s3) 0;justify-content:flex-end;border-top:1px solid var(--line)}
-.tools .btn{border:0;background:none;color:var(--mut);padding:4px var(--s2);text-decoration:underline;text-underline-offset:3px}.tools .btn:hover{color:var(--fg);background:none}.tools .btn:disabled{display:none}
-#results>.pad{padding:var(--s5)}
-.empty{text-align:left;padding:var(--s5) 0;font-family:var(--serif);font-size:20px;color:var(--mut);max-width:44ch}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border-top:1px solid var(--fg);border-bottom:1px solid var(--line)}
-.kpi{border:0;border-radius:0;padding:var(--s4) var(--s4) var(--s4) 0;min-width:0}
-.kpi>span{font-size:12px}.kpi b{font-family:var(--serif);font-size:24px;font-weight:500;line-height:1.2}
-.kpi.big b{font-size:28px}.kpi .badge{font-family:var(--font);font-size:12px}.kpi b{font-size:22px;overflow-wrap:anywhere}
-.sec{margin-top:var(--s5)}.sec h3{font-family:var(--serif);font-size:18px;font-weight:500}
-.box{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0 0}.box h4{font-size:14px}
-.grid2{gap:var(--s5)}
-.item{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0}
-.tw{border-radius:0;border-left:0;border-right:0}
-th{background:none;color:var(--fg);border-bottom:1px solid var(--fg)}
-.job{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0}.job.sel{box-shadow:none;border-top-color:var(--ac)}.job,.job.running{background:none}
-.help{background:none;border-left:0;padding:0}
-@media (min-width:761px) and (max-width:1100px){main{grid-template-columns:260px minmax(0,1fr);gap:var(--s5);padding:var(--s5) var(--s4) 64px}.bar{padding:var(--s3) var(--s4)}}
-@media (max-width:760px){main{grid-template-columns:minmax(0,1fr);gap:var(--s5);padding:var(--s4) var(--s4) 48px}.tabs{padding:0 var(--s3);gap:var(--s3)}.tabs .tab{padding:var(--s3) 0}.tools{justify-content:flex-start;overflow:visible}#results>.pad{padding:var(--s4)}}
-
-.f input,.f select{background:var(--panel)}
-fieldset{border:0;border-top:1px solid var(--fg);border-radius:0;padding:var(--s3) 0 var(--s4);margin:var(--s4) 0 0}legend{font-family:var(--serif);font-size:18px;font-weight:500;padding:0 var(--s2) 0 0}
-.test.ok{color:var(--ok)}.test.bad{color:var(--bad)}
-.dh h2{font-family:var(--serif);font-size:22px;font-weight:500}
-h1,h2,h3,h4{text-wrap:balance}
-
-input[type=checkbox]{accent-color:var(--ac)}
-#results.card{color:var(--fg)}
-
-/* settings dialog: two models side by side, rarely used options folded */
-dialog{width:min(960px,calc(100% - 32px))}
+/* settings */
+dialog{padding:0;border-radius:var(--r2);width:min(960px,calc(100% - 32px));background:var(--panel);color:var(--fg);border:0}dialog::backdrop{background:color-mix(in srgb,var(--bg) 78%,transparent)}
+dialog[open]{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}dialog>form{display:flex;flex-direction:column;min-height:0;max-height:100%}
+.dh{display:flex;align-items:center;padding:var(--s4) var(--s5);border-bottom:1px solid var(--line)}.dh h2{margin:0;font-size:18px;font-weight:600}
+.db{padding:var(--s1) var(--s5) var(--s2);flex:1;min-height:0;overflow:auto}.df{display:flex;gap:var(--s2);align-items:center;padding:var(--s4) var(--s5);border-top:1px solid var(--line)}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:var(--s5)}
-details>summary{cursor:pointer;color:var(--mut);padding:var(--s2) 0;list-style:none}details>summary::-webkit-details-marker{display:none}details>summary::before{content:"+";display:inline-block;width:16px}details[open]>summary::before{content:"\2212"}
-details>summary:hover{color:var(--fg)}
-.locfs .f{margin-top:0}.remember{margin-top:var(--s4)}
-.adv{margin-top:var(--s4);border-top:1px solid var(--line)}
+fieldset{border:0;border-top:1px solid var(--line);border-radius:0;padding:var(--s3) 0 var(--s4);margin:var(--s4) 0 0}legend{font-weight:600;font-size:15px;padding:0 var(--s2) 0 0}
+.f{display:grid;gap:var(--s1);margin-top:var(--s3)}.f label{font-size:12px;color:var(--mut)}
+.f input,.f select{width:100%;height:36px;padding:0 var(--s3);border:0;border-radius:var(--r);background:var(--raise)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.pw{position:relative}.pw input{padding-right:56px}.pw button{position:absolute;right:4px;top:4px;bottom:4px;border:0;background:var(--hover);border-radius:4px;padding:0 var(--s2);cursor:pointer;font-size:12px}
+details>summary{cursor:pointer;color:var(--mut);padding:var(--s2) 0;list-style:none}details>summary::-webkit-details-marker{display:none}details>summary::before{content:"+";display:inline-block;width:16px}details[open]>summary::before{content:"\2212"}details>summary:hover{color:var(--fg)}
+.locfs .f{margin-top:0}.remember{margin-top:var(--s4)}.adv{margin-top:var(--s4);border-top:1px solid var(--line)}
+.help{margin-top:var(--s3);padding:0;font-size:13px;line-height:1.55}.help ol{margin:var(--s2) 0 0;padding-left:var(--s5)}.help a{color:var(--fg);font-weight:600}.help .warnline{color:var(--warn);margin-top:var(--s2)}
 
-/* professional pass: one-row tabs with an export menu, compact queue, aligned figures, guided empty state */
-.tabs{align-items:center;gap:var(--s5);padding:0 var(--s5);border-bottom:1px solid var(--line)}
-.tab{padding:var(--s4) 0;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px}.tab.on{border-bottom-color:var(--ac)}
-.exp{position:relative;margin-left:auto}.exp>summary{border:1px solid var(--line);border-radius:var(--r);padding:var(--s1) var(--s3);color:var(--fg);background:var(--panel)}.exp>summary::before{content:none}
-.exp .tools{position:absolute;right:0;top:calc(100% + var(--s1));z-index:6;width:240px;flex-direction:column;align-items:stretch;gap:0;padding:var(--s1);margin:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
-.exp .tools .btn{justify-content:flex-start;text-decoration:none;color:var(--fg);padding:var(--s2) var(--s3);width:100%}.exp .tools .btn:hover{background:var(--soft)}
-.exp:not(:has(.btn:not(:disabled))){display:none}
-.empty .how{margin:var(--s5) 0 0;padding-left:var(--s5);font-family:var(--font);font-size:14px;color:var(--fg);display:grid;gap:var(--s2)}
-th.n,td.n{text-align:right}
-.tab{display:inline-flex;align-items:center;gap:var(--s2)}
-td:first-child{font-weight:500}
-tr:not(.flag):hover td{background:var(--soft)}
-.job{grid-template-columns:36px minmax(0,1fr) auto;gap:var(--s3);padding:var(--s3) 0}.job .tn{width:36px;height:48px}
-.job .nm{overflow-wrap:anywhere;word-break:normal}.job .badge{padding:0 var(--s2)}
-@media (min-width:1200px){#results>.pad{padding:var(--s5) 32px}.tabs{padding:0 32px}}
-@media (max-width:760px){.exp{margin-left:0}.tabs{gap:var(--s4)}.exp .tools{right:auto;left:0}}
-
-.sumbar{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;margin:var(--s5) 0 var(--s3)}
-.sumbar input{flex:1 1 240px;min-width:0;padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
-.seg .btn.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-.sortb{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:inherit}.sortb:hover{text-decoration:underline}
-
-.mode{display:flex;gap:var(--s2);margin-top:var(--s3)}
-#mode-hint{margin:var(--s2) 0 0}
-.pager{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin-bottom:var(--s4);padding:var(--s2) 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.pager select{min-width:0;max-width:100%;padding:var(--s1) var(--s2);border:0;border-bottom:1px solid var(--fg);border-radius:0;background:none;color:var(--fg)}
-.pager .sub{margin:0 var(--s2)}.pager #seg-flag{margin-left:auto}
-
-@media (min-width:901px){main.wide{grid-template-columns:272px minmax(0,1fr);gap:32px}main.wide .drop b{font-size:16px}main.wide .job .acts{grid-column:1/-1}}
-/* route page: a working surface, not a form. Stops on the left, the plan (setup, button, map, lorries) in a sticky column on the right. */
-.rt{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:var(--s5) 48px;align-items:start}
+/* delivery route: stops as a ledger on the left, the plan on a raised panel on the right */
+.rt{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:var(--s5);align-items:start}
 .rt-main{min-width:0;container:rtm/inline-size}
-.rt-side{position:sticky;top:88px;max-height:calc(100vh - 104px);overflow:auto;padding-left:32px;border-left:1px solid var(--line);min-width:0}
-.rt-title{font-family:var(--serif);font-size:18px;font-weight:500;margin:var(--s5) 0 var(--s3)}.rt-side>.how+.rt-title{margin-top:var(--s4)}
+.rt-side{box-shadow:0 0 0 1px var(--edge);position:sticky;top:calc(var(--bar) + 60px);max-height:calc(100vh - var(--bar) - 76px);overflow:auto;padding:var(--s4);min-width:0;background:var(--panel);border-radius:var(--r2)}
+.rt-title{font-size:16px;font-weight:600;margin:var(--s5) 0 var(--s3)}.rt-side>.how+.rt-title{margin-top:var(--s4)}
 .how>summary{padding:0}.how p{margin:var(--s2) 0}
-.rt-form{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4) var(--s5)}
+.rt-form{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3) var(--s4)}
 .rt-f{display:grid;gap:var(--s1);min-width:0;align-content:end}.rt-f label{font-size:12px;color:var(--mut)}.rt-wide{grid-column:1/-1}
-.rt-f input:not([type=checkbox]),.rt-tools input{width:100%;min-width:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:var(--s1) 0;font-size:15px}
-.rt-f input:not([type=checkbox]):hover,.rt-tools input:hover{border-bottom-color:var(--mut)}
+.rt-f input:not([type=checkbox]),.rt-tools input{width:100%;min-width:0;height:36px;border:0;border-radius:var(--r);background:var(--raise);padding:0 var(--s3);font-size:14px}
 .rt-inline{display:flex;gap:var(--s3);align-items:end}.rt-inline input{flex:1}
-.rt-hint{font-size:12px;color:var(--mut)}.rt-hint a{color:var(--ac)}
+.rt-hint{font-size:12px;color:var(--mut)}.rt-hint a{color:var(--fg)}
 .rt-back{margin:0;align-self:end;font-size:13px}
-.lnk{border:0;background:none;color:var(--ac);padding:0;font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}.lnk:hover{color:var(--fg)}
-.rt-plan{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);align-items:center;margin:var(--s5) 0 var(--s4)}.rt-plan .btn.pri{flex:1 1 100%;justify-content:center;padding:var(--s3)}
+.rt-plan{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);align-items:center;margin:var(--s5) 0 var(--s3)}.rt-plan .btn.pri{flex:1 1 100%;height:40px}
 .rt-msg{font-size:12px;color:var(--mut);flex-basis:100%}
-.rt-fig{margin:var(--s4) 0 0}.rt-map{display:block;width:100%;height:auto;background:var(--soft);border-radius:var(--r)}
+.rt-fig{margin:var(--s4) 0 0}.rt-map{display:block;width:100%;height:auto;background:var(--raise);border-radius:var(--r)}
 .rt-fig figcaption{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1);margin-top:var(--s2);font-size:12px;color:var(--mut)}
 .lg{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:var(--s3)}.lg:first-child{margin-left:0}.lg.ex{background:var(--ok)}.lg.st{background:var(--warn)}.lg.sq{border-radius:0;background:var(--fg)}
 .rt-dot.ex{fill:var(--ok)}.rt-dot.st{fill:var(--warn)}.rt-dot.hl{r:7;stroke:var(--fg);stroke-width:1.5}.rt-start{fill:var(--fg)}
@@ -200,40 +176,71 @@ section.l0,section.l1,section.l2,section.l3,section.l4,section.l5{stroke:none;fi
 .rt-lorry{border-top:1px solid var(--line);padding:var(--s3) 0}.rt-lorry h4{margin:0 0 var(--s2);font-size:14px}.rt-lorry ol{margin:0;padding-left:var(--s5);display:grid;gap:var(--s1);font-size:13px}.rt-lorry li.far{color:var(--bad)}
 .rt-nav{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s3)}.rt-warnline{color:var(--warn);font-size:13px;margin:0 0 var(--s2)}
 .rt-warn{border-top:1px solid var(--bad);padding:var(--s3) 0}.rt-warn ul{margin:var(--s2) 0 0;padding-left:var(--s5);font-size:13px}.rt-review p{margin:var(--s2) 0;font-size:13px}.rt-priv{font-size:12px;color:var(--mut);margin-top:var(--s5)}
-.rt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s2) var(--s4);margin-bottom:var(--s3)}.rt-head h3{margin:0;font-family:var(--serif);font-size:22px;font-weight:500}.rt-sum{font-size:13px;color:var(--mut)}
+.rt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s2) var(--s4);margin-bottom:var(--s3)}.rt-head h3{margin:0;font-size:16px;font-weight:600}.rt-sum{font-size:13px;color:var(--mut)}
 .rt-tools{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s3);align-items:end;margin-bottom:var(--s2)}.rt-tools input{flex:1 1 220px}
 .rt-sub{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s5);justify-content:space-between;align-items:center;margin:var(--s3) 0 var(--s2);font-size:13px}.rt-sub .chk{margin:0}.rt-io{display:flex;gap:var(--s4)}
 .rt-list{list-style:none;margin:0;padding:0}
-.rt-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;grid-template-areas:"c i a" ". l l" ". f f";gap:var(--s2) var(--s4);align-items:start;padding:var(--s3) 0;border-top:1px solid var(--line);transition:background-color .12s}.rt-row:hover{background:var(--soft)}.rt-row.off{opacity:.45}
-.rt-row>input{grid-area:c}.rt-info{grid-area:i}.rt-loc{grid-area:l}.rt-acts{grid-area:a}.rt-fix{grid-area:f}
-@container rtm (min-width:500px){.rt-row{grid-template-columns:20px minmax(0,1fr) 220px auto;grid-template-areas:"c i l a" ". f f f"}}
-.rt-row>input{margin-top:var(--s1)}
-.rt-name{display:flex;flex-wrap:wrap;gap:0 var(--s2);align-items:baseline}.rt-name b{font-weight:600}.rt-docs{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+.rt-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;grid-template-areas:"c i a" ". l l" ". f f";gap:var(--s2) var(--s4);align-items:start;padding:var(--s3) var(--s2);border-top:1px solid var(--line);transition:background-color .12s}.rt-row:hover{background:var(--panel)}.rt-row.off{opacity:.45}
+.rt-row>input{grid-area:c;margin-top:var(--s1)}.rt-info{grid-area:i}.rt-loc{grid-area:l}.rt-acts{grid-area:a}.rt-fix{grid-area:f}
+@container rtm (min-width:560px){.rt-row{grid-template-columns:20px minmax(0,1fr) 250px auto;grid-template-areas:"c i l a" ". f f f"}}
+.rt-name{display:flex;flex-wrap:wrap;gap:0 var(--s2);align-items:baseline}.rt-name b{font-weight:600}.rt-docs{font-family:var(--mono);font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
 .rt-addr{font-size:13px;color:var(--mut);line-height:1.45;overflow-wrap:anywhere}.rt-note{display:inline-block;margin-top:var(--s1);font-size:12px;color:var(--mut)}
-.rt-loc{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2)}.rt-loc .badge{white-space:nowrap}.rt-loc div.sub{flex-basis:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.rt-loc{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3)}.rt-loc a{white-space:nowrap;font-size:13px}.rt-loc .badge{white-space:nowrap}.rt-loc div.sub{flex-basis:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
 .rt-acts{display:flex;gap:var(--s3);align-items:center}
-.rt-fix{display:grid;gap:var(--s1)}.rt-fix input{border:0;border-bottom:1px solid var(--ac);background:none;padding:var(--s1) 0;font-size:15px}
-@media (max-width:1100px){.rt{grid-template-columns:minmax(0,1fr)}.rt-side{position:static;max-height:none;overflow:visible;padding-left:0;border-left:0;order:-1}}
-@media (max-width:640px){.rt-form{grid-template-columns:1fr 1fr}}
-
-.rt-pin{height:300px;margin:var(--s2) 0;border:1px solid var(--line);border-radius:var(--r);position:relative;z-index:0}
+.rt-fix{display:grid;gap:var(--s1)}.rt-fix input{border:0;border-radius:var(--r);background:var(--raise);height:36px;padding:0 var(--s3);font-size:14px}
+.rt-pin{height:300px;margin:var(--s2) 0;border-radius:var(--r);position:relative;z-index:0;overflow:hidden}
 .pin{width:18px;height:18px;border-radius:50%;background:var(--ac);border:3px solid var(--panel);outline:1px solid var(--ac);box-sizing:border-box;cursor:grab}
 .rt-pinbar{display:flex;gap:var(--s4);align-items:center;margin-top:var(--s2)}
 .rt-brand{margin:var(--s4) 0 0}.rt-lab{font-size:12px;color:var(--mut);margin-bottom:var(--s1)}.rt-radios{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s5)}.rt-radios .chk{margin:0}
-.rt-brand>input{width:100%;margin-top:var(--s2);border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:var(--s1) 0;font-size:15px}.rt-need{color:var(--warn);margin:var(--s2) 0 0}
+.rt-brand>input{width:100%;margin-top:var(--s2);height:36px;border:0;border-radius:var(--r);background:var(--raise);padding:0 var(--s3)}.rt-need{color:var(--warn);margin:var(--s2) 0 0}
+
+/* narrower windows */
+@media (min-width:761px) and (max-width:1100px){main{grid-template-columns:264px minmax(0,1fr);gap:var(--s4);padding:var(--s4)}.bar{padding:0 var(--s4)}}
+@media (max-width:1100px){.rt{grid-template-columns:minmax(0,1fr)}.rt-side{position:static;max-height:none;overflow:visible;order:-1}}
+@media (max-width:900px){.split{grid-template-columns:1fr}.pv{position:static;max-height:300px}}
+@media (max-width:760px){
+  main{grid-template-columns:minmax(0,1fr);gap:var(--s4);padding:var(--s3) var(--s4) var(--s6)}
+  main>section:first-child{position:static;max-height:none}
+  .bar{padding:0 var(--s3);gap:var(--s2)}#crumbs{display:none}.bar .btn{height:32px;padding:0 var(--s3);font-size:13px}#lang{max-width:84px}
+  body:not(.intake) main>section:first-child,body:not(.intake) main>section:first-child>.card,body:not(.intake) main>section:first-child>.card>.pad{display:contents}
+  body:not(.intake) main>.tabs,body:not(.intake) main>section:first-child>.tabs{order:1}body:not(.intake) #results{order:2}
+  body:not(.intake) main>section:first-child>.card>h2,body:not(.intake) main>section:first-child>.card>.pad>*,body:not(.intake) main>section:first-child>.note{order:3}
+  .tabs{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:var(--s1);margin-bottom:0;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.navgrp{display:none}.tab{flex:none}.exp{margin:0;flex:none}.exp .tools{position:fixed;z-index:6;top:calc(var(--bar) + var(--s2));left:var(--s4);right:var(--s4);background:var(--hover);border-radius:var(--r);padding:var(--s1)}
+  .tabs{gap:var(--s4)}.exp{margin-left:0}.exp .tools{right:auto;left:0}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.big,.kpi:last-child:nth-child(odd){grid-column:span 2}.kpi b{font-size:18px}.kpi.big b{font-size:22px}
+  .grid2{grid-template-columns:1fr}.job{grid-template-columns:36px minmax(0,1fr)}.job .acts{grid-column:1/-1;justify-content:flex-end}
+  .editbar .btn{flex:1 1 auto}.rt-form{grid-template-columns:1fr 1fr}
+  dialog{width:calc(100% - 16px)}.dh,.df{padding:var(--s3) var(--s4)}.db{padding:var(--s1) var(--s4) var(--s2)}.row{grid-template-columns:1fr}
+  body.intake main{padding-top:var(--s4)}body.intake .drop{padding:var(--s5) var(--s4)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.spin{animation:none;border-top-color:var(--ac-ink);border-right-color:var(--ac-ink)}}
 </style>
 </head>
 <body>
 <header><div class="bar">
   <div class="logo">InvoiceLens</div>
+  <nav id="crumbs" aria-label="Location"></nav>
   <span class="sub" id="status-pill"></span>
   <span class="sp"></span>
-  <select id="lang" class="btn" aria-label="Language" style="padding:7px 8px"><option value="en">English</option><option value="zh">中文</option><option value="ms">Bahasa Melayu</option></select>
+  <select id="lang" class="btn" aria-label="Language"><option value="en">English</option><option value="zh">中文</option><option value="ms">Bahasa Melayu</option></select>
+  <button class="btn" id="theme" type="button"></button>
   <button class="btn" id="open-settings" data-i18n-title="settings"><span data-i18n="settings"></span></button>
 </div></header>
 
 <main>
 <section>
+  <div class="tabs" role="tablist">
+    <span class="navgrp" data-i18n="crumb_batch"></span>
+    <button class="tab" data-tab="summary" id="tab-summary" hidden><span data-i18n="tab_summary"></span> <span id="sum-count"></span></button>
+    <button class="tab" data-tab="recon" id="tab-recon" hidden><span data-i18n="tab_recon"></span> <span id="recon-count"></span></button>
+    <button class="tab" data-tab="route" id="tab-route" hidden><span data-i18n="tab_route"></span></button>
+    <span class="navgrp" id="grp-doc" data-i18n="grp_doc"></span>
+    <button class="tab on" data-tab="overview" data-i18n="tab_overview"></button>
+    <button class="tab" data-tab="items" data-i18n="tab_items"></button>
+    <button class="tab" data-tab="checks"><span data-i18n="tab_checks"></span> <span id="check-count"></span></button>
+    <button class="tab" data-tab="json" data-i18n="tab_json"></button>
+    <details class="exp"><summary data-i18n="export_menu"></summary><div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csvall" disabled data-i18n="csv_all"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div></details>
+  </div>
+
   <div class="card">
     <h2><span data-i18n="queue"></span> <span class="sub" id="qsum"></span><span class="sub" id="saved" data-i18n-title="autosave_title"></span><span class="sp"></span><button class="btn sm" id="clearq" hidden data-i18n="clear"></button></h2>
     <div class="pad">
@@ -249,26 +256,18 @@ section.l0,section.l1,section.l2,section.l3,section.l4,section.l5{stroke:none;fi
         <button type="button" class="btn sm" data-mode="full" data-i18n="mode_full"></button>
       </div>
       <p class="sub" id="mode-hint"></p>
+      <div id="intake-steps"></div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn pri" id="go" style="flex:1;justify-content:center" disabled></button>
       </div>
       <div class="queue" id="queue"></div>
     </div>
   </div>
-  <p class="note" style="padding:0 4px" data-i18n="privacy"></p>
+  <p class="note" data-i18n="privacy"></p>
 </section>
 
 <section class="card" id="results">
-  <div class="tabs" role="tablist">
-    <button class="tab" data-tab="summary" id="tab-summary" hidden><span data-i18n="tab_summary"></span> <span id="sum-count"></span></button>
-    <button class="tab" data-tab="recon" id="tab-recon" hidden><span data-i18n="tab_recon"></span> <span id="recon-count"></span></button>
-    <button class="tab" data-tab="route" id="tab-route" hidden><span data-i18n="tab_route"></span></button>
-    <button class="tab on" data-tab="overview" data-i18n="tab_overview"></button>
-    <button class="tab" data-tab="items" data-i18n="tab_items"></button>
-    <button class="tab" data-tab="checks"><span data-i18n="tab_checks"></span> <span id="check-count"></span></button>
-    <button class="tab" data-tab="json" data-i18n="tab_json"></button>
-    <details class="exp"><summary data-i18n="export_menu"></summary><div class="tools"><button class="btn sm" id="copy" disabled data-i18n="copy_json"></button><button class="btn sm" id="dl" disabled data-i18n="dl_json"></button><button class="btn sm" id="csvall" disabled data-i18n="csv_all"></button><button class="btn sm" id="csv" disabled data-i18n="csv_tables"></button><button class="btn sm" id="csvsum" disabled data-i18n="csv_summary"></button></div></details>
-  </div>
+  <div id="pagehead"></div>
   <div class="pad" id="view"></div>
 </section>
 </main>
@@ -404,7 +403,7 @@ en:{
  dt_invoice:"Invoice",dt_receipt:"Receipt",dt_delivery_order:"Delivery order",dt_invoice_register:"Invoice register / shipment list",dt_purchase_order:"Purchase order",dt_statement:"Statement",dt_quotation:"Quotation",dt_other:"Other",
  r_supplier:"Supplier",r_customer:"Customer",r_bill_to:"Bill to",r_ship_to:"Ship to",r_transporter:"Transporter",r_issuer:"Issuer",r_other:"Other party",party:"Party",
  edited_orig:"Corrected; original: {v}",tbl_head:"{t}, {n} rows{p}",printed:" (printed: {v})",del_row:"Delete this row",add_row:"＋ Add row",
- mode_label:"What to read",mode_route:"Addresses only (cheaper)",mode_full:"Everything",mode_hint_route:"One short model call per page: only the addresses and parties are read. The second model is called only for a page whose delivery address the first one is unsure of. Tables, totals and checks are not read, so those pages stay mostly empty; the Delivery route page opens first.",mode_hint_full:"Every field, table and total is read by both models. Costs more.",orig_img:"Original",rt_brand_q:"What are these deliveries for?",rt_brand_99:"99 Speedmart",rt_brand_other:"Other / manual input",rt_brand_ph:"Shop or brand name, e.g. Tesco",rt_brand_wait:"Choose what these deliveries are for to start the Google / SerpApi lookup for the other stops.",rt_brand_auto:"The billing address says 99 Speedmart for {n} of {m} stops: those are looked up as 99 Speedmart. Choose below to apply one choice to all.",g_service:"Place lookup service",g_svc_auto:"Automatic: Google first, then SerpApi (whichever has a key)",g_svc_google:"Google Places only",g_svc_serp:"SerpApi only",s_key:"SerpApi key (optional)",s_note:"Another way to look stops up on Google Maps. Needs the CORS proxy below because SerpApi cannot be called from a web page. Free plan: 250 searches a month.",s_proxy:"SerpApi proxy URL (default: the proxy in Advanced)",test_serp:"Check SerpApi key",s_ok:"SerpApi key works: {n} searches left",s_noproxy:"SerpApi cannot be called from a web page: set the proxy URL first",rt_g_prog:"Place lookup {i}/{n}…",rt_g_err:"Place lookup stopped: {e}",rt_view_addr:"by address",rt_view_store:"by store name",rt_pin_help:"Click the map or drag the pin to the exact spot of the shop.",rt_pin_use:"Use this position",rt_pin_cancel:"Cancel",rt_map_off:"The map could not be loaded. Paste a link or coordinates below instead.",g_key:"Google Maps API key (optional)",g_note:"Leave empty to keep the free methods. With a key, stops that OpenStreetMap cannot place exactly are looked up with Google Places (billed by Google to your key) and accepted only when the postcode and the street / area words match. Enable “Places API (New)” for the key.",rt_map_alt:"Map of {n} stops",rt_leg_exact:"Exact",rt_leg_street:"Street or area",rt_leg_start:"Start",rt_export:"Export stops to check",rt_import:"Import coordinates",rt_imported:"{n} coordinates imported",rt_import_bad:"That file is not a valid locations.json",rt_setup:"Setup",pg_prev:"Previous",pg_next:"Next",pg_page:"Page",pg_bad:"needs review",pg_warn:"check",pg_flag:"Next flagged page ({n})",rt_sum:"{n} stops, {p} placed exactly, {q} to check",rt_only:"Show only stops to check",rt_how_h:"How locations are found",sum_search:"Search file, number, party or total",sum_all:"All",sum_none:"Nothing matches this filter.",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
+ mode_label:"What to read",mode_route:"Addresses only (cheaper)",mode_full:"Everything",mode_hint_route:"One short model call per page: only the addresses and parties are read. The second model is called only for a page whose delivery address the first one is unsure of. Tables, totals and checks are not read, so those pages stay mostly empty; the Delivery route page opens first.",mode_hint_full:"Every field, table and total is read by both models. Costs more.",crumb_batch:"Batch",theme_to_light:"Light",theme_to_dark:"Dark",grp_doc:"Document",files_n:"{n} files",orig_img:"Original",rt_brand_q:"What are these deliveries for?",rt_brand_99:"99 Speedmart",rt_brand_other:"Other / manual input",rt_brand_ph:"Shop or brand name, e.g. Tesco",rt_brand_wait:"Choose what these deliveries are for to start the Google / SerpApi lookup for the other stops.",rt_brand_auto:"The billing address says 99 Speedmart for {n} of {m} stops: those are looked up as 99 Speedmart. Choose below to apply one choice to all.",g_service:"Place lookup service",g_svc_auto:"Automatic: Google first, then SerpApi (whichever has a key)",g_svc_google:"Google Places only",g_svc_serp:"SerpApi only",s_key:"SerpApi key (optional)",s_note:"Another way to look stops up on Google Maps. Needs the CORS proxy below because SerpApi cannot be called from a web page. Free plan: 250 searches a month.",s_proxy:"SerpApi proxy URL (default: the proxy in Advanced)",test_serp:"Check SerpApi key",s_ok:"SerpApi key works: {n} searches left",s_noproxy:"SerpApi cannot be called from a web page: set the proxy URL first",rt_g_prog:"Place lookup {i}/{n}…",rt_g_err:"Place lookup stopped: {e}",rt_view_addr:"by address",rt_view_store:"by store name",rt_pin_help:"Click the map or drag the pin to the exact spot of the shop.",rt_pin_use:"Use this position",rt_pin_cancel:"Cancel",rt_map_off:"The map could not be loaded. Paste a link or coordinates below instead.",g_key:"Google Maps API key (optional)",g_note:"Leave empty to keep the free methods. With a key, stops that OpenStreetMap cannot place exactly are looked up with Google Places (billed by Google to your key) and accepted only when the postcode and the street / area words match. Enable “Places API (New)” for the key.",rt_map_alt:"Map of {n} stops",rt_leg_exact:"Exact",rt_leg_street:"Street or area",rt_leg_start:"Start",rt_export:"Export stops to check",rt_import:"Import coordinates",rt_imported:"{n} coordinates imported",rt_import_bad:"That file is not a valid locations.json",rt_setup:"Setup",pg_prev:"Previous",pg_next:"Next",pg_page:"Page",pg_bad:"needs review",pg_warn:"check",pg_flag:"Next flagged page ({n})",rt_sum:"{n} stops, {p} placed exactly, {q} to check",rt_only:"Show only stops to check",rt_how_h:"How locations are found",sum_search:"Search file, number, party or total",sum_all:"All",sum_none:"Nothing matches this filter.",export_menu:"Export",emp1:"Add invoices, delivery orders or any other document.",emp2:"Press Start extraction.",emp3:"Check what is flagged, then export.",more_opts:"More options",howto:"How to get a key",loc_with:"Model used to find exact locations",loc_auto:"Automatic (B if set, else A)",loc_note:"The model must be able to browse the web (e.g. Gemini with search, Perplexity, GPT search models). Plain chat APIs such as deepseek-chat cannot, so stops stay “Street / area only”.",test_web:"Test web search",web_testing:"Testing…",web_ok:"Web search works: the model read a live page correctly.",web_no:"Not confirmed: the model could not read a live page, so it cannot find exact locations.",web_err:"Test failed: ",zoom:"Click to zoom",done_edit:"✓ Done editing",edit:"Edit result",reviewed_btn:"✓ Reviewed",mark_rev:"Mark as reviewed",undo:"↶ Undo last change",
  corrected_n:"{n} correction(s)",edit_hint:"Click any value to edit; Enter or click elsewhere to save",
  b_ok:"Passed",b_bad:"Error",b_warn:"Attention",b_mut:"Info",use_a:"Use A value",use_b:"Use B value",fix:"Edit",confirm_ok:"Confirm correct",
  no_model_result:"No usable model result. ",config_first:"Configure a model in “Model settings” first.",
@@ -474,7 +473,7 @@ zh:{
  dt_invoice:"发票",dt_receipt:"收据",dt_delivery_order:"送货单",dt_invoice_register:"发票登记 / 出货清单",dt_purchase_order:"采购单",dt_statement:"对账单",dt_quotation:"报价单",dt_other:"其他",
  r_supplier:"供应商",r_customer:"客户",r_bill_to:"买方",r_ship_to:"收货方",r_transporter:"承运方",r_issuer:"开具方",r_other:"其他方",party:"相关方",
  edited_orig:"已修正，原值：{v}",tbl_head:"{t}，{n} 行{p}",printed:"（印刷：{v}）",del_row:"删除此行",add_row:"＋ 添加一行",
- mode_label:"读取内容",mode_route:"只读地址（更省钱）",mode_full:"读取全部",mode_hint_route:"每页先用第一个模型读一次，提示更短，只读地址和单位信息；只有送货地址读得不确定的页面，才会调用第二个模型。表格、合计和校验不读取，这些页面基本是空的；读完后默认打开送货路线页。",mode_hint_full:"所有字段、表格和合计都由两个模型读取，费用更高。",orig_img:"原图",rt_brand_q:"这批送货是给谁的？",rt_brand_99:"99 Speedmart",rt_brand_other:"其他 / 手动输入",rt_brand_ph:"店铺或品牌名称，例如 Tesco",rt_brand_wait:"请选择这批送货的对象，才会对其余的送货点开始 Google / SerpApi 查询。",rt_brand_auto:"{m} 个送货点中有 {n} 个的账单地址是 99 Speedmart：它们按 99 Speedmart 查询。在下方选择则对全部送货点统一生效。",g_service:"位置查询服务",g_svc_auto:"自动：先 Google，再 SerpApi（有 Key 的才用）",g_svc_google:"只用 Google Places",g_svc_serp:"只用 SerpApi",s_key:"SerpApi Key（可选）",s_note:"另一种在 Google 地图上查找送货点的方式。因为 SerpApi 不能从网页直接调用，需要下面的 CORS 代理。免费计划每月 250 次搜索。",s_proxy:"SerpApi 代理地址（默认使用“高级”里的代理）",test_serp:"检查 SerpApi Key",s_ok:"SerpApi Key 可用：还剩 {n} 次搜索",s_noproxy:"SerpApi 不能从网页直接调用：请先填写代理地址",rt_g_prog:"位置查询 {i}/{n}…",rt_g_err:"位置查询已停止：{e}",rt_view_addr:"按地址搜",rt_view_store:"按店名搜",rt_pin_help:"点击地图或拖动图钉到店铺的准确位置。",rt_pin_use:"使用此位置",rt_pin_cancel:"取消",rt_map_off:"地图无法加载，请在下方粘贴链接或坐标。",g_key:"Google Maps API Key（可选）",g_note:"留空则继续使用免费方法。填写后，OpenStreetMap 无法精确定位的送货点会用 Google Places 查询（由 Google 向你的 Key 计费），并且只有邮编和街道/区域词都对得上才采用。需要为该 Key 启用 “Places API (New)”。",rt_map_alt:"{n} 个送货点的示意图",rt_leg_exact:"精确",rt_leg_street:"街道或区域",rt_leg_start:"出发点",rt_export:"导出待核对的送货点",rt_import:"导入坐标",rt_imported:"已导入 {n} 个坐标",rt_import_bad:"这个文件不是有效的 locations.json",rt_setup:"出发与车辆设置",pg_prev:"上一页",pg_next:"下一页",pg_page:"页面",pg_bad:"需复核",pg_warn:"待确认",pg_flag:"下一个有问题的页面（{n}）",rt_sum:"{n} 个送货点，{p} 个已精确定位，{q} 个待核对",rt_only:"只显示待核对的送货点",rt_how_h:"位置是如何查找的",sum_search:"搜索文件、单号、对方或金额",sum_all:"全部",sum_none:"没有符合筛选条件的文件。",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
+ mode_label:"读取内容",mode_route:"只读地址（更省钱）",mode_full:"读取全部",mode_hint_route:"每页先用第一个模型读一次，提示更短，只读地址和单位信息；只有送货地址读得不确定的页面，才会调用第二个模型。表格、合计和校验不读取，这些页面基本是空的；读完后默认打开送货路线页。",mode_hint_full:"所有字段、表格和合计都由两个模型读取，费用更高。",crumb_batch:"批次",theme_to_light:"浅色",theme_to_dark:"深色",grp_doc:"文档",files_n:"{n} 个文件",orig_img:"原图",rt_brand_q:"这批送货是给谁的？",rt_brand_99:"99 Speedmart",rt_brand_other:"其他 / 手动输入",rt_brand_ph:"店铺或品牌名称，例如 Tesco",rt_brand_wait:"请选择这批送货的对象，才会对其余的送货点开始 Google / SerpApi 查询。",rt_brand_auto:"{m} 个送货点中有 {n} 个的账单地址是 99 Speedmart：它们按 99 Speedmart 查询。在下方选择则对全部送货点统一生效。",g_service:"位置查询服务",g_svc_auto:"自动：先 Google，再 SerpApi（有 Key 的才用）",g_svc_google:"只用 Google Places",g_svc_serp:"只用 SerpApi",s_key:"SerpApi Key（可选）",s_note:"另一种在 Google 地图上查找送货点的方式。因为 SerpApi 不能从网页直接调用，需要下面的 CORS 代理。免费计划每月 250 次搜索。",s_proxy:"SerpApi 代理地址（默认使用“高级”里的代理）",test_serp:"检查 SerpApi Key",s_ok:"SerpApi Key 可用：还剩 {n} 次搜索",s_noproxy:"SerpApi 不能从网页直接调用：请先填写代理地址",rt_g_prog:"位置查询 {i}/{n}…",rt_g_err:"位置查询已停止：{e}",rt_view_addr:"按地址搜",rt_view_store:"按店名搜",rt_pin_help:"点击地图或拖动图钉到店铺的准确位置。",rt_pin_use:"使用此位置",rt_pin_cancel:"取消",rt_map_off:"地图无法加载，请在下方粘贴链接或坐标。",g_key:"Google Maps API Key（可选）",g_note:"留空则继续使用免费方法。填写后，OpenStreetMap 无法精确定位的送货点会用 Google Places 查询（由 Google 向你的 Key 计费），并且只有邮编和街道/区域词都对得上才采用。需要为该 Key 启用 “Places API (New)”。",rt_map_alt:"{n} 个送货点的示意图",rt_leg_exact:"精确",rt_leg_street:"街道或区域",rt_leg_start:"出发点",rt_export:"导出待核对的送货点",rt_import:"导入坐标",rt_imported:"已导入 {n} 个坐标",rt_import_bad:"这个文件不是有效的 locations.json",rt_setup:"出发与车辆设置",pg_prev:"上一页",pg_next:"下一页",pg_page:"页面",pg_bad:"需复核",pg_warn:"待确认",pg_flag:"下一个有问题的页面（{n}）",rt_sum:"{n} 个送货点，{p} 个已精确定位，{q} 个待核对",rt_only:"只显示待核对的送货点",rt_how_h:"位置是如何查找的",sum_search:"搜索文件、单号、对方或金额",sum_all:"全部",sum_none:"没有符合筛选条件的文件。",export_menu:"导出",emp1:"添加发票、送货单或任何其他单据。",emp2:"点击“开始提取”。",emp3:"核对被标记的项目，然后导出。",more_opts:"更多选项",howto:"如何获取 Key",loc_with:"用于查找精确位置的模型",loc_auto:"自动（有 B 用 B，否则 A）",loc_note:"该模型必须能联网搜索（如带搜索的 Gemini、Perplexity、GPT 搜索模型）。deepseek-chat 这类普通聊天 API 不能联网，站点会停留在“仅街道/区域”。",test_web:"测试联网搜索",web_testing:"测试中…",web_ok:"联网搜索可用：模型正确读取了实时页面。",web_no:"未确认：模型无法读取实时页面，不能用于查找精确位置。",web_err:"测试失败：",zoom:"点击放大",done_edit:"✓ 完成编辑",edit:"编辑结果",reviewed_btn:"✓ 已复核",mark_rev:"标记为已复核",undo:"↶ 撤销上一处修改",
  corrected_n:"已修正 {n} 处",edit_hint:"点击任意值直接修改，回车或点别处保存",
  b_ok:"通过",b_bad:"错误",b_warn:"注意",b_mut:"信息",use_a:"用 A 值",use_b:"用 B 值",fix:"修改",confirm_ok:"确认无误",
  no_model_result:"没有可用的模型结果。",config_first:"请先在“模型设置”中配置模型。",
@@ -544,7 +543,7 @@ ms:{
  dt_invoice:"Invois",dt_receipt:"Resit",dt_delivery_order:"Pesanan penghantaran",dt_invoice_register:"Daftar invois / senarai penghantaran",dt_purchase_order:"Pesanan belian",dt_statement:"Penyata",dt_quotation:"Sebut harga",dt_other:"Lain-lain",
  r_supplier:"Pembekal",r_customer:"Pelanggan",r_bill_to:"Bil kepada",r_ship_to:"Hantar kepada",r_transporter:"Pengangkut",r_issuer:"Pengeluar dokumen",r_other:"Pihak lain",party:"Pihak",
  edited_orig:"Dibetulkan; asal: {v}",tbl_head:"{t}, {n} baris{p}",printed:" (bercetak: {v})",del_row:"Padam baris ini",add_row:"＋ Tambah baris",
- mode_label:"Apa yang dibaca",mode_route:"Alamat sahaja (lebih jimat)",mode_full:"Semua",mode_hint_route:"Satu panggilan model pertama setiap halaman dengan arahan pendek: hanya alamat dan pihak dibaca. Model kedua hanya dipanggil untuk halaman yang alamat penghantarannya tidak pasti. Jadual, jumlah dan semakan tidak dibaca, jadi halaman itu kebanyakannya kosong; halaman laluan penghantaran dibuka dahulu.",mode_hint_full:"Setiap medan, jadual dan jumlah dibaca oleh kedua-dua model. Kos lebih tinggi.",orig_img:"Asal",rt_brand_q:"Penghantaran ini untuk siapa?",rt_brand_99:"99 Speedmart",rt_brand_other:"Lain-lain / input manual",rt_brand_ph:"Nama kedai atau jenama, cth. Tesco",rt_brand_wait:"Pilih untuk siapa penghantaran ini bagi memulakan carian Google / SerpApi untuk hentian lain.",rt_brand_auto:"Alamat bil menyatakan 99 Speedmart untuk {n} daripada {m} hentian: ia dicari sebagai 99 Speedmart. Pilih di bawah untuk memakai satu pilihan bagi semua.",g_service:"Perkhidmatan carian lokasi",g_svc_auto:"Auto: Google dahulu, kemudian SerpApi (yang mempunyai kunci)",g_svc_google:"Google Places sahaja",g_svc_serp:"SerpApi sahaja",s_key:"Kunci SerpApi (pilihan)",s_note:"Cara lain mencari hentian di Google Maps. Memerlukan proksi CORS di bawah kerana SerpApi tidak boleh dipanggil dari halaman web. Pelan percuma: 250 carian sebulan.",s_proxy:"URL proksi SerpApi (lalai: proksi di Lanjutan)",test_serp:"Semak kunci SerpApi",s_ok:"Kunci SerpApi berfungsi: {n} carian berbaki",s_noproxy:"SerpApi tidak boleh dipanggil dari halaman web: tetapkan URL proksi dahulu",rt_g_prog:"Carian lokasi {i}/{n}…",rt_g_err:"Carian lokasi dihentikan: {e}",rt_view_addr:"ikut alamat",rt_view_store:"ikut nama kedai",rt_pin_help:"Klik peta atau seret pin ke lokasi tepat kedai.",rt_pin_use:"Guna lokasi ini",rt_pin_cancel:"Batal",rt_map_off:"Peta tidak dapat dimuatkan. Tampal pautan atau koordinat di bawah.",g_key:"Kunci API Google Maps (pilihan)",g_note:"Biarkan kosong untuk kekal dengan kaedah percuma. Dengan kunci, hentian yang tidak dapat ditentukan tepat oleh OpenStreetMap dicari dengan Google Places (dibilkan oleh Google kepada kunci anda) dan diterima hanya jika poskod dan perkataan jalan / kawasan sepadan. Aktifkan “Places API (New)” untuk kunci ini.",rt_map_alt:"Peta {n} hentian",rt_leg_exact:"Tepat",rt_leg_street:"Jalan atau kawasan",rt_leg_start:"Mula",rt_export:"Eksport hentian untuk disemak",rt_import:"Import koordinat",rt_imported:"{n} koordinat diimport",rt_import_bad:"Fail itu bukan locations.json yang sah",rt_setup:"Tetapan",pg_prev:"Sebelumnya",pg_next:"Seterusnya",pg_page:"Halaman",pg_bad:"perlu semak",pg_warn:"semak",pg_flag:"Halaman bertanda seterusnya ({n})",rt_sum:"{n} hentian, {p} tepat, {q} perlu disemak",rt_only:"Tunjuk hentian untuk disemak sahaja",rt_how_h:"Cara lokasi dicari",sum_search:"Cari fail, nombor, pihak atau jumlah",sum_all:"Semua",sum_none:"Tiada padanan untuk penapis ini.",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
+ mode_label:"Apa yang dibaca",mode_route:"Alamat sahaja (lebih jimat)",mode_full:"Semua",mode_hint_route:"Satu panggilan model pertama setiap halaman dengan arahan pendek: hanya alamat dan pihak dibaca. Model kedua hanya dipanggil untuk halaman yang alamat penghantarannya tidak pasti. Jadual, jumlah dan semakan tidak dibaca, jadi halaman itu kebanyakannya kosong; halaman laluan penghantaran dibuka dahulu.",mode_hint_full:"Setiap medan, jadual dan jumlah dibaca oleh kedua-dua model. Kos lebih tinggi.",crumb_batch:"Kelompok",theme_to_light:"Cerah",theme_to_dark:"Gelap",grp_doc:"Dokumen",files_n:"{n} fail",orig_img:"Asal",rt_brand_q:"Penghantaran ini untuk siapa?",rt_brand_99:"99 Speedmart",rt_brand_other:"Lain-lain / input manual",rt_brand_ph:"Nama kedai atau jenama, cth. Tesco",rt_brand_wait:"Pilih untuk siapa penghantaran ini bagi memulakan carian Google / SerpApi untuk hentian lain.",rt_brand_auto:"Alamat bil menyatakan 99 Speedmart untuk {n} daripada {m} hentian: ia dicari sebagai 99 Speedmart. Pilih di bawah untuk memakai satu pilihan bagi semua.",g_service:"Perkhidmatan carian lokasi",g_svc_auto:"Auto: Google dahulu, kemudian SerpApi (yang mempunyai kunci)",g_svc_google:"Google Places sahaja",g_svc_serp:"SerpApi sahaja",s_key:"Kunci SerpApi (pilihan)",s_note:"Cara lain mencari hentian di Google Maps. Memerlukan proksi CORS di bawah kerana SerpApi tidak boleh dipanggil dari halaman web. Pelan percuma: 250 carian sebulan.",s_proxy:"URL proksi SerpApi (lalai: proksi di Lanjutan)",test_serp:"Semak kunci SerpApi",s_ok:"Kunci SerpApi berfungsi: {n} carian berbaki",s_noproxy:"SerpApi tidak boleh dipanggil dari halaman web: tetapkan URL proksi dahulu",rt_g_prog:"Carian lokasi {i}/{n}…",rt_g_err:"Carian lokasi dihentikan: {e}",rt_view_addr:"ikut alamat",rt_view_store:"ikut nama kedai",rt_pin_help:"Klik peta atau seret pin ke lokasi tepat kedai.",rt_pin_use:"Guna lokasi ini",rt_pin_cancel:"Batal",rt_map_off:"Peta tidak dapat dimuatkan. Tampal pautan atau koordinat di bawah.",g_key:"Kunci API Google Maps (pilihan)",g_note:"Biarkan kosong untuk kekal dengan kaedah percuma. Dengan kunci, hentian yang tidak dapat ditentukan tepat oleh OpenStreetMap dicari dengan Google Places (dibilkan oleh Google kepada kunci anda) dan diterima hanya jika poskod dan perkataan jalan / kawasan sepadan. Aktifkan “Places API (New)” untuk kunci ini.",rt_map_alt:"Peta {n} hentian",rt_leg_exact:"Tepat",rt_leg_street:"Jalan atau kawasan",rt_leg_start:"Mula",rt_export:"Eksport hentian untuk disemak",rt_import:"Import koordinat",rt_imported:"{n} koordinat diimport",rt_import_bad:"Fail itu bukan locations.json yang sah",rt_setup:"Tetapan",pg_prev:"Sebelumnya",pg_next:"Seterusnya",pg_page:"Halaman",pg_bad:"perlu semak",pg_warn:"semak",pg_flag:"Halaman bertanda seterusnya ({n})",rt_sum:"{n} hentian, {p} tepat, {q} perlu disemak",rt_only:"Tunjuk hentian untuk disemak sahaja",rt_how_h:"Cara lokasi dicari",sum_search:"Cari fail, nombor, pihak atau jumlah",sum_all:"Semua",sum_none:"Tiada padanan untuk penapis ini.",export_menu:"Eksport",emp1:"Tambah invois, borang penghantaran atau dokumen lain.",emp2:"Tekan Mula ekstrak.",emp3:"Semak item yang ditandakan, kemudian eksport.",more_opts:"Lebih banyak pilihan",howto:"Cara mendapatkan kunci",loc_with:"Model untuk mencari lokasi tepat",loc_auto:"Auto (B jika ditetapkan, jika tidak A)",loc_note:"Model mesti boleh melayari web (cth. Gemini dengan carian, Perplexity, model carian GPT). API sembang biasa seperti deepseek-chat tidak boleh, jadi perhentian kekal “Jalan / kawasan sahaja”.",test_web:"Uji carian web",web_testing:"Menguji…",web_ok:"Carian web berfungsi: model membaca halaman langsung dengan betul.",web_no:"Tidak disahkan: model tidak dapat membaca halaman langsung.",web_err:"Ujian gagal: ",zoom:"Klik untuk besarkan",done_edit:"✓ Selesai menyunting",edit:"Sunting keputusan",reviewed_btn:"✓ Disemak",mark_rev:"Tandakan sebagai disemak",undo:"↶ Buat asal perubahan terakhir",
  corrected_n:"{n} pembetulan",edit_hint:"Klik mana-mana nilai untuk menyunting; tekan Enter atau klik di tempat lain untuk menyimpan",
  b_ok:"Lulus",b_bad:"Ralat",b_warn:"Perhatian",b_mut:"Maklumat",use_a:"Guna nilai A",use_b:"Guna nilai B",fix:"Sunting",confirm_ok:"Sahkan betul",
  no_model_result:"Tiada keputusan model yang boleh digunakan. ",config_first:"Tetapkan model dalam “Tetapan model” dahulu.",
@@ -1159,7 +1158,7 @@ async function addFiles(list){list=[...list];const fs=list.filter(f=>kindOf(f));
     const j={id:++seq,file:f,hash:h,rot:0,status:"wait",result:null,error:null,thumb:kindOf(f)==="image"?URL.createObjectURL(f):null};JOBS.push(j)}
   if(skipped)toast(t("skipped_files",{n:skipped}));if(dup)toast(t("skipped_dup",{n:dup}));drawQueue();saveNow()}
 function verdict(res){if(!res)return"err";if(CUR&&CUR.result===res&&CUR.reviewed)return"rev";let bad=0,warn=0;res.segments.forEach(sg=>issues(sg).forEach(i=>{if(i[0]==="bad")bad++;if(i[0]==="warn")warn++}));return bad?"bad":warn?"warn":"ok"}
-function drawQueue(){scheduleSave();const q=$("#queue");
+function drawQueue(){scheduleSave();document.body.classList.toggle("intake",!JOBS.length);paintCrumbs();const q=$("#queue");
   q.innerHTML=JOBS.map(j=>{const [k,tx]=STATUS[j.status];const r=j.result&&best(j.result.segments[0])[1];
     const dupOf=DUPMAP.get(j.id);const info=(dupOf?`<span class="badge warn" title="${esc(t("dup_title",{f:dupOf}))}">${t("dup_badge")}</span> `:"")+(j.status==="run"?`<span><span class="stage">${esc(stageText(j))}</span> · <span data-el="${j.id}">${Math.round((Date.now()-(j.t0||Date.now()))/1000)}</span>s</span>`:r?[typeName(r.document_type),r.document_number,r.grand_total!=null?`${r.currency||""} ${r.grand_total}`:null].filter(Boolean).map(esc).join(", "):j.error?esc(j.error).slice(0,80):`${(j.file.size/1024).toFixed(0)} KB`);
     return`<div class="job ${CUR===j?"sel":""} ${j.status==="run"?"running":""}" data-id="${j.id}" data-status="${j.status}" data-name="${esc(j.file.name)}">${j.thumb?`<img class="tn" src="${j.thumb}" style="transform:rotate(${j.rot}deg)">`:`<div class="tn">${esc(j.file.name.split(".").pop().toUpperCase())}</div>`}
@@ -1178,14 +1177,19 @@ function drawQueue(){scheduleSave();const q=$("#queue");
       if(a==="del"){if(j.result?.segments?.some(sg=>sg.manual_edits?.length)&&!confirm(t("confirm_del")))return;JOBS=JOBS.filter(x=>x!==j);if(CUR===j){CUR=null;RESULT=null;$("#view").innerHTML=`<div class="empty">${t("pick_file")}</div>`}drawQueue();return}
       if(a==="retry"){if(j.result&&j.result.segments.some(sg=>sg.manual_edits?.length)&&!confirm(t("confirm_retry")))return;j.status="wait";j.result=null;j.error=null;j.reviewed=false;drawQueue();if(!running)runQueue();return}
       select(j)}})}
-function select(j){CUR=j;RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");if(MODE==="route"&&j.result&&tab==="overview")setTab("route");drawQueue();showCurrent()}
+function select(j){CUR=j;paintCrumbs();RESULT=j.result;segIdx=0;if(tab==="summary")setTab("overview");if(MODE==="route"&&j.result&&tab==="overview")setTab("route");drawQueue();showCurrent()}
 function showCurrent(){const j=CUR;if(tab==="route"&&j&&j.status==="run"&&!JOBS.some(x=>x.result))return paintProgress(j);if(tab==="summary")return renderSummary();if(tab==="recon")return renderRecon();if(tab==="route")return renderRouteTab();
   if(!j)return $("#view").innerHTML=emptyFor(tab);
   if(j.status==="run")return paintProgress(j);
   if(j.result)return render();
   $("#view").innerHTML=`<div class="empty">${j.error?`<b style="color:var(--bad)">${t("failed")}</b><br><span class="sub">${esc(j.error)}</span><br><br>${t("click_retry")}`:t("not_yet")}</div>`}
 function emptyFor(tb){const how=tb==="overview"?`<ol class="how"><li>${t("emp1")}</li><li>${t("emp2")}</li><li>${t("emp3")}</li></ol>`:"";return`<div class="empty">${{overview:t("empty_overview"),items:t("empty_items"),checks:t("empty_checks"),json:t("empty_json")}[tb]||t("no_results")}${how}</div>`}
-function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));$("main").classList.toggle("wide",t==="route");showCurrent()}
+function paintCrumbs(){const c=$("#crumbs");if(!c)return;const parts=[t("crumb_batch")];if(CUR)parts.push(CUR.file.name);if(JOBS.some(j=>j.result))parts.push(t("tab_"+tab));
+  c.innerHTML=parts.map(x=>`<span>${esc(x)}</span>`).join("");
+  const ph=$("#pagehead");if(ph){const batch=["summary","recon","route"].includes(tab),sub=batch?t("files_n",{n:JOBS.length}):(CUR?CUR.file.name:"");ph.innerHTML=`<h2>${esc(t("tab_"+tab))}</h2>${sub?`<p>${esc(sub)}</p>`:""}`}}
+function paintTheme(){const dark=document.documentElement.dataset.theme==="dark";$("#theme").textContent=t(dark?"theme_to_light":"theme_to_dark")}
+$("#theme").onclick=()=>{const dark=document.documentElement.dataset.theme==="dark";if(dark)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme="dark";try{localStorage.setItem("invoicelens.theme",dark?"light":"dark")}catch{}paintTheme()};
+function setTab(t){tab=t;$$(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));$("main").classList.toggle("wide",t==="route");paintCrumbs();showCurrent()}
 /* ---------- autosave (IndexedDB) ---------- */
 const DB={db:null,ok:false,
   open(){return new Promise(res=>{try{const rq=indexedDB.open("invoicelens",1);rq.onupgradeneeded=()=>{rq.result.createObjectStore("jobs",{keyPath:"id"})};
@@ -1685,7 +1689,7 @@ function applyStatic(){document.documentElement.lang=LANG==="zh"?"zh-CN":LANG;
   document.querySelectorAll("[data-i18n]").forEach(e=>e.textContent=t(e.dataset.i18n));
   document.querySelectorAll("[data-i18n-ph]").forEach(e=>e.placeholder=t(e.dataset.i18nPh));
   document.querySelectorAll("[data-i18n-title]").forEach(e=>e.title=t(e.dataset.i18nTitle));
-  const md=document.querySelector('meta[name=description]');if(md)md.content=t("meta_desc");$("#lang").value=LANG;paintMode()}
+  const md=document.querySelector('meta[name=description]');if(md)md.content=t("meta_desc");$("#lang").value=LANG;paintMode();paintTheme();paintCrumbs();$("#intake-steps").innerHTML=["emp1","emp2","emp3"].map((k,i)=>`<p>${i+1}. ${t(k)}</p>`).join("")}
 function paintMode(){
   $$("[data-mode]").forEach(b=>{const on=b.dataset.mode===MODE;b.classList.toggle("pri",on);b.setAttribute("aria-pressed",on)});$("#mode-hint").textContent=t("mode_hint_"+MODE)}
 $$("[data-mode]").forEach(b=>b.onclick=()=>{MODE=b.dataset.mode;try{localStorage.setItem("invoicelens.mode",MODE)}catch{}paintMode();
