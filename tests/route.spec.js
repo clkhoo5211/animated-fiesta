@@ -458,3 +458,37 @@ test("a confirmed 99 Speedmart stop refuses a place that is not a Speed Mart eve
   expect(r.is99.reason).toContain("not a");
   expect(r.other.ok).toBe(true); // an unknown brand only needs the street words
 });
+
+test("122 stops (a real Johor run): road distances are fetched in blocks of at most 100 points, one lorry plans all of them, the CSV carries the zip", async ({ page, context }) => {
+  const manual = [], over = {};
+  for (let i = 0; i < 122; i++) {
+    const address = `99 SPEEDMART ${1000 + i} (JH) TAMAN TEST ${i}, 8${String(1000 + i).slice(-4)} JOHOR BAHRU`;
+    manual.push({ address, name: "" });
+    over[address.toUpperCase().replace(/[\s,.]+/g, " ").trim()] = { lat: 1.4 + (i % 12) * 0.02, lng: 103.5 + Math.floor(i / 12) * 0.03, rank: 30, manual: true };
+  }
+  const osrm = [];
+  await serve(context, { model: () => ({ json: doc("SHOP A", "SHOP A, 10 Jalan A, 41000 Klang") }), geo: url => {
+    if (url.includes("nominatim")) return [];
+    osrm.push(url);
+    const u = new URL(url), pts = u.pathname.split("/driving/")[1].split(";").map(p => p.split(",").map(Number));
+    const src = (u.searchParams.get("sources") || "").split(";").filter(Boolean).map(Number), dst = (u.searchParams.get("destinations") || "").split(";").filter(Boolean).map(Number);
+    const S = src.length ? src : pts.map((_, i) => i), D = dst.length ? dst : pts.map((_, i) => i);
+    const m = S.map(a => D.map(b => Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1]) * 3600));
+    return { code: "Ok", durations: m, distances: m.map(r => r.map(v => v * 10)) };
+  } });
+  await preset(page, { route: { manual, over, start: "1.5, 103.7", startLL: { lat: 1.5, lng: 103.7 }, brand: "99" } });
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  await page.click(".tab[data-tab=route]");
+  await page.click("#rt-plan");
+  await expect(page.locator("#view")).toContainText("1 route(s)", { timeout: 30000 });
+  await expect(page.locator("#view")).toContainText("Road distances and times: OSRM");
+  expect(osrm.length).toBe(9);
+  expect(Math.max(...osrm.map(u => new URL(u).pathname.split("/driving/")[1].split(";").length))).toBeLessThanOrEqual(100);
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#rt-csv")]);
+  const csv = require("node:fs").readFileSync(await dl.path(), "utf8").split("\n");
+  expect(csv[0]).toContain('"zip"'.replace(/"/g, ""));
+  expect(csv.length).toBe(123);
+});
