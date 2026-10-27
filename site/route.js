@@ -17,11 +17,11 @@ const DELIVER = ["ship_to"], BILL = ["bill_to", "customer"];
 const ADDR_COL = /address|alamat|地址|deliver(y)? to|ship.?to addr/i;
 export function collectStops(docs) {
   const out = new Map();
-  const add = (address, name, ref, src, sus, bill) => {
+  const add = (address, name, ref, src, sus, bill, billAddr) => {
     const k = normAddr(address); if (k.length < 6) return;
-    const s = out.get(k) || { key: k, address: String(address).replace(/\s*\n\s*/g, ", ").trim(), name: name || "", refs: [], src, suspect: !!sus, bill: bill || "" };
+    const s = out.get(k) || { key: k, address: String(address).replace(/\s*\n\s*/g, ", ").trim(), name: name || "", refs: [], src, suspect: !!sus, bill: bill || "", billAddr: billAddr || "" };
     s.suspect = s.suspect && !!sus;
-    if (!s.bill && bill) s.bill = bill;
+    if (!s.bill && bill) { s.bill = bill; s.billAddr = billAddr || "" }
     if (ref && !s.refs.includes(ref)) s.refs.push(ref);
     if (!s.name && name) s.name = name;
     out.set(k, s);
@@ -30,17 +30,17 @@ export function collectStops(docs) {
     if (!r) continue;
     const ref = r.document_number || file;
     // who the document is billed to: "99 SPEED MART SDN. BHD." on a 99 Speedmart delivery order
-    const bill = (r.parties || []).filter(p => p && BILL.includes(p.role)).map(p => p.name || "").find(Boolean) || "";
+    const billP = (r.parties || []).filter(p => p && BILL.includes(p.role) && p.name)[0], bill = billP?.name || "", billAddr = billP?.address || "";
     const parties = (r.parties || []).filter(p => p && p.address);
     // a document is delivered to its ship-to / delivery address; the billing address is used only when there is none
     const pick = parties.filter(p => DELIVER.includes(p.role));
-    for (const p of (pick.length ? pick : parties.filter(p => BILL.includes(p.role)))) add(p.address, p.name, ref, pick.length ? "ship_to" : "bill_to", suspect, bill);
+    for (const p of (pick.length ? pick : parties.filter(p => BILL.includes(p.role)))) add(p.address, p.name, ref, pick.length ? "ship_to" : "bill_to", suspect, bill, billAddr);
     // registers / delivery lists with an address column: one stop per row
     for (const t of r.tables || []) {
       const cols = (t.columns || []).map(c => (typeof c === "string" ? c : c?.name) || "");
       const ai = cols.findIndex(c => ADDR_COL.test(c)); if (ai < 0) continue;
       const ni = cols.findIndex((c, i) => i !== ai && /name|customer|outlet|nama|客户|名称/i.test(c));
-      for (const row of t.rows || []) if (Array.isArray(row) && row[ai]) add(row[ai], ni >= 0 ? row[ni] : "", ref, "table", false, bill);
+      for (const row of t.rows || []) if (Array.isArray(row) && row[ai]) add(row[ai], ni >= 0 ? row[ni] : "", ref, "table", false, bill, billAddr);
     }
   }
   return mergeNearDuplicates([...out.values()]);
@@ -257,6 +257,14 @@ export function nameQuery(brand, name, address) {
   if (brand && brand.mode === "other") return [brand.name, name].map(x => String(x ?? "").trim()).filter(Boolean).join(" ");
   return storeQuery(name, address);
 }
+/** the customer's own name + address when the invoice is billed to the very place it is delivered to (billing address = delivery address): Google lists such a place under its business name,
+ *  and a bare "6, JLN X 21" can come back as a house number point ("21, 6, Jalan X"). Never used when the billing address is elsewhere (head office). */
+export function selfQuery(s) {
+  if (!s || !s.bill || !s.billAddr || !s.address) return "";
+  const pc = postcodeOf(s.address);
+  if (!pc || pc !== postcodeOf(s.billAddr) || similarity(s.address, s.billAddr) < 0.85) return "";
+  return `${s.bill}, ${fullAddr(s.address)}`;
+}
 /** the printed address as a search text: for 99 Speedmart the brand keyword is added ("99 Speedmart <address>") so the search lands on the shop, not on the lot */
 export const addrFor = (brand, address) => (brand?.mode === "99" ? "99 Speedmart " : "") + fullAddr(address);
 export const placeQueries = (brand, name, address) => [...new Set([[nameQuery(brand, name, address), brand?.mode === "other" ? postcodeOf(address) : ""].filter(Boolean).join(" "), ...(brand?.mode === "99" ? [addrFor(brand, address)] : []), fullAddr(address)].filter(Boolean))];
@@ -272,7 +280,7 @@ export function mapsLinks(start, stops, back, brandArg) {
   // stops at the same spot (two invoices for one shop) are one waypoint
   // a stop is sent to Google as its full printed address (as in the Address column): Google's own search knows Malaysian shops and lots far better
   // than a coordinate from the open map, which can land on a neighbouring business. Coordinates only when there is no address.
-  const ll = p => `${p.lat},${p.lng}`, brandOfP = p => (typeof brandArg === "function" ? brandArg(p) : brandArg), wp = p => p.address ? (nameQuery(brandOfP(p), p.name, p.address) || addrFor(brandOfP(p), p.address)) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
+  const ll = p => `${p.lat},${p.lng}`, brandOfP = p => (typeof brandArg === "function" ? brandArg(p) : brandArg), wp = p => p.address ? (nameQuery(brandOfP(p), p.name, p.address) || selfQuery(p) || addrFor(brandOfP(p), p.address)) : ll(p), seq = [start, ...stops, ...(back ? [start] : [])].filter((p, i, a) => i === 0 || ll(p) !== ll(a[i - 1])), out = [];
   for (let i = 0; i < seq.length - 1; i += 10) {
     const part = seq.slice(i, i + 11); if (part.length < 2) break;
     const w = part.slice(1, -1).map(wp).join("|");
@@ -441,7 +449,7 @@ export function renderRoute(view, api) {
   // the store number + name ("99 Speedmart 1954 (NS) Nusari Biz") is how Google lists a shop: when the document carries it, that is the main link
   // (confirmed more accurate than the address on real stops), the full printed address the second
   const viewLinks = s => {
-    const sq = nameQuery(brandFor(s) || {}, s.name, s.address), a = `<a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t(sq ? "rt_view_addr" : "rt_view")}</a>`;
+    const sq = nameQuery(brandFor(s) || {}, s.name, s.address) || selfQuery(s), a = `<a class="sub" target="_blank" rel="noopener" href="${esc(addrLink(s))}">${t(sq ? "rt_view_addr" : "rt_view")}</a>`;
     return sq ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(sq))}" title="${esc(sq)}">${t("rt_view")}</a> ${a}` : " " + a;
   };
   // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified

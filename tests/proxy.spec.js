@@ -147,3 +147,17 @@ test("fullAddr (view on map, route waypoints): abbreviations are spelled out and
   `], { cwd: ROOT, encoding: "utf8" }).stdout);
   expect(r).toEqual(["No. 6, Jalan KEBUDAYAAN 21, Taman UNIVERSITI, 81300 SKUDAI, JOHOR, Malaysia", "1988, NS Taman GADONG INDAH (DD), NO 1, Jalan GADONG INDAH 3, 71900 LABU, Malaysia", "No. 12-A, Lorong ABC 3, Kampung BARU, 81300 SKUDAI, Malaysia"]);
 });
+
+test("selfQuery: an invoice billed to the place it is delivered to is sent to Google with the customer's name (waypoints, view on map); a head-office billing address is not", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { collectStops, mapsLinks, selfQuery } from "./site/route.js";
+    const A = "6, JLN KEBUDAYAAN 21, TMN UNIVERSITI, 81300 SKUDAI, JOHOR";
+    const mk = (billAddr, name) => ({ file: "f", result: { document_number: "D1", parties: [{ role: "bill_to", name, address: billAddr }, { role: "ship_to", name: null, address: A }] } });
+    const same = collectStops([mk(A, "ATC JAYA SDN BHD")])[0], hq = collectStops([mk("LOT 2811, JALAN ANGSA, 41150 KLANG, SELANGOR", "ABC HQ SDN BHD")])[0];
+    const link = decodeURIComponent(mapsLinks({ lat: 1.5, lng: 103.7 }, [{ ...same, lat: 1.55, lng: 103.6 }], false, () => null)[0]);
+    console.log(JSON.stringify({ same: selfQuery(same), hq: selfQuery(hq), link: link.split("destination=")[1] }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r.same).toBe("ATC JAYA SDN BHD, No. 6, Jalan KEBUDAYAAN 21, Taman UNIVERSITI, 81300 SKUDAI, JOHOR, Malaysia");
+  expect(r.hq).toBe("");
+  expect(r.link).toBe(r.same);
+});
