@@ -26,7 +26,7 @@ export function pinFromUrl(u) {
 
 export const words = addrWords;
 /** decide whether a place Google found is the delivery address (same rules as the app's Google Places option) */
-export const judge = (wanted, found, brand) => judgePlace(wanted, found, brand === undefined ? undefined : brandRegex(brand));
+export const judge = (wanted, found, brand) => judgePlace(wanted, found, brand === undefined ? undefined : brandRegex(brand), brand?.mode === "99");
 
 const searchUrl = q => `https://www.google.com/maps/search/?api=1&hl=en&query=${encodeURIComponent(q)}`;
 const full = a => String(a).replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();

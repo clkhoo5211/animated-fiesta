@@ -44,7 +44,7 @@ export async function locateWithSerp(items, { brand: args99 = "99", key, delay =
     for (const q of serpQueries(address, name, brand)) {
       const j = await call({ q, ...(near ? { ll: `@${(+near.lat).toFixed(5)},${(+near.lng).toFixed(5)},16z` } : {}) });
       for (const c of serpCandidates(j)) {
-        const v = judgePlace(address, c, brandRegex(brand));
+        const v = judgePlace(address, c, brandRegex(brand), brand.mode === "99");
         if (v.ok) { row = { ...row, ok: true, lat: c.lat, lng: c.lng, place: c.name, found_address: c.address, url: c.place_id ? `https://www.google.com/maps/place/?q=place_id:${c.place_id}` : c.link, confidence: v.confidence, reason: v.reason, query: q }; break }
         row.reason = v.reason;
       }
