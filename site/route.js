@@ -15,9 +15,16 @@ export const normAddr = s => String(s ?? "").toUpperCase().replace(/[\s,.]+/g, "
 /* ---------- stops from scanned documents ---------- */
 const DELIVER = ["ship_to"], BILL = ["bill_to", "customer"];
 const ADDR_COL = /address|alamat|地址|deliver(y)? to|ship.?to addr/i;
+/** the address only: a delivery block also carries "Attn: ...", "Tel: ...", "Fax:" lines, which end the address (they made the map lookup fail and went into the Google link) */
+export function cleanStopAddress(a) {
+  const parts = String(a ?? "").split(/\s*\n\s*|\s*,\s*/).map(x => x.trim()).filter(Boolean);
+  const cut = parts.findIndex(x => /^(?:attn|attention|tel|fax|phone|hp|h\/p|mobile|contact|e-?mail)\b/i.test(x) || /^\+?\d[\d\s-]{7,}$/.test(x));
+  return (cut >= 0 ? parts.slice(0, cut) : parts).join(", ");
+}
 export function collectStops(docs) {
   const out = new Map();
   const add = (address, name, ref, src, sus, bill, billAddr) => {
+    address = cleanStopAddress(address);
     const k = normAddr(address); if (k.length < 6) return;
     const s = out.get(k) || { key: k, address: String(address).replace(/\s*\n\s*/g, ", ").trim(), name: name || "", refs: [], src, suspect: !!sus, bill: bill || "", billAddr: billAddr || "" };
     s.suspect = s.suspect && !!sus;

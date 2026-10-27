@@ -161,3 +161,12 @@ test("selfQuery: an invoice billed to the place it is delivered to is sent to Go
   expect(r.hq).toBe("");
   expect(r.link).toBe(r.same);
 });
+
+test("cleanStopAddress: Attn / Tel / Fax / phone lines end the address (they broke the map lookup and went into the Google link); store-number blocks are untouched", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { collectStops, cleanStopAddress } from "./site/route.js";
+    const stop = collectStops([{ file: "f", result: { document_number: "D1", parties: [{ role: "ship_to", name: null, address: "6, JLN KEBUDAYAAN 21, TMN UNIVERSITI, 81300 SKUDAI, JOHOR, Attn: EN SIDIK/CHEF HADI, Tel: 018-966 7167, Fax:" }] } }])[0];
+    console.log(JSON.stringify([stop.address, cleanStopAddress("1988\\nNS TMN GADONG INDAH (DD)\\nNO 1, JLN GADONG INDAH 3\\n71900 LABU, NEGERI SEMBILAN"), cleanStopAddress("12 JLN TELUK INTAN, 36000 TELUK INTAN, PERAK\\nTel: 05-1234567"), cleanStopAddress("NO 5, JLN A, 81300 SKUDAI, 018-966 7167")]));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual(["6, JLN KEBUDAYAAN 21, TMN UNIVERSITI, 81300 SKUDAI, JOHOR", "1988, NS TMN GADONG INDAH (DD), NO 1, JLN GADONG INDAH 3, 71900 LABU, NEGERI SEMBILAN", "12 JLN TELUK INTAN, 36000 TELUK INTAN, PERAK", "NO 5, JLN A, 81300 SKUDAI"]);
+});

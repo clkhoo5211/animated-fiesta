@@ -3,7 +3,7 @@ const { serve, preset, waitIdle, FIX } = require("./helpers");
 
 const doc = () => ({ document_type: "invoice", document_number: "A1", parties: [{ role: "bill_to", name: "99 SPEED MART SDN. BHD.", address: "LOT 2811, 41150 KLANG" }, { role: "ship_to", name: null, address: "1988\nNS TMN GADONG INDAH (DD)\nNO 1, JLN GADONG INDAH 3\n71900 LABU, NEGERI SEMBILAN" }], stamps_and_chops: [], rotation_degrees: "0" });
 
-test("addresses-only mode: one model call per page with the short prompt (no tables / totals asked), only the Delivery route page is shown, the branch number stays in the address", async ({ page, context }) => {
+test("addresses-only mode: one call per page when the address is read with a postcode (model B is set but not called), a second call only when it is not; short prompt, only the Delivery route page is shown, the branch number stays in the address", async ({ page, context }) => {
   const prompts = [];
   await serve(context, { model: (call) => { prompts.push(call.text || ""); return { json: doc() } }, geo: () => [] });
   await preset(page, { b: { prov: "custom" } });
@@ -14,7 +14,7 @@ test("addresses-only mode: one model call per page with the short prompt (no tab
   await page.setInputFiles("#f", FIX("invoice.jpg"));
   await page.click("#go");
   await waitIdle(page);
-  expect(prompts.length).toBe(1);                                   // model B is not called
+  expect(prompts.length).toBe(1);                                   // model B is set but not called: the address was read with its postcode
   expect(prompts[0]).toContain("ONLY to plan delivery routes");
   expect(prompts[0]).not.toContain("line_items");
   expect(prompts[0].length).toBeLessThan(6000);                      // the full prompt is far longer
@@ -26,4 +26,16 @@ test("addresses-only mode: one model call per page with the short prompt (no tab
   // back to everything: the other pages are there again (nothing was deleted)
   await page.click("[data-mode=full]");
   await expect(page.locator(".tab[data-tab=overview]")).toBeVisible();
+});
+
+test("addresses-only mode: the second model is called for a page whose delivery address has no postcode, and for nothing else", async ({ page, context }) => {
+  const calls = [];
+  await serve(context, { model: (call) => { calls.push(call.model); const d = doc(); d.parties[1].address = "1988\nNS TMN GADONG INDAH (DD)\nNO 1, JLN GADONG INDAH 3\nLABU"; return { json: d } }, geo: () => [] });
+  await preset(page, { b: { prov: "custom" } });
+  await page.addInitScript(() => localStorage.setItem("invoicelens.mode", "route"));
+  await page.goto("/");
+  await page.setInputFiles("#f", FIX("invoice.jpg"));
+  await page.click("#go");
+  await waitIdle(page);
+  expect(calls).toEqual(["model-a", "model-b"]);
 });
