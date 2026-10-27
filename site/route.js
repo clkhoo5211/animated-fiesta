@@ -52,6 +52,12 @@ const STOPWORDS = new Set(["jalan", "taman", "pusat", "bandar", "persiaran", "lo
 /** distinctive words (street / area names) of an address, to compare it with the address a place service returns */
 export const addrWords = a => [...new Set(String(a ?? "").toLowerCase().replace(/\(.*?\)/g, " ").split(/[^a-z]+/).filter(w => w.length >= 5 && !STOPWORDS.has(w)))];
 /** is the place a service found the delivery address? found: {name, address, lat, lng}. Same postcode, and the place is a Speed Mart or the street / area words agree. */
+/** the lot / unit numbers an address states after "No": "NO: 8 & 9 (GF)" -> {8, 9}; "No. 20-G & 21-G" -> {20, 21} */
+export function lotNumbers(a) {
+  const out = new Set(), re = /\bNO\s*[.:]?\s*(\d+(?:-?[A-Z](?![A-Z]))?(?:\s*(?:&|,|-|AND)\s*\d+(?:-?[A-Z](?![A-Z]))?)*)/gi;
+  for (const m of String(a || "").matchAll(re)) for (const n of m[1].match(/\d+/g) || []) out.add(String(+n));
+  return out;
+}
 export function judgePlace(wanted, found, brandRe = /speed\s*mart/i, requireBrand = false) {
   if (!found || found.lat == null || found.lng == null) return { ok: false, reason: "no place" };
   if (!found.address) return { ok: false, reason: "place has no address to compare" };
@@ -59,6 +65,9 @@ export function judgePlace(wanted, found, brandRe = /speed\s*mart/i, requireBran
   if (wantPc && foundPc && wantPc !== foundPc) return { ok: false, reason: `postcode ${foundPc} is not ${wantPc}` };
   if (wantPc && !foundPc) return { ok: false, reason: "place address has no postcode" };
   const brand = !!brandRe && (brandRe.test(found.name || "") || brandRe.test(found.address || ""));
+  // both addresses name a lot / unit ("NO: 8 & 9", "No. 31") and the numbers differ: a neighbouring branch or shop, however well the street words agree
+  const lw = lotNumbers(wanted), lf = lotNumbers(found.address);
+  if (lw.size && lf.size && ![...lw].some(n => lf.has(n))) return { ok: false, reason: `different unit: ${[...lf].join(" & ")} is not ${[...lw].join(" & ")}` };
   // when the documents are known to be for one brand (99 Speedmart by the billing party or the user's choice) the place MUST be that brand: another shop on the same street is not the destination
   if (requireBrand && brandRe && !brand) return { ok: false, reason: `not a ${brandRe === undefined ? "Speed Mart" : "match for the brand"}: ${found.name || "?"}` };
   const fw = new Set(addrWords(found.address + " " + (found.name || ""))), common = addrWords(wanted).filter(w => fw.has(w));
@@ -233,6 +242,13 @@ export function nameQuery(brand, name, address) {
 /** the printed address as a search text: for 99 Speedmart the brand keyword is added ("99 Speedmart <address>") so the search lands on the shop, not on the lot */
 export const addrFor = (brand, address) => (brand?.mode === "99" ? "99 Speedmart " : "") + fullAddr(address);
 export const placeQueries = (brand, name, address) => [...new Set([[nameQuery(brand, name, address), brand?.mode === "other" ? postcodeOf(address) : ""].filter(Boolean).join(" "), ...(brand?.mode === "99" ? [addrFor(brand, address)] : []), fullAddr(address)].filter(Boolean))];
+/** true when another stop with a different printed address sits on the same pin (to ~10 m); typed pins are never questioned */
+export function sharedPin(list, s) {
+  if (s.lat == null || s.fail || s.manual) return false;
+  const k = x => `${(+x.lat).toFixed(4)},${(+x.lng).toFixed(4)}`, norm = a => String(a || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  return list.some(o => o.key !== s.key && !o.skip && !o.manual && o.lat != null && !o.fail && k(o) === k(s) && norm(o.address) !== norm(s.address));
+}
+
 export function mapsLinks(start, stops, back, brandArg) {
   // Google Maps takes up to 9 waypoints per link: long routes are split into consecutive legs
   // stops at the same spot (two invoices for one shop) are one waypoint
@@ -396,7 +412,8 @@ export function renderRoute(view, api) {
     return sq ? ` <a class="sub" target="_blank" rel="noopener" href="${esc("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(sq))}" title="${esc(sq)}">${t("rt_view")}</a> ${a}` : " " + a;
   };
   // a position the user typed (or an address that is itself a coordinate) is exact; a model-reported one counts once verified
-  const precise = s => !!s.web || !!s.manual || !!parseLatLng(s.address) || (!s.approx && (s.rank || 0) >= 28);
+  // two different delivery addresses on the very same pin means the service returned one shop (or building) for both: at most one is right, so none counts as exact
+  const precise = s => !!s.manual || !!parseLatLng(s.address) || ((!!s.web || (!s.approx && (s.rank || 0) >= 28)) && !sharedPin(stops(), s));
   const status = s => s.lat != null && !s.fail ? (s.web ? `<span class="badge ok" title="${esc(s.webSrc || "")}">${t("rt_st_web")}${s.webConf === "high" ? "" : " (?)"}</span>` : !precise(s) ? `<span class="badge warn" title="${esc((s.webWhy ? s.webWhy + " — " : "") + t("rt_geo_street_d"))}">${t(s.approx ? "rt_geo_approx" : "rt_geo_street")}</span>` : `<span class="badge ok" ${s.ai ? `title="${esc(s.ai)}"` : ""}>✓ ${t(s.ai ? "rt_st_ai" : "rt_st_ok")}</span>`) + ` ${viewLinks(s)}` + (s.label ? `<div class="sub" title="${esc(String(s.label))}">${esc(String(s.label).split(",").slice(0, 4).join(","))}</div>` : "")
     : (s.fail ? `<span class="badge bad">${t("rt_geo_fail")}</span>` : `<span class="badge" style="background:var(--soft);color:var(--mut)">${t("rt_st_pending")}</span>`) + (s.address ? viewLinks(s) : "");
   // Fix by pin: a Leaflet map (loaded on first use, OpenStreetMap tiles) where a click or a drag sets the exact position of a stop

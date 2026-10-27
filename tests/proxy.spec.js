@@ -69,3 +69,28 @@ test("tools/overture-bench.mjs: keeps Speed Mart places, matches them to an addr
   }
   expect(JSON.parse(fs.readFileSync(`${dir}/speedmart-places.json`, "utf8"))).toHaveLength(3);
 });
+
+test("sharedPin: two different addresses on one pin are both doubtful; the same address twice, typed pins and different pins are not", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { sharedPin } from "./site/route.js";
+    const a = { key: "a", address: "1 JLN A, 71900 LABU", lat: 2.75343, lng: 101.82281 };
+    const b = { key: "b", address: "2 JLN B, 71900 LABU", lat: 2.753431, lng: 101.822809 };
+    const c = { key: "c", address: "3 JLN C, 71010 PD", lat: 2.5, lng: 101.8 };
+    const d = { key: "d", address: "1 jln a, 71900 labu", lat: 2.75343, lng: 101.82281 };
+    const m = { key: "m", address: "2 JLN B, 71900 LABU", lat: 2.75343, lng: 101.82281, manual: true };
+    console.log(JSON.stringify({ ab: [sharedPin([a, b, c], a), sharedPin([a, b, c], b)], c: sharedPin([a, b, c], c), dup: sharedPin([a, d], a), typed: [sharedPin([a, m], a), sharedPin([a, m], m)] }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual({ ab: [true, true], c: false, dup: false, typed: [false, false] });
+});
+
+test("judgePlace: a different unit number is a different shop even when street and postcode agree (Overture gave Taman Indah Jaya's shop for Bandar Dataran Segar)", () => {
+  const r = JSON.parse(spawnSync("node", ["--input-type=module", "-e", `
+    import { judgePlace, lotNumbers, brandRegex, brandOf } from "./site/route.js";
+    const re = brandRegex(brandOf("99")), want = "NS BANDAR DATARAN SEGAR (DD) NO. 31 (GF), Jln DS 1/1, BANDAR DATARAN SEGAR, 71010 PORT DICKSON";
+    const other = { name: "99 Speedmart", address: "No: 8 & 9 (GF, Jalan Seremban, Port Dickson, 71010", lat: 2.57, lng: 101.83 };
+    const same = { name: "99 Speedmart", address: "No: 31 (GF), Jalan DS 1/1, Bandar Dataran Segar, Port Dickson, 71010", lat: 2.56, lng: 101.81 };
+    const nolot = { name: "99 Speedmart", address: "Jalan DS 1/1, Bandar Dataran Segar, 71010 Port Dickson", lat: 2.56, lng: 101.81 };
+    console.log(JSON.stringify({ lots: [...lotNumbers("NO: 20-G & 21-G (GROUND FLOOR)")], other: judgePlace(want, other, re, true).ok, same: judgePlace(want, same, re, true).ok, nolot: judgePlace(want, nolot, re, true).ok }));
+  `], { cwd: ROOT, encoding: "utf8" }).stdout);
+  expect(r).toEqual({ lots: ["20", "21"], other: false, same: true, nolot: true });
+});
