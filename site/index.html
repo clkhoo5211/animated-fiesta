@@ -1032,19 +1032,22 @@ $("#test-web").onclick=async()=>{const out=$("#test-web-out"),f=readForm(),c=slo
     const r=await callModel({...c,temperature:0},[{type:"text",text:`Open this URL with your web browsing tool and copy two fields from the live JSON it returns. Do not guess. URL: ${u}\nIf you cannot open it, return {"opened":false}. Otherwise return JSON only: {"opened":true,"osm_id":<number>,"display_name":"..."}`}],null);
     const ok=r&&r.opened!==false&&String(r.osm_id)===String(truth.osm_id);out.textContent=t(ok?"web_ok":"web_no");out.className="test "+(ok?"ok":"bad")}
   catch(e){out.textContent=t("web_err")+(e.message||e);out.className="test bad"}};
-$$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dataset.model,c=slot(s,readForm()),out=b.nextElementSibling;
+$$(".test-btn").forEach(b=>b.onclick=async()=>{const s=b.closest("fieldset").dataset.model,c={...slot(s,readForm()),timeout:30000,noRetry:true},out=b.nextElementSibling;
   if(!c.key){out.innerHTML=`<span class="badge warn">${t("need_key")}</span>`;return}
-  out.innerHTML=`<span class="badge mut">${t("testing")}</span>`;
+  const t0=Date.now(),paint=()=>{out.innerHTML=`<span class="badge mut">${t("testing")} ${Math.round((Date.now()-t0)/1000)} s</span>`},tick=setInterval(paint,1000);paint();
   try{await callModel(c,[{type:"text",text:'Reply with JSON {"ok":true}'}],null);out.innerHTML=`<span class="badge ok">${t("conn_ok")}</span>`}
-  catch(e){out.innerHTML=`<span class="badge bad" title="${esc(e.message)}">✗ ${esc(e.message).slice(0,260)}</span>`}});
+  catch(e){out.innerHTML=`<span class="badge bad" title="${esc(e.message)}">✗ ${esc(e.message).slice(0,260)}</span>`}
+  finally{clearInterval(tick)}});
 function refreshChips(){const a=slot("a"),b=slot("b");
   $("#engine-chips").innerHTML=`<span class="chip on">${t("chip_local")}</span><span class="chip on">${t("chip_pdf")}</span><span class="chip ${a.key?"on":"off"}">A: ${esc(a.model||t("not_set"))}</span><span class="chip ${b.key?"on":"off"}">B: ${esc(b.model||t("not_set"))}</span>${a.key&&b.key?`<span class="chip on">${t("chip_cross")}</span>`:""}${S.enhance?`<span class="chip on">${t("chip_enh")}</span>`:""}${S.tiles?`<span class="chip on">${t("chip_tiles")}</span>`:""}`;
   $("#status-pill").textContent=a.key||b.key?"":t("no_model_hint")}
 
 /* ---------- model calls ---------- */
 const MODEL_TIMEOUT=window.__IL_TIMEOUT||180000;
-function callSignal(c){const t=typeof AbortSignal.timeout==="function"?AbortSignal.timeout(c.timeout||MODEL_TIMEOUT):null;
-  if(!c.signal)return t;if(!t)return c.signal;return typeof AbortSignal.any==="function"?AbortSignal.any([c.signal,t]):c.signal}
+// our own timer joined with the user's cancel: AbortSignal.timeout / AbortSignal.any are missing on older Safari (iOS < 17.4), where a call could then wait for ever
+function callSignal(c){const ctl=new AbortController(),ms=c.timeout||MODEL_TIMEOUT,to=setTimeout(()=>{try{ctl.abort(new DOMException("timeout","TimeoutError"))}catch{ctl.abort()}},ms);
+  const fwd=()=>ctl.abort();if(c.signal){if(c.signal.aborted)fwd();else c.signal.addEventListener("abort",fwd,{once:true})}
+  const sig=ctl.signal;sig.cleanup=()=>{clearTimeout(to);c.signal?.removeEventListener("abort",fwd)};return sig}
 function abortMsg(e,c){if(c.signal?.aborted)return new Error(t("cancelled"));if(e?.name==="TimeoutError"||e?.name==="AbortError")return new Error(t("timeout",{s:Math.round((c.timeout||MODEL_TIMEOUT)/1000)}));return null}
 const TEMP_MSG=/capacity|temporarily unavailable|overloaded|try again|retry shortly|rate.?limit/i,RETRY_CODES=[429,502,503,504],RETRY_MS=window.__IL_RETRY_MS||[5000,15000,30000];
 const sleep=(ms,sig)=>new Promise((res,rej)=>{const h=setTimeout(res,ms);sig?.addEventListener("abort",()=>{clearTimeout(h);rej(sig.reason||new DOMException("aborted","AbortError"))},{once:true})});
@@ -1054,8 +1057,8 @@ async function callModel(c,content,img,maxTok=c.maxTok||32000){
   for(let i=0;;i++){const signal=callSignal(c);
     try{return await callModelInner(c,content,img,maxTok,signal)}
     catch(e){const ab=abortMsg(e,c);if(ab)throw ab;
-      if(!(RETRY_CODES.includes(e.status)||TEMP_MSG.test(e.message||""))||i>=RETRY_MS.length||Date.now()-t0+RETRY_MS[i]>RETRY_BUDGET)throw e;
-      c.onRetry?.(i+1,e);try{await sleep(RETRY_MS[i],c.signal)}catch(x){throw abortMsg(x,c)||x}}}}
+      if(c.noRetry||!(RETRY_CODES.includes(e.status)||TEMP_MSG.test(e.message||""))||i>=RETRY_MS.length||Date.now()-t0+RETRY_MS[i]>RETRY_BUDGET)throw e;
+      c.onRetry?.(i+1,e);try{await sleep(RETRY_MS[i],c.signal)}catch(x){throw abortMsg(x,c)||x}}finally{signal.cleanup?.()}}}
 const httpErr=(msg,status)=>Object.assign(new Error(msg),{status});
 // OpenRouter answers "Provider returned error" and keeps the real reason (and which provider said it) in error.metadata
 function apiErrText(j,status){const e=j?.error;if(!e)return`HTTP ${status}`;let m=String(e.message||`HTTP ${status}`);const md=e.metadata||{};
