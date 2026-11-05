@@ -10,3 +10,4 @@ trader/dist/
 trader/weights.json
 trader/votes.jsonl
 trader/live_out/
+.herenow/
