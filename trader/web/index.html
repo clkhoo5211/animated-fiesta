@@ -1,0 +1,102 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Paper Trader</title>
+<style>
+:root{--bg:#fff;--fg:#111827;--mut:#6b7280;--line:#e5e7eb;--ok:#16a34a;--bad:#dc2626;--acc:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--mut:#9ca3af;--line:#1f2937}}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px}
+table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.mut{color:var(--mut)}.pill{display:inline-block;padding:1px 10px;border-radius:99px;border:1px solid var(--line)}
+.live{color:var(--ok)}.stale{color:var(--bad)}
+select,input,button{background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:4px;border-radius:4px;font:inherit}
+input{width:100%;box-sizing:border-box}button{cursor:pointer}
+.warn{border-left:3px solid var(--bad);padding:6px 12px;color:var(--mut)}
+details{border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:12px 0}
+.scroll{overflow-x:auto}
+</style></head><body>
+<h1>Live Paper Trader</h1>
+<p class="warn">PAPER ONLY &mdash; simulated account, no real orders, not financial advice. Rule-based trend/RSI strategy with
+default (unvalidated) parameters. Runs in <i>your browser</i> and stops when you close the tab.</p>
+<p><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option></select>
+<select id="itv"><option>1h</option><option>15m</option><option>4h</option></select>
+<span id="status" class="pill mut">connecting&hellip;</span> <span id="cstat" class="pill mut">council: off</span></p>
+<p>Price <b id="px">&ndash;</b> &middot; Position <b id="pos">&ndash;</b> &middot; Paper equity <b id="eq">&ndash;</b>
+&middot; vs buy&amp;hold <b id="vs">&ndash;</b></p>
+<div id="chart"></div><p class="mut"><span style="color:var(--acc)">&#9632;</span> strategy &nbsp;<span style="color:#9ca3af">&#9632;</span> buy &amp; hold</p>
+
+<details id="cfgbox"><summary><b>LLM council settings (API keys)</b></summary>
+<p class="mut">Keys are saved only in this browser (localStorage) and sent only to the provider you set below &mdash; never to this site or anyone else.
+Anyone using this browser profile can read them. Use limited-spend keys, and set this site to password/private access in here.now.
+The council can only <b>block</b> a long the rule wants; it never opens positions. One vote per closed bar.</p>
+<label><input type="checkbox" id="cen" style="width:auto"> Enable council</label>
+<div class="scroll"><table><thead><tr><th>Name</th><th>Kind</th><th>Provider</th><th>Model</th><th>Base URL (optional)</th><th>API key</th><th>Wt</th><th></th></tr></thead><tbody id="agents"></tbody></table></div>
+<p><button id="addag">+ agent</button> <button id="save">Save</button> <button id="clear">Clear all keys</button> <button id="testv">Test vote now</button>
+<span id="cmsg" class="mut"></span></p>
+<p class="mut">Thresholds: quorum <input id="q" style="width:50px"> long threshold <input id="lt" style="width:60px"> max dispersion <input id="md" style="width:60px"> veto score <input id="vs2" style="width:60px"></p>
+<div id="lastvote" class="mut"></div></details>
+
+<h2>Recent decisions</h2><table><thead><tr><th>Time</th><th>Action</th><th>Price</th><th>Equity</th></tr></thead><tbody id="ev"></tbody></table>
+<p class="mut" id="src"></p>
+<script src="core.js"></script><script src="council.js"></script>
+<script>
+const HOSTS=["https://data-api.binance.vision","https://api.binance.com","https://api.binance.us"];
+const $=id=>document.getElementById(id); let host=null,bars=[],timer=null,lastOk=0,voting=false;
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let cfg=LS.get("cfg",null)||{...TraderCouncil.DEFAULT_CFG,enabled:false}, weights=LS.get("weights",{});
+const vkey=()=>`votes:${$("sym").value}:${$("itv").value}`;
+async function get(path){const o=host?[host,...HOSTS.filter(h=>h!==host)]:HOSTS;
+  for(const h of o){try{const r=await fetch(h+path);if(r.ok){host=h;return await r.json();}}catch(e){}}throw new Error("no market-data host reachable");}
+const fmt=n=>n.toLocaleString(undefined,{maximumFractionDigits:2});
+function chart(a,b){const w=720,h=200,all=a.concat(b),lo=Math.min(...all),hi=Math.max(...all);
+  const pl=(s,c)=>`<polyline fill="none" stroke="${c}" stroke-width="1.6" points="${s.map((v,i)=>`${(i*w/(s.length-1)).toFixed(1)},${(h-(v-lo)/(hi-lo||1)*(h-10)-5).toFixed(1)}`).join(" ")}"/>`;
+  $("chart").innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Equity">${pl(b,"#9ca3af")}${pl(a,"#2563eb")}</svg>`;}
+const hasKeys=()=>cfg.enabled&&cfg.agents.some(a=>a.key);
+function sim(){const votes=LS.get(vkey(),{});const c=bars.map(b=>b.c);
+  return {votes,r:TraderCore.replay(c,TraderCore.DEFAULT,i=>{const v=votes[bars[i].t];return v&&!v.council_ok;})};}
+function render(livePx){
+  const {votes,r}=sim(),closes=bars.map(b=>b.c),n=closes.length,f=livePx/closes[n-1];
+  const mark=r.equity[n-1]*(r.position==="LONG"?f:1), bh=closes.map(c=>10000*(1-0.0015)*c/closes[0]), bhNow=bh[n-1]*f;
+  $("px").textContent=fmt(livePx);$("pos").textContent=r.position;$("eq").textContent="$"+fmt(mark);
+  $("vs").textContent=(mark-bhNow>=0?"+":"")+"$"+fmt(mark-bhNow);chart(r.equity,bh);
+  $("ev").innerHTML=r.events.slice(-12).reverse().map(e=>{const v=votes[bars[e.i].t];return `<tr><td>${new Date(bars[e.i].t).toISOString().slice(0,16).replace("T"," ")}</td><td>${e.action}${v?" (council ok)":""}</td><td>${fmt(e.px)}</td><td>$${fmt(e.equity)}</td></tr>`}).join("")||`<tr><td colspan=4 class=mut>no trades in window</td></tr>`;
+  const blocked=Object.values(votes).filter(v=>!v.council_ok).length;
+  $("cstat").textContent=hasKeys()?`council: on · ${Object.keys(votes).length} votes, ${blocked} blocked`:"council: off";
+  $("src").textContent=`Data: ${host} (Binance public klines, no key). ${n} closed bars replayed from window start; decisions use closed bars only.`;
+}
+async function maybeVote(force){
+  if(voting||!bars.length||(!hasKeys()&&!force))return; const i=bars.length-1,t=bars[i].t,votes=LS.get(vkey(),{});
+  // settle previous vote against realised next-bar return
+  const prev=votes[bars[i-1]&&bars[i-1].t]; if(prev&&!prev.settled&&prev.votes){TraderCouncil.settle(weights,prev,bars[i].c/bars[i-1].c-1);prev.settled=true;LS.set("weights",weights);LS.set(vkey(),votes);}
+  if(votes[t]&&!force)return;
+  const c=bars.map(b=>b.c),{r}=sim(); const want=TraderCore.target(c,i,TraderCore.DEFAULT,r.entry); if(!want&&!force)return;
+  voting=true; $("cmsg").textContent="voting…";
+  try{cfg.agents.forEach(a=>{weights[a.name]=weights[a.name]||{weight:a.weight||1,hist:[]}});
+    const p=TraderCore.DEFAULT,ctx=`Asset: ${$("sym").value}. Horizon: next ${$("itv").value} bar. Last closes: ${c.slice(-12).map(x=>x.toFixed(2)).join(", ")}. SMA${p.fast}=${TraderCore.sma(c,p.fast,i).toFixed(2)}, SMA${p.slow}=${TraderCore.sma(c,p.slow,i).toFixed(2)}, RSI${p.rsi_n}=${TraderCore.rsi(c,p.rsi_n,i).toFixed(1)}. A rule-based trend strategy wants to be LONG; score whether going long is advisable.`;
+    const rec=await TraderCouncil.vote(cfg,weights,ctx); rec.price=c[i];
+    if(!force){votes[t]=rec;LS.set(vkey(),votes);} $("lastvote").innerHTML=`<b>Last vote:</b> score ${rec.score.toFixed(2)}, dispersion ${rec.dispersion.toFixed(2)}, ${rec.council_ok?"OK":"BLOCKED "+rec.blocked_by.join(", ")}<br>`+rec.votes.map(v=>`${v.agent} (${v.model}, w=${(v.weight||1).toFixed(2)}): ${v.error?"error "+v.error:v.score.toFixed(2)+" @"+v.confidence.toFixed(2)+" — "+(v.rationale||"")}`).join("<br>");
+    $("cmsg").textContent="voted";
+  }catch(e){$("cmsg").textContent="vote failed: "+e.message}finally{voting=false}
+}
+async function load(){const s=$("sym").value,i=$("itv").value,k=await get(`/api/v3/klines?symbol=${s}&interval=${i}&limit=1000`);
+  bars=k.slice(0,-1).map(x=>({t:x[0],c:+x[4]}));render(+k[k.length-1][4]);lastOk=Date.now();maybeVote().then(()=>render(+k[k.length-1][4]));}
+async function tick(){try{const s=$("sym").value,i=$("itv").value,k=await get(`/api/v3/klines?symbol=${s}&interval=${i}&limit=3`),last=bars.length?bars[bars.length-1].t:0;let nb=false;
+    for(const x of k.slice(0,-1))if(x[0]>last){bars.push({t:x[0],c:+x[4]});nb=true;}
+    render(+k[k.length-1][4]);lastOk=Date.now();if(nb)maybeVote().then(()=>render(+k[k.length-1][4]));}catch(e){}
+  const age=(Date.now()-lastOk)/1000,st=$("status");st.textContent=age<45?`LIVE · updated ${Math.round(age)}s ago`:`STALE · last data ${Math.round(age)}s ago`;st.className="pill "+(age<45?"live":"stale");}
+function start(){clearInterval(timer);load().then(()=>{timer=setInterval(tick,15000);tick();}).catch(e=>{$("status").textContent="ERROR: "+e.message;$("status").className="pill stale";});}
+// ---- settings UI
+function drawAgents(){$("cen").checked=!!cfg.enabled;$("q").value=cfg.quorum;$("lt").value=cfg.long_threshold;$("md").value=cfg.max_dispersion;$("vs2").value=cfg.veto_score;
+  $("agents").innerHTML=cfg.agents.map((a,i)=>`<tr data-i="${i}"><td><input data-f="name" value="${a.name}"></td>
+  <td><select data-f="kind"><option ${a.kind==="signal"?"selected":""}>signal</option><option ${a.kind==="risk"?"selected":""}>risk</option></select></td>
+  <td><select data-f="provider"><option ${a.provider==="anthropic"?"selected":""}>anthropic</option><option ${a.provider==="openai"?"selected":""} value="openai">openai (compatible)</option></select></td>
+  <td><input data-f="model" value="${a.model}"></td><td><input data-f="base_url" value="${a.base_url||""}" placeholder="default"></td>
+  <td><input data-f="key" type="password" autocomplete="off" value="${a.key||""}" placeholder="sk-..."></td><td><input data-f="weight" style="width:48px" value="${a.weight||1}"></td>
+  <td><button data-del="${i}">×</button></td></tr>`).join("");}
+function readUI(){cfg.enabled=$("cen").checked;cfg.quorum=+$("q").value||2;cfg.long_threshold=+$("lt").value;cfg.max_dispersion=+$("md").value;cfg.veto_score=+$("vs2").value;
+  cfg.agents=[...document.querySelectorAll("#agents tr")].map(tr=>{const o={role:(cfg.agents[+tr.dataset.i]||{}).role||"Market analyst."};tr.querySelectorAll("[data-f]").forEach(e=>o[e.dataset.f]=e.value);o.weight=+o.weight||1;return o;});}
+$("save").onclick=()=>{readUI();LS.set("cfg",cfg);$("cmsg").textContent="saved (browser only)";maybeVote().then(()=>start());};
+$("addag").onclick=()=>{readUI();cfg.agents.push({name:"agent"+(cfg.agents.length+1),kind:"signal",weight:1,role:"Market analyst.",provider:"openai",model:"",base_url:"https://api.openai.com/v1",key:""});drawAgents();};
+$("agents").onclick=e=>{const d=e.target.dataset.del;if(d!==undefined){readUI();cfg.agents.splice(+d,1);drawAgents();}};
+$("clear").onclick=()=>{cfg.agents.forEach(a=>a.key="");cfg.enabled=false;LS.set("cfg",cfg);drawAgents();$("cmsg").textContent="keys cleared";};
+$("testv").onclick=()=>{readUI();maybeVote(true);};
+$("sym").onchange=$("itv").onchange=start;drawAgents();start();
+</script></body></html>
