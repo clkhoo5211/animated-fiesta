@@ -1,0 +1,15 @@
+{
+  "quorum": 3, "long_threshold": 0.2, "max_dispersion": 0.6, "veto_score": 0.5,
+  "agents": [
+    {"name": "macro",     "kind": "signal", "weight": 1.0, "role": "Macro analyst: rates, dollar, liquidity, risk appetite.",
+     "spec": {"kind": "anthropic", "model": "claude-opus-5-5", "key_env": "ANTHROPIC_API_KEY"}},
+    {"name": "onchain",   "kind": "signal", "weight": 1.0, "role": "Crypto on-chain and derivatives analyst: funding, open interest, flows.",
+     "spec": {"kind": "anthropic", "model": "claude-sonnet-5-5", "key_env": "ANTHROPIC_API_KEY"}},
+    {"name": "technical", "kind": "signal", "weight": 1.0, "role": "Technical analyst: trend, momentum, volatility regime.",
+     "spec": {"kind": "openai", "model": "gpt-4o-mini", "key_env": "OPENAI_API_KEY"}},
+    {"name": "sentiment", "kind": "signal", "weight": 1.0, "role": "News and sentiment analyst; discount hype.",
+     "spec": {"kind": "openai", "model": "deepseek/deepseek-chat", "key_env": "OPENROUTER_API_KEY", "base_url": "https://openrouter.ai/api/v1"}},
+    {"name": "risk_officer", "kind": "risk", "weight": 1.5, "role": "Adversarial risk officer: argue the bear case, flag tail risk and catalysts. Score strongly negative if exposure is unwise.",
+     "spec": {"kind": "anthropic", "model": "claude-haiku-5-5", "key_env": "ANTHROPIC_API_KEY"}}
+  ]
+}

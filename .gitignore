@@ -7,3 +7,5 @@ playwright-report/
 
 trader/dist/
 .learnings/
+trader/weights.json
+trader/votes.jsonl
