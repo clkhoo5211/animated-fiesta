@@ -32,3 +32,20 @@ table{{width:100%;border-collapse:collapse}}td,th{{padding:4px 8px;border-bottom
 <tr><td>Tuned params</td>{m(h)}</tr><tr><td>Default params</td>{m(d)}</tr><tr><td>Buy &amp; hold</td>{m(bh)}</tr></table>
 <h2>Best params</h2><pre>{html.escape(str(result['best_params']))}</pre>
 <h2>Research log</h2><table><tr><th>#</th><th>Change</th><th>Train Sharpe</th><th>Decision</th></tr>{rows}</table></body></html>"""
+
+def render_live(state, title="Live Paper Trader"):
+    ev = "".join(f"<tr><td>{e['i']}</td><td>{e['px']:.2f}</td><td>{e['action']}</td><td>{e['equity']}</td>"
+                 f"<td>{html.escape(str(e.get('council', {}).get('blocked_by', '')))}</td></tr>" for e in reversed(state["recent"]))
+    wts = ", ".join(f"{k}: {v}" for k, v in state["weights"].items()) or "no council"
+    import datetime as _d
+    up = _d.datetime.fromtimestamp(state["updated"], _d.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="60"><title>{html.escape(title)}</title><style>
+:root{{--bg:#fff;--fg:#111827;--mut:#6b7280;--line:#e5e7eb}}@media(prefers-color-scheme:dark){{:root{{--bg:#0b0f14;--fg:#e5e7eb;--mut:#9ca3af;--line:#1f2937}}}}
+body{{background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px}}
+table{{width:100%;border-collapse:collapse}}td,th{{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left}}</style></head>
+<body><h1>{html.escape(title)} &middot; {html.escape(state['symbol'])}</h1>
+<p style="color:var(--mut)">PAPER ONLY &mdash; no real orders. Updated {up}. Bars processed: {state['bars']}. Position: <b>{state['position']}</b>. Equity: <b>{state['last']['equity']}</b></p>
+{_svg([("equity", state["equity"])])}
+<p style="color:var(--mut)">Council weights: {html.escape(wts)}</p>
+<h2>Recent decisions</h2><table><tr><th>Bar</th><th>Price</th><th>Action</th><th>Equity</th><th>Council blocked</th></tr>{ev}</table></body></html>"""

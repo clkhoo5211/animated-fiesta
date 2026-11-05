@@ -10,9 +10,11 @@ class PaperAccount:
     def equity(self, px):
         return self.cash + self.units * px
 
-    def on_bar(self, px, ts=None):
+    def on_bar(self, px, ts=None, allow_long=True):
         self.closes.append(px); i = len(self.closes) - 1
         want = target_position(self.closes, i, self.p, self.entry)
+        if not allow_long:
+            want = 0   # overlay can only tighten
         action = "HOLD"
         if want and not self.units:
             self.units = self.cash * (1 - self.fee - self.slip) / px; self.cash = 0.0; self.entry = px; action = "LONG"

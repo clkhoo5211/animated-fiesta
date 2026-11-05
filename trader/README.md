@@ -18,3 +18,9 @@ Tuned-vs-buy&hold results on synthetic data are not evidence of edge.
 - Vote = Σ weight·confidence·score / Σ weight·confidence. Failed/junk agents abstain. Quorum, dispersion cap, risk-agent veto.
 - LLM layer only tightens: `Council.gate_position(rule_pos, vote)` — can block a long, never open one.
 - Weights learned only from forward paper outcomes via `settle()` (bounded 0.3–2.5, ≥20 samples, top/bottom quartile ×1.05/×0.95). Never from backtests (LLM look-ahead).
+
+## Live paper loop — `live.py`, `feeds.py`, `livecli.py`
+`python -m trader.livecli --symbol BTCUSDT --interval 1h [--params best.json] [--council council.json] [--publish]`
+Closed bar → rule signal → council (only when rule wants long; can only block) → paper account → `decisions.jsonl`, `state.json`, `index.html`.
+Council votes are settled against the next bar's return, so weights learn from forward outcomes. Paper only, no orders.
+Needs outbound access to api.binance.com (blocked in the build sandbox; tested with replay feed only).
